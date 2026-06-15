@@ -1,0 +1,17 @@
+# Secrets — never commit real keys
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+
+# orgos runtime artifacts
+_audit_logs/
+.crewai_write_test
+_orgos_memory/
+client_secret_*.json
