@@ -135,7 +135,7 @@ class OrgMemory:
     @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._migrate()
@@ -448,7 +448,8 @@ def create_memory_mcp(db_path: str = "./_orgos_memory/memory.db") -> Any:
     """
     from crewai.mcp.config import MCPServerStdio
 
+    import sys
     return MCPServerStdio(
-        command="python",
+        command=sys.executable,
         args=["-m", "orgos.memory_mcp", "--db", db_path],
     )

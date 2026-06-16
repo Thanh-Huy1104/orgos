@@ -18,6 +18,7 @@ from __future__ import annotations
 import copy
 import fnmatch
 import json
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -31,7 +32,7 @@ from .contracts import (
     RoleSpec,
     TaskBrief,
 )
-from .audit import BudgetExceeded, make_audit_callback
+from .audit import BudgetExceeded, make_audit_callback, make_task_callback
 from .tools import GatedToolBase
 
 
@@ -167,6 +168,7 @@ def _make_logged_agent(
     role: RoleSpec,
     run_id: str,
     approval_fn: Any | None = None,
+    verbose: bool = True,
 ) -> Any:
     """Build a CrewAI Agent with tier enforcement, audit logging, and gates.
 
@@ -180,7 +182,11 @@ def _make_logged_agent(
     tools = [copy.copy(t) for t in _enforce_tier(role)]
     tools = _wire_gates(tools, role, approval_fn)
 
-    return role.to_agent(tools=tools, step_callback=make_audit_callback(role.name, run_id))
+    return role.to_agent(
+        tools=tools,
+        step_callback=make_audit_callback(role.name, run_id),
+        verbose=verbose,
+    )
 
 
 def _build_task(
@@ -206,6 +212,43 @@ def _build_task(
 # Envelope validation
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _extract_json_object(text: str) -> str | None:
+    """Pull a JSON object out of prose/markdown.
+
+    Tries a ```json fenced block first, then the first balanced {...} span.
+    Returns None if no object-like span is found. This makes the non-json_object
+    fallback tolerant of models that wrap their handoff JSON in commentary.
+    """
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fenced:
+        return fenced.group(1)
+
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
 def _read_envelope(
     raw_output: str,
     role_name: str,
@@ -221,8 +264,24 @@ def _read_envelope(
         except Exception:
             return HandoffEnvelope.failed(role_name, "invalid pydantic result")
     elif raw_output and raw_output.strip():
+        # Try the whole string as JSON, then fall back to extracting a JSON
+        # object embedded in prose/markdown (some models wrap it in commentary).
+        candidate = raw_output
         try:
-            data = json.loads(raw_output)
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            extracted = _extract_json_object(raw_output)
+            if extracted is None:
+                return HandoffEnvelope.not_completed(
+                    role_name, f"output was not valid JSON: {raw_output[:200]}"
+                )
+            try:
+                data = json.loads(extracted)
+            except json.JSONDecodeError:
+                return HandoffEnvelope.not_completed(
+                    role_name, f"output was not valid JSON: {raw_output[:200]}"
+                )
+        try:
             if isinstance(data, dict):
                 data.setdefault("role", role_name)
                 envelope = HandoffEnvelope.model_validate(data)
@@ -230,10 +289,6 @@ def _read_envelope(
                 return HandoffEnvelope.not_completed(
                     role_name, f"output was not a dict: {raw_output[:200]}"
                 )
-        except json.JSONDecodeError:
-            return HandoffEnvelope.not_completed(
-                role_name, f"output was not valid JSON: {raw_output[:200]}"
-            )
         except Exception as exc:
             return HandoffEnvelope.failed(role_name, f"envelope validation error: {exc}")
     else:
@@ -257,6 +312,51 @@ def _extract_token_usage(result: Any) -> dict[str, int] | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Kickoff with structured-output fallback
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _is_structured_unsupported(exc: Exception) -> bool:
+    """True if the error looks like the provider rejecting structured outputs.
+
+    Non-OpenAI providers (DeepSeek, some local models) reject the
+    `response_format`/json_schema parameter that output_pydantic relies on.
+    We detect that and fall back to plain text + JSON parsing in _read_envelope.
+    """
+    msg = str(exc).lower()
+    return (
+        "response_format" in msg
+        or "json_schema" in msg
+        or ("structured" in msg and "output" in msg)
+    )
+
+
+def _kickoff_with_fallback(build_crew: Any, probe_structured: bool = True) -> Any:
+    """Run the crew, optionally probing structured output first.
+
+    build_crew is a callable taking a single bool (structured) → Crew.
+
+    - probe_structured=True: try build_crew(True); on a structured-output
+      rejection, rebuild without the schema and retry once.
+    - probe_structured=False: go straight to build_crew(False) — no wasted
+      probe for providers known to reject json_schema (e.g. DeepSeek).
+
+    BudgetExceeded propagates untouched. Other exceptions propagate to the
+    caller, which converts them into a failed envelope (fail-closed).
+    """
+    if not probe_structured:
+        return build_crew(False).kickoff()
+    try:
+        return build_crew(True).kickoff()
+    except BudgetExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 — provider errors are opaque
+        if _is_structured_unsupported(exc):
+            # Degrade to JSON-via-instructions; _read_envelope parses it.
+            return build_crew(False).kickoff()
+        raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # spawn
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -267,6 +367,7 @@ def spawn(
     subordinates: list[RoleSpec] | None = None,
     approval_fn: Any | None = None,
     verbose: bool = True,
+    structured: bool | None = None,
 ) -> SpawnResult:
     """Spawn one configured agent for one brief.
 
@@ -279,52 +380,70 @@ def spawn(
     Tier enforcement happens inside _make_logged_agent.
     """
     run_id = f"{role.name}-{uuid.uuid4().hex[:8]}"
-    agent = _make_logged_agent(role, run_id, approval_fn)
+    use_structured = role.effective_structured() if structured is None else structured
 
-    if role.tier == PermissionTier.ORCHESTRATOR and subordinates:
-        sub_agents = [_make_logged_agent(s, run_id, approval_fn) for s in subordinates]
+    def build_crew(structured: bool) -> Crew:
+        op = _UNSET if structured else None
+        agent = _make_logged_agent(role, run_id, approval_fn, verbose=verbose)
 
-        # Manager task: no agent assigned (CrewAI's _update_manager_tools
-        # injects delegation tools targeting task.agent if set, or all
-        # self.agents if task.agent is None — so leaving it unset gives
-        # the manager delegation tools for every subordinate).
-        manager_task = brief.to_task(
-            agent=None,        # type: ignore[arg-type] — BaseAgent | None is valid
-            role=role,
-            output_pydantic=None,
-        )
+        if role.tier == PermissionTier.ORCHESTRATOR and subordinates:
+            sub_agents = [
+                _make_logged_agent(s, run_id, approval_fn, verbose=verbose)
+                for s in subordinates
+            ]
 
-        # Synthesis task: carries the envelope schema, assigned to the manager
-        synth_brief = TaskBrief(
-            objective=(
-                "Synthesise the results from your delegated work into a final "
-                "handoff. Include all findings, decisions, and the validated shortlist."
-            ),
-            expected_output="A structured HandoffEnvelope with the final results.",
-        )
-        synthesis_task = _build_task(role, synth_brief, agent)
+            # Manager task: no agent assigned (CrewAI's _update_manager_tools
+            # injects delegation tools targeting task.agent if set, or all
+            # self.agents if task.agent is None — so leaving it unset gives
+            # the manager delegation tools for every subordinate).
+            manager_task = brief.to_task(
+                agent=None,    # type: ignore[arg-type] — BaseAgent | None is valid
+                role=role,
+                output_pydantic=None,
+            )
 
-        crew = Crew(
-            agents=sub_agents,          # manager NOT in agents list
-            tasks=[manager_task, synthesis_task],
-            process=Process.hierarchical,
-            manager_agent=agent,
-            verbose=verbose,
-        )
-    else:
-        task = _build_task(role, brief, agent)
-        crew = Crew(
+            # Synthesis task: carries the envelope schema (when structured),
+            # assigned to the manager.
+            synth_brief = TaskBrief(
+                objective=(
+                    "Synthesise the results from your delegated work into a final "
+                    "handoff. Include all findings, decisions, and the validated shortlist."
+                ),
+                expected_output="A structured HandoffEnvelope with the final results.",
+            )
+            synthesis_task = _build_task(role, synth_brief, agent, output_pydantic=op)
+
+            return Crew(
+                agents=sub_agents,          # manager NOT in agents list
+                tasks=[manager_task, synthesis_task],
+                process=Process.hierarchical,
+                manager_agent=agent,
+                verbose=verbose,
+                task_callback=make_task_callback(run_id),
+            )
+
+        task = _build_task(role, brief, agent, output_pydantic=op)
+        return Crew(
             agents=[agent],
             tasks=[task],
             process=Process.sequential,
             verbose=verbose,
+            task_callback=make_task_callback(run_id),
         )
 
     try:
-        result = crew.kickoff()
+        result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
     except BudgetExceeded as exc:
         return SpawnResult(
             envelope=HandoffEnvelope.failed(role.name, str(exc)),
+            run_id=run_id,
+            token_usage=None,
+            raw_output=None,
+            tasks_output=[],
+        )
+    except Exception as exc:  # noqa: BLE001 — fail closed on any kickoff error
+        return SpawnResult(
+            envelope=HandoffEnvelope.failed(role.name, f"kickoff failed: {exc}"),
             run_id=run_id,
             token_usage=None,
             raw_output=None,
@@ -351,6 +470,7 @@ def spawn_chain(
     *,
     approval_fn: Any | None = None,
     verbose: bool = True,
+    structured: bool | None = None,
 ) -> SpawnResult:
     """Run a sequential chain of agents.
 
@@ -359,38 +479,54 @@ def spawn_chain(
     the HandoffEnvelope schema.
     """
     run_id = f"chain-{uuid.uuid4().hex[:8]}"
-    agents: list[Any] = []
-    tasks: list[Task] = []
+    last_role = steps[-1][0].name if steps else "chain"
+    # The last task carries the schema, so the last role's preference governs.
+    if structured is None:
+        use_structured = steps[-1][0].effective_structured() if steps else True
+    else:
+        use_structured = structured
 
-    for i, (role_spec, task_brief) in enumerate(steps):
-        agent = _make_logged_agent(role_spec, run_id, approval_fn)
-        agents.append(agent)
+    def build_crew(structured: bool) -> Crew:
+        agents: list[Any] = []
+        tasks: list[Task] = []
+        for i, (role_spec, task_brief) in enumerate(steps):
+            agent = _make_logged_agent(role_spec, run_id, approval_fn, verbose=verbose)
+            agents.append(agent)
 
-        is_last = (i == len(steps) - 1)
-        context = tasks.copy() if tasks else None
+            is_last = (i == len(steps) - 1)
+            context = tasks.copy() if tasks else None
+            op = (HandoffEnvelope if structured else None) if is_last else None
 
-        task = _build_task(
-            role_spec,
-            task_brief,
-            agent,
-            context=context,
-            output_pydantic=HandoffEnvelope if is_last else None,
+            task = _build_task(
+                role_spec,
+                task_brief,
+                agent,
+                context=context,
+                output_pydantic=op,
+            )
+            tasks.append(task)
+
+        return Crew(
+            agents=agents,
+            tasks=tasks,
+            process=Process.sequential,
+            verbose=verbose,
+            task_callback=make_task_callback(run_id),
         )
-        tasks.append(task)
-
-    crew = Crew(
-        agents=agents,
-        tasks=tasks,
-        process=Process.sequential,
-        verbose=verbose,
-    )
 
     try:
-        result = crew.kickoff()
+        result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
     except BudgetExceeded as exc:
-        last_role = steps[-1][0].name if steps else "chain"
         return SpawnResult(
             envelope=HandoffEnvelope.failed(last_role, str(exc)),
+            run_id=run_id,
+            token_usage=None,
+            raw_output=None,
+            tasks_output=[],
+        )
+    except Exception as exc:  # noqa: BLE001 — fail closed on any kickoff error
+        return SpawnResult(
+            envelope=HandoffEnvelope.failed(last_role, f"kickoff failed: {exc}"),
             run_id=run_id,
             token_usage=None,
             raw_output=None,
@@ -400,7 +536,6 @@ def spawn_chain(
     final = result.tasks_output[-1] if result.tasks_output else None
     pydantic_result = final.pydantic if final else None
     raw = final.raw if final else result.raw
-    last_role = steps[-1][0].name if steps else "chain"
 
     return SpawnResult(
         envelope=_read_envelope(raw or "", last_role, pydantic_result),

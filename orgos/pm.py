@@ -66,6 +66,7 @@ class Project:
     status: str  # active, completed, blocked, archived
     task_ids: str  # JSON list of task IDs
     departments: str  # JSON list of department names
+    final_report: str
     created_at: str
     updated_at: str
 
@@ -81,7 +82,7 @@ class PMStore:
     @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._migrate()
@@ -120,6 +121,19 @@ class PMStore:
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
             CREATE INDEX IF NOT EXISTS idx_tasks_dept ON tasks(department);
 
+            CREATE TABLE IF NOT EXISTS research_reports (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                query TEXT NOT NULL,
+                department TEXT DEFAULT 'research',
+                summary TEXT DEFAULT '',
+                content TEXT DEFAULT '',
+                sources_count INTEGER DEFAULT 0,
+                tags TEXT DEFAULT '[]',
+                tokens_used INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -128,6 +142,7 @@ class PMStore:
                 status TEXT NOT NULL DEFAULT 'active',
                 task_ids TEXT DEFAULT '[]',
                 departments TEXT DEFAULT '[]',
+                final_report TEXT DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -141,8 +156,8 @@ class PMStore:
         pid = uuid.uuid4().hex[:12]
         now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
-            """INSERT INTO projects (id, name, goal, owner, status, task_ids, departments, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 'active', '[]', '[]', ?, ?)""",
+            """INSERT INTO projects (id, name, goal, owner, status, task_ids, departments, final_report, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'active', '[]', '[]', '', ?, ?)""",
             (pid, name, goal, owner, now, now),
         )
         self.conn.commit()
@@ -187,6 +202,56 @@ class PMStore:
         )
         self.conn.commit()
 
+    def set_project_report(self, project_id: str, report: str) -> None:
+        self.conn.execute(
+            "UPDATE projects SET final_report = ?, updated_at = ? WHERE id = ?",
+            (report, datetime.now(timezone.utc).isoformat(), project_id),
+        )
+        self.conn.commit()
+
+    # ── Research reports ────────────────────────────────────────────────────
+
+    def save_research_report(
+        self, title: str, query: str, summary: str, content: str,
+        sources_count: int = 0, tags: list[str] | None = None, tokens_used: int = 0,
+    ) -> str:
+        rid = uuid.uuid4().hex[:12]
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            """INSERT INTO research_reports (id, title, query, summary, content, sources_count, tags, tokens_used, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (rid, title, query, summary, content[:50000], sources_count,
+             json.dumps(tags or []), tokens_used, now),
+        )
+        self.conn.commit()
+        return rid
+
+    def list_research_reports(self, limit: int = 20) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT id, title, query, summary, sources_count, tags, tokens_used, created_at FROM research_reports ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [{
+            "id": r["id"], "title": r["title"], "query": r["query"][:200],
+            "summary": r["summary"][:300], "sources_count": r["sources_count"],
+            "tags": json.loads(r["tags"]), "tokens_used": r["tokens_used"],
+            "created_at": r["created_at"],
+        } for r in rows]
+
+    def get_research_report(self, report_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM research_reports WHERE id = ?", (report_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"], "title": row["title"], "query": row["query"],
+            "summary": row["summary"], "content": row["content"],
+            "sources_count": row["sources_count"],
+            "tags": json.loads(row["tags"]), "tokens_used": row["tokens_used"],
+            "created_at": row["created_at"],
+        }
+
     def get_project_progress(self, project_id: str) -> dict[str, Any]:
         project = self.get_project(project_id)
         if project is None:
@@ -196,7 +261,11 @@ class PMStore:
         for tid in task_ids:
             t = self.get_task(tid)
             if t:
-                tasks.append({"id": t.id, "title": t.title, "status": t.status, "priority": t.priority})
+                tasks.append({
+                    "id": t.id, "title": t.title, "status": t.status,
+                    "priority": t.priority, "department": t.department,
+                    "description": t.description, "updated_at": t.updated_at,
+                })
         done = sum(1 for t in tasks if t["status"] == "done")
         total = len(tasks)
         return {
@@ -210,6 +279,7 @@ class PMStore:
             "tasks_todo": sum(1 for t in tasks if t["status"] == "todo"),
             "tasks_blocked": sum(1 for t in tasks if t["status"] == "blocked"),
             "progress_pct": round(done / max(total, 1) * 100, 1),
+            "final_report": project.final_report,
             "tasks": tasks,
         }
 
@@ -399,7 +469,8 @@ class PMStore:
 def create_pm_mcp(db_path: str = "./_orgos_memory/pm.db") -> Any:
     """Create an MCPServerStdio config for the PM MCP server."""
     from crewai.mcp.config import MCPServerStdio
+    import sys
     return MCPServerStdio(
-        command="python",
+        command=sys.executable,
         args=["-m", "orgos.pm_mcp", "--db", db_path],
     )

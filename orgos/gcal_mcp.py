@@ -125,10 +125,21 @@ async def serve(creds_path: str = DEFAULT_CREDS, token_path: str = DEFAULT_TOKEN
         try:
             if name == "list_events":
                 cal = arguments.get("calendar_id", "primary")
+                tmin = arguments.get("time_min", "")
+                tmax = arguments.get("time_max", "")
+                # Normalize date formats: add time + timezone if missing
+                if tmin and "T" not in tmin:
+                    tmin += "T00:00:00Z"
+                if tmax and "T" not in tmax:
+                    tmax += "T23:59:59Z"
+                if tmin and tmin[-1] not in "Zz" and "+" not in tmin and len(tmin) < 25:
+                    tmin += "Z"
+                if tmax and tmax[-1] not in "Zz" and "+" not in tmax and len(tmax) < 25:
+                    tmax += "Z"
                 events = service.events().list(
                     calendarId=cal,
-                    timeMin=arguments.get("time_min"),
-                    timeMax=arguments.get("time_max"),
+                    timeMin=tmin or None,
+                    timeMax=tmax or None,
                     maxResults=arguments.get("limit", 25),
                     singleEvents=True,
                     orderBy="startTime",
@@ -143,6 +154,12 @@ async def serve(creds_path: str = DEFAULT_CREDS, token_path: str = DEFAULT_TOKEN
                 return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
             elif name == "create_event":
+                st = arguments.get("start_time", "")
+                et = arguments.get("end_time", "")
+                if st and "T" not in st: st += "T00:00:00Z"
+                if et and "T" not in et: et += "T23:59:59Z"
+                if st and st[-1] not in "Zz" and "+" not in st: st += "Z"
+                if et and et[-1] not in "Zz" and "+" not in et: et += "Z"
                 attendees = []
                 if arguments.get("attendees", "").strip():
                     attendees = [{"email": e.strip()} for e in arguments["attendees"].split(",")]

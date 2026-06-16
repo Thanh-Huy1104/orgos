@@ -47,6 +47,7 @@ export interface ProjectDetail {
   tasks_todo: number;
   tasks_blocked: number;
   progress_pct: number;
+  final_report?: string;
   tasks: TaskItem[];
 }
 
@@ -55,6 +56,9 @@ export interface TaskItem {
   title: string;
   status: string;
   priority: string;
+  department?: string;
+  description?: string;
+  updated_at?: string;
 }
 
 export interface RunEntry {
@@ -171,7 +175,7 @@ export function resolveCredential(index: number): Promise<{ resolved: string; re
   return postAPI(`/api/credentials/${index}/resolve`);
 }
 
-export async function createProject(goal: string, name?: string): Promise<{ project_id: string; project_name: string; tasks: number; tasks_detail: unknown[] }> {
+export async function createProject(goal: string, name?: string): Promise<any> {
   const res = await fetch(`${API_BASE}/api/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -7,12 +7,10 @@ Usage:
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 
 def create_internet_mcp() -> Any:
     from crewai.mcp.config import MCPServerStdio
-    return MCPServerStdio(
-        command="python",
-        args=["-m", "orgos.internet_mcp"],
-    )
+    return MCPServerStdio(command=sys.executable, args=["-m", "orgos.internet_mcp"])

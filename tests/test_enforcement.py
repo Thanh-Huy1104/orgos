@@ -32,6 +32,7 @@ from orgos.spawn import (
     _build_task,
     _UNSET,
     _enforce_tier,
+    _kickoff_with_fallback,
     _make_logged_agent,
     _read_envelope,
     _wire_gates,
@@ -134,8 +135,15 @@ class TestTierEnforcement:
         with pytest.raises(_TierViolation, match="category"):
             _enforce_tier(role)
 
-    def test_orchestrator_rejects_all_tools(self):
+    def test_orchestrator_allows_read_and_orchestrate(self):
+        """Orchestrator can use read and orchestrate category tools."""
         role = _make_role("o", PermissionTier.ORCHESTRATOR, [_DummyReadTool()])
+        tools = _enforce_tier(role)
+        assert len(tools) == 1
+
+    def test_orchestrator_rejects_sandbox_tools(self):
+        """Orchestrator rejects non-read, non-orchestrate tools."""
+        role = _make_role("o", PermissionTier.ORCHESTRATOR, [_DummySandboxTool()])
         with pytest.raises(_TierViolation, match="category"):
             _enforce_tier(role)
 
@@ -291,3 +299,128 @@ class TestVerboseOverride:
         role = _make_role("w", PermissionTier.WORKER, [])
         agent = role.to_agent(verbose=False)
         assert agent.verbose is False
+
+
+class TestStructuredOutputFallback:
+    """Providers that reject json_schema (e.g. DeepSeek) must not pay a wasted
+    structured-output probe when structured_output is False."""
+
+    @staticmethod
+    def _make_build(calls: list):
+        class FakeCrew:
+            def __init__(self, structured):
+                self.structured = structured
+
+            def kickoff(self):
+                calls.append(self.structured)
+                if self.structured:
+                    raise RuntimeError("This response_format type is unavailable now")
+                return "ok"
+
+        return lambda structured: FakeCrew(structured)
+
+    def test_probe_false_single_pass(self):
+        calls: list = []
+        out = _kickoff_with_fallback(self._make_build(calls), probe_structured=False)
+        assert calls == [False]   # no wasted structured attempt
+        assert out == "ok"
+
+    def test_probe_true_falls_back(self):
+        calls: list = []
+        out = _kickoff_with_fallback(self._make_build(calls), probe_structured=True)
+        assert calls == [True, False]   # probe, then fallback
+        assert out == "ok"
+
+    def test_role_default_governs(self):
+        role = _make_role("ds", PermissionTier.WORKER, [])
+        role.structured_output = False
+        assert role.structured_output is False
+
+    def test_json_object_mode_set_when_unstructured(self):
+        role = _make_role("ds", PermissionTier.WORKER, [])
+        role.model = "deepseek/deepseek-chat"
+        role.structured_output = False
+        llm = role._build_llm()
+        assert llm.response_format == {"type": "json_object"}
+
+    def test_no_json_object_mode_when_structured(self):
+        role = _make_role("oa", PermissionTier.WORKER, [])
+        role.model = "gpt-4o-mini"
+        role.structured_output = True
+        llm = role._build_llm()
+        assert getattr(llm, "response_format", None) is None
+
+    def test_no_json_object_on_tool_using_deepseek_role(self):
+        # json_object would suppress native tool calls — must NOT be set when
+        # a DeepSeek role has tools, even though it can't use json_schema.
+        role = _make_role("ds", PermissionTier.WORKER, [BashTool()])
+        role.model = "deepseek/deepseek-v4-pro"
+        llm = role._build_llm()
+        assert getattr(llm, "response_format", None) is None
+
+    def test_no_json_object_on_mcp_role(self):
+        # MCP servers are tools too — a role with MCPs must not get json_object,
+        # or its tool calls break and "json"-less ReAct calls 400.
+        role = _make_role("ds", PermissionTier.WORKER, [])
+        role.model = "deepseek/deepseek-v4-pro"
+        role.mcp_servers = [{"type": "internet"}]
+        llm = role._build_llm()
+        assert getattr(llm, "response_format", None) is None
+
+    def test_no_json_object_on_orchestrator_or_delegator(self):
+        for setup in ("orchestrator", "delegation"):
+            role = _make_role("ds", PermissionTier.WORKER, [])
+            role.model = "deepseek/deepseek-v4-pro"
+            if setup == "orchestrator":
+                role.tier = PermissionTier.ORCHESTRATOR
+            else:
+                role.allow_delegation = True
+            llm = role._build_llm()
+            assert getattr(llm, "response_format", None) is None, setup
+
+    def test_deepseek_provider_skips_json_schema_probe(self):
+        # Even with structured_output left True (default), a DeepSeek model must
+        # resolve effective_structured() to False so spawn skips the probe.
+        role = _make_role("ds", PermissionTier.WORKER, [])
+        role.model = "deepseek/deepseek-v4-pro"
+        assert role.structured_output is True
+        assert role.effective_structured() is False
+
+    def test_openai_provider_keeps_json_schema(self):
+        role = _make_role("oa", PermissionTier.WORKER, [])
+        role.model = "gpt-4o-mini"
+        assert role.effective_structured() is True
+
+
+class TestJsonExtraction:
+    """_read_envelope must recover a JSON handoff wrapped in prose/markdown."""
+
+    def _env(self, status="completed"):
+        return (
+            '{"role": "w", "status": "%s", "summary": "ok", '
+            '"success_criteria_met": true}' % status
+        )
+
+    def test_plain_json(self):
+        env = _read_envelope(self._env(), "w")
+        assert env.status == "completed"
+
+    def test_fenced_json_block(self):
+        raw = f"Here is my handoff:\n```json\n{self._env()}\n```\nDone."
+        env = _read_envelope(raw, "w")
+        assert env.status == "completed"
+
+    def test_json_embedded_in_prose(self):
+        raw = f"Sure! {self._env()} hope that helps"
+        env = _read_envelope(raw, "w")
+        assert env.status == "completed"
+
+    def test_pure_markdown_no_json_is_needs_revision(self):
+        raw = "## Handoff\n- role: w\n- status: completed"
+        env = _read_envelope(raw, "w")
+        assert env.status == "needs_revision"
+
+    def test_brace_in_string_not_miscounted(self):
+        raw = '{"role": "w", "status": "blocked", "summary": "has } brace"}'
+        env = _read_envelope(f"noise {raw} noise", "w")
+        assert env.status == "blocked"

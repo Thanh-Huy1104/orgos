@@ -66,24 +66,42 @@ class Department(BaseModel):
         """Merge department-level resources into a member role.
 
         Returns a copy so the original Department spec stays pristine.
-        Also resolves symbolic MCP references (e.g. {type: internet})
-        to actual MCPServerStdio objects.
+        Orchestrator-tier roles do NOT get tools (CrewAI blocks manager tools).
         """
-        if not self.shared_skills and not self.shared_mcps:
-            return role
-
         skills = list(role.skills)
         for s in self.shared_skills:
             if s not in skills:
                 skills.append(s)
 
         mcps = list(role.mcp_servers)
-        for m in self.shared_mcps:
-            mcp_obj = _resolve_mcp(m)
-            if mcp_obj is not None and mcp_obj not in mcps:
-                mcps.append(mcp_obj)
+        extra_tools = list(role.tools)
 
-        return role.model_copy(update={"skills": skills, "mcp_servers": mcps})
+        # Orchestrators can't hold tools (CrewAI restriction) — skip tool enrichment
+        if role.tier != PermissionTier.ORCHESTRATOR:
+            for m in self.shared_mcps:
+                if isinstance(m, dict) and m.get("type") == "gcal_tool":
+                    from .gcal_tool import create_gcal_tools
+                    for t in create_gcal_tools():
+                        if t.name not in [getattr(et, 'name', '') for et in extra_tools]:
+                            extra_tools.append(t)
+                elif isinstance(m, dict) and m.get("type") == "policy_bank":
+                    from .policy_bank import create_policy_bank_tool
+                    t = create_policy_bank_tool()
+                    if t.name not in [getattr(et, 'name', '') for et in extra_tools]:
+                        extra_tools.append(t)
+
+        for m in self.shared_mcps:
+            if isinstance(m, dict) and m.get("type") in ("gcal_tool", "policy_bank"):
+                continue  # handled above as native tools
+            mcp_obj = _resolve_mcp(m)
+            if mcp_obj is not None:
+                # Deduplicate by command + args
+                existing = [(getattr(em, 'command', ''), str(getattr(em, 'args', ''))) for em in mcps]
+                this_key = (getattr(mcp_obj, 'command', ''), str(getattr(mcp_obj, 'args', '')))
+                if this_key not in existing:
+                    mcps.append(mcp_obj)
+
+        return role.model_copy(update={"skills": skills, "mcp_servers": mcps, "tools": extra_tools})
 
     def all_roles(self) -> list[RoleSpec]:
         """Return supervisor + enriched members, in order."""
@@ -220,8 +238,40 @@ def spawn_project(
 
     pm = PMStore()
     dept_names = [d.name for d in org.departments]
-    dept_descriptions = {d.name: d.description for d in org.departments}
-    dept_roles = {d.name: [r.name for r in d.all_roles()] for d in org.departments}
+
+    # Build rich department context so the orchestrator routes accurately
+    dept_context = {}
+    for d in org.departments:
+        supervisor = d._enrich_role(d.supervisor)
+        all_tools: list[str] = []
+        all_mcps: list[str] = []
+        for r in d.all_roles():
+            enriched = d._enrich_role(r)
+            for t in enriched.tools:
+                all_tools.append(getattr(t, "name", t.__class__.__name__))
+            for m in enriched.mcp_servers:
+                all_mcps.append(getattr(m, "command", str(type(m).__name__)))
+
+        dept_context[d.name] = {
+            "description": d.description,
+            "roles": [r.name for r in d.all_roles()],
+            "tools": list(set(all_tools)),
+            "mcps": list(set(all_mcps)),
+            "sops": [s.name for s in d.sops],
+            "best_for": "",  # filled below
+        }
+
+    # Derive best_for from capabilities
+    for name, ctx in dept_context.items():
+        tools_str = " ".join(ctx["tools"]).lower()
+        sops_str = " ".join(ctx["sops"]).lower()
+        if "calendar" in tools_str or "briefing" in sops_str:
+            ctx["best_for"] = "calendar management, scheduling, personal assistance"
+        if "cointegration" in tools_str or "scan" in sops_str:
+            ctx["best_for"] += "; data analysis, financial scanning, quantitative research"
+        if "review" in sops_str or "compliance" in ctx.get("description", "").lower():
+            ctx["best_for"] += "; compliance review, policy checking, legal oversight"
+        ctx["best_for"] = ctx["best_for"].strip("; ")
 
     # Orchestrator agent: decomposes the goal
     orchestrator = RoleSpec(
@@ -244,8 +294,13 @@ def spawn_project(
     brief = TaskBrief(
         objective=(
             f"Decompose this goal into tasks:\n\n{goal}\n\n"
-            f"Available departments: {json.dumps({n: dept_descriptions.get(n, '') for n in dept_names})}\n"
-            f"Department roles: {json.dumps(dept_roles)}\n\n"
+            f"## Available departments (route carefully)\n"
+            f"{json.dumps(dept_context, indent=2)}\n\n"
+            f"Routing rules:\n"
+            f"- Calendar/schedule/events → assistant (has list_calendar_events tool)\n"
+            f"- Data scanning/analysis/cointegration → finance (has cointegration tool)\n"
+            f"- Compliance/policy review/verification → legal (has legal-reviewer)\n"
+            f"- DO NOT send data analysis to legal or calendar tasks to finance\n\n"
             f"Return a JSON array of tasks. Each task: "
             '{{"title": "...", "department": "...", "priority": "medium", "description": "..."}}'
         ),
@@ -383,9 +438,10 @@ def spawn_department(
     """
     from .spawn import spawn
 
+    supervisor = department.supervisor  # orchestrator — no tool enrichment needed
     members = [department._enrich_role(m) for m in department.members]
     return spawn(
-        department.supervisor,
+        supervisor,
         brief,
         subordinates=members,
         approval_fn=approval_fn,

@@ -65,6 +65,33 @@ def make_audit_callback(role_name: str, run_id: str):
     return _log_step
 
 
+def make_task_callback(run_id: str):
+    """Create a task_callback that logs each completed task to the same JSONL log.
+
+    step_callback only fires during multi-step/tool reasoning loops — a tool-less
+    agent that answers in one shot never triggers it. The Crew-level task_callback
+    fires once per completed task regardless, guaranteeing an audit record.
+    """
+    audit_log = AUDIT_DIR / f"{run_id}.jsonl"
+    audit_log.parent.mkdir(parents=True, exist_ok=True)
+
+    def _log_task(task_output: Any) -> None:
+        ts = datetime.now(timezone.utc).isoformat()
+        agent = getattr(task_output, "agent", "") or ""
+        record = {
+            "ts": ts,
+            "run_id": run_id,
+            "role": str(agent),
+            "type": "task",
+            "name": getattr(task_output, "name", "") or "",
+            "output": str(getattr(task_output, "raw", ""))[:2000],
+        }
+        with audit_log.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+
+    return _log_task
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Token budget
 # ═══════════════════════════════════════════════════════════════════════════════

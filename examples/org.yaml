@@ -1,25 +1,22 @@
-# orgos org constitution — the single source of truth.
-# Departments, roles, SOPs, and org-wide policies live here.
-# The orchestrator compiles from this at startup.
+# orgos org constitution — a general-purpose company of AI agents.
+# Departments, roles, SOPs, and policies. The orchestrator reads this at startup.
 #
-# Tools are Python objects — declare them in code and pass via
-# RoleSpec(tools=[...]).  Skills paths, MCP configs, and model strings
-# are declarative and safe to store here.
+# Tools are Python objects — declare them in code. Skills paths, MCP configs,
+# and model strings are declarative and safe to store here.
 
 org:
-  name: Quant Fund
-  description: A small quantitative research org
-  default_model: gpt-4o-mini
-  default_max_budget_tokens: 100000
+  name: My Company
+  description: A general-purpose AI agent company
+  default_model: deepseek/deepseek-v4-pro
+  default_max_budget_tokens: 200000
   default_max_iter: 20
   owner:
     name: Thomas
     preferences: >
-      Conservative risk tolerance. Prefer pairs with half-life under 30 days.
-      Flag anything uncertain rather than guessing. Prefer explicit reasoning
-      over terse output.
+      Prefer clear, actionable output. Flag anything uncertain.
+      Default to asking for approval on irreversible actions.
     notification_thresholds:
-      token_spend_daily: 100000
+      token_spend_daily: 200000
       budget_exceeded_pct: 80
       consecutive_failures: 3
     communication:
@@ -28,159 +25,186 @@ org:
     approval_rules:
       - pattern: "publish*"
         require_approval: true
-        note: "Any publish action requires explicit owner approval"
+      - pattern: "deploy*"
+        require_approval: true
       - pattern: "bash rm*"
         require_approval: true
-        note: "Destructive shell commands require approval"
-    feedback:
-      - "Pairs with half-life > 30 days are not tradeable — reject them."
-      - "Always test all N*(N-1)/2 pairs, never skip any."
-      - "Flag pairs where the correlation proxy was used (no statsmodels) as lower confidence."
+    feedback: []
   notification:
     type: terminal
 
 departments:
-  - name: finance
-    description: Quantitative research and portfolio risk monitoring
+  # ── Research: web search, analysis, report generation ──────────────────
+  - name: research
+    description: Web research, data analysis, report generation
     supervisor:
-      name: finance-supervisor
+      name: research-lead
       tier: orchestrator
       system_prompt: |
-        You lead a small quantitative research team. Delegate pair scanning
-        to pair-scanner, then validation to pair-validator. Synthesise the
-        final shortlist. Never compute or trade yourself.
-      model: gpt-4o
-      max_iter: 25
-
-    members:
-      - name: pair-scanner
-        tier: worker
-        system_prompt: |
-          You are a quantitative research assistant. Use the cointegration
-          tool to test every pair combination in the universe. Rank by
-          shortest half-life. Flag spurious pairs. Never place orders.
-        model: gpt-4o-mini
-        max_iter: 45
-        success_criteria:
-          - Each pair has an ADF p-value and half-life
-          - Spurious pairs flagged with a reason
-
-      - name: pair-validator
-        tier: validator
-        system_prompt: |
-          You are a deterministic checker. Verify ADF p-values < 0.05,
-          half-lives tradeable (1-30 days), no spurious pairs.
-          Mark each verified or rejected with a reason. Read-only.
-        model: gpt-4o-mini
-        max_iter: 15
-        success_criteria:
-          - Every pair marked verified or rejected with a reason
-
-    shared_skills:
-      - ./skills/cointegration
-
-    shared_mcps:
-      - type: internet
-
-    sops:
-      - name: daily_pair_scan
-        description: Daily cointegration scan across the ETF universe
-        cadence: daily
-        brief:
-          objective: |
-            Scan the standard ETF universe for cointegrated pairs.
-            Use 2-year lookback (504 trading days).
-          expected_output: Ranked list with ADF p-values and half-lives.
-          success_criteria:
-            - At least 3 candidate pairs found
-            - Each has p-value + half-life + verdict
-
-      - name: weekly_risk_report
-        description: Weekly portfolio risk summary
-        cadence: weekly
-        brief:
-          objective: |
-            Summarise portfolio risk metrics: VaR, correlation matrix,
-            concentration by sector. Flag any breaches of risk limits.
-          expected_output: Risk report with breach flags and recommendations.
-
-  - name: legal
-    description: Cross-cutting compliance and policy review
-
-
-  - name: assistant
-    description: Personal assistant — manages calendar, schedules events, handles communications
-    supervisor:
-      name: pa-supervisor
-      tier: orchestrator
-      system_prompt: |
-        You are the owner's personal assistant. Manage calendar events,
-        schedule meetings, find availability, and handle time management.
-        Use the calendar tools to read and write the owner's Google Calendar.
-        Delegate research to pa-researcher when needed.
-      model: gpt-4o-mini
+        You lead a research team. Delegate web searches to researcher,
+        then analysis to analyst. Synthesize findings into clear reports.
+      model: deepseek/deepseek-v4-pro
       max_iter: 15
     members:
-      - name: pa-researcher
+      - name: researcher
         tier: worker
         system_prompt: |
-          Research topics the owner asks about. Use web_search and web_fetch
-          to find information. Summarize clearly and concisely.
-        model: gpt-4o-mini
-        max_iter: 10
+          Search the web and gather information. Use web_search to find
+          sources, web_fetch to read articles. Be thorough — check multiple
+          sources. Cite your sources.
+        model: deepseek/deepseek-v4-pro
+        max_iter: 15
+      - name: analyst
+        tier: validator
+        system_prompt: |
+          You analyze gathered information. Verify claims against sources.
+          Identify patterns, contradictions, and gaps. Produce structured
+          analysis with clear conclusions. Read-only.
+        model: deepseek/deepseek-v4-pro
+        max_iter: 12
+        success_criteria:
+          - Every claim verified against at least one source
+          - Analysis includes patterns, gaps, and conclusions
     shared_mcps:
       - type: internet
-      - type: gcal
     sops:
       - name: daily_briefing
         cadence: daily
         brief:
           objective: |
-            Check the owner's calendar for the next 3 days. Summarize upcoming
-            events, flag any scheduling conflicts, and suggest preparation tasks.
-          expected_output: Daily briefing with calendar summary and action items.
+            Search for top technology and AI news from the past 24 hours.
+            Summarize the 3 most important stories with sources.
+          expected_output: Daily briefing with 3 top stories and sources.
+
+  # ── Engineering: code, git, testing, project builds ───────────────────
+  - name: engineering
+    description: Code development, testing, git operations, project builds
     supervisor:
-      name: legal-supervisor
+      name: eng-lead
       tier: orchestrator
       system_prompt: |
-        You are the legal/compliance lead. Review any decision that touches
-        external communications, regulatory filings, or financial commitments.
-        You have veto power on publish-class actions. Delegate detailed
-        review to legal-reviewer.
-      model: gpt-4o
+        You lead an engineering team. Delegate development tasks to developer,
+        testing to tester. Review code changes before merging.
+      model: deepseek/deepseek-v4-pro
       max_iter: 15
-
     members:
-      - name: legal-reviewer
+      - name: developer
+        tier: worker
+        system_prompt: |
+          You write and modify code. Use git tools to create branches and
+          check status. Use run_tests to verify changes. Write clean,
+          documented code. Always test before declaring done.
+        model: deepseek/deepseek-v4-pro
+        max_iter: 20
+      - name: tester
         tier: validator
         system_prompt: |
-          You are a compliance attorney. Review every proposed action against
-          the policy rules provided in your context. For each rule, determine
-          whether the action complies, violates, or requires owner approval.
-
-          Be precise and evidence-based:
-          - Cite specific policy IDs (LGL-001, LGL-002, etc.) in your reasoning.
-          - A denial MUST reference the specific rule being violated.
-          - If you're uncertain, say so — but default to requiring owner approval.
-          - Consider both what the action says AND what it could enable.
-
-          Your verdict must be one of: approved, denied, or needs_changes.
-          Denied verdicts must cite which rule(s) are violated and why.
-        model: gpt-4o-mini
+          You test code changes. Run the test suite, verify edge cases,
+          check for regressions. Report pass/fail with specific failures.
+          Read-only — do not modify code.
+        model: deepseek/deepseek-v4-pro
         max_iter: 15
         success_criteria:
-          - Every applicable policy rule is checked and cited by ID
-          - Denials cite specific rule violations explicitly
-          - Verdict is clear and unambiguous
+          - Every changed file has passing tests
+          - Failures reported with specific error messages
+    shared_mcps:
+      - type: pm
+    sops:
+      - name: daily_build_check
+        cadence: daily
+        brief:
+          objective: |
+            Run the full test suite. Report any test failures.
+            Check git status for uncommitted changes.
+          expected_output: Build status report with test results and git status.
+
+  # ── Operations: calendar, scheduling, personal assistant ──────────────
+  - name: operations
+    description: Calendar management, scheduling, daily assistance
+    supervisor:
+      name: ops-lead
+      tier: orchestrator
+      system_prompt: |
+        You manage the owner's operations. Delegate calendar checks to
+        calendar-agent, research tasks to research-agent. Keep things
+        organized and on schedule.
+      model: deepseek/deepseek-v4-pro
+      max_iter: 15
+    members:
+      - name: calendar-agent
+        tier: worker
+        system_prompt: |
+          Manage the owner's Google Calendar. Check schedules, find
+          availability, list upcoming events. Use list_calendar_events
+          to check the calendar. Report events clearly with times.
+        model: deepseek/deepseek-v4-pro
+        max_iter: 10
+      - name: research-agent
+        tier: worker
+        system_prompt: |
+          Research anything the owner asks about. Use web_search and
+          web_fetch. Summarize findings concisely with sources.
+        model: deepseek/deepseek-v4-pro
+        max_iter: 12
+    shared_mcps:
+      - type: internet
+      - type: gcal_tool
+    shared_skills:
+      - ./skills/operations
+    sops:
+      - name: daily_briefing
+        cadence: daily
+        brief:
+          objective: |
+            Check the owner's calendar for today and tomorrow. Summarize
+            upcoming events, flag any scheduling conflicts.
+          expected_output: Daily calendar briefing with event summary.
+
+  # ── Compliance: policy review, legal checks ───────────────────────────
+  - name: compliance
+    description: Policy enforcement, legal review, risk assessment
+    supervisor:
+      name: compliance-lead
+      tier: orchestrator
+      system_prompt: |
+        You lead compliance review. Delegate policy checks to reviewer.
+        You have veto power on publish-class and deploy actions.
+      model: deepseek/deepseek-v4-pro
+      max_iter: 15
+    members:
+      - name: reviewer
+        tier: validator
+        system_prompt: |
+          Review actions against compliance policy. Check every applicable
+          rule. Cite specific policy IDs in your reasoning. Be precise —
+          denials must reference which rule is violated.
+        model: deepseek/deepseek-v4-pro
+        max_iter: 12
+        success_criteria:
+          - Every applicable policy rule checked and cited by ID
+          - Denials cite specific rule violations
+    shared_skills:
+      - ./skills/compliance
+    shared_mcps:
+      - type: internet
+      - type: policy_bank
+    sops:
+      - name: review_proposal
+        cadence: null
+        brief:
+          objective: |
+            Review the provided action for policy compliance. Check all
+            rules, return structured verdict with policy references.
+          expected_output: Structured verdict with approved/denied/needs_changes.
 
 handoffs:
-  - from: finance
-    artifact_type: daily_pair_scan
-    to: legal
+  - from: engineering
+    artifact_type: daily_build_check
+    to: compliance
     auto_trigger: true
-    note: "Legal reviews every daily scan for compliance before results are published."
-  - from: finance
-    artifact_type: weekly_risk_report
-    to: legal
+    note: "Build results reviewed for compliance before deployment."
+  - from: research
+    artifact_type: daily_briefing
+    to: compliance
     auto_trigger: true
-    note: "Weekly risk reports must pass legal review."
+    note: "Research outputs reviewed for policy compliance."

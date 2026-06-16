@@ -14,12 +14,13 @@ Requires: crewai>=1.0, pydantic>=2
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
 from crewai import Agent, LLM, Task
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Category constants ───────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ CATEGORY_COMPUTE = "compute"
 CATEGORY_PUBLISH = "publish"
 CATEGORY_ORCHESTRATE = "orchestrate"
 READONLY_CATEGORIES: set[str] = {CATEGORY_READ}
+ORCHESTRATOR_CATEGORIES: set[str] = {CATEGORY_READ, CATEGORY_ORCHESTRATE}
 
 
 # ── Permission tiers ─────────────────────────────────────────────────────────
@@ -90,7 +92,7 @@ TIER_POLICY: dict[PermissionTier, TierPolicy] = {
         denied_tools=[],
         requires_approval=[],
         can_publish=False,
-        allowed_categories=set(),  # no tools — delegates only
+        allowed_categories=ORCHESTRATOR_CATEGORIES,  # read + orchestrate tools permitted
     ),
 }
 
@@ -109,7 +111,11 @@ def budget_llm(llm: LLM, role_name: str, max_tokens: int) -> LLM:
     and after each invocation; if cumulative usage exceeds *max_tokens* it
     raises ``BudgetExceeded``, which propagates out through ``kickoff()``.
     """
-    original_call = llm.call  # bound method — already has self bound
+    # Guard against stacking wrappers when the same LLM instance is reused
+    # across roles: always wrap the *original* call, never a previous wrapper,
+    # so re-wrapping replaces (last-cap-wins) instead of nesting.
+    original_call = getattr(llm, "_orgos_budget_original", None) or llm.call
+    llm._orgos_budget_original = original_call
 
     def _budgeted_call(
         messages,
@@ -153,6 +159,20 @@ def budget_llm(llm: LLM, role_name: str, max_tokens: int) -> LLM:
     return llm
 
 
+# ── Provider capability ──────────────────────────────────────────────────────
+# Providers that reject OpenAI json_schema response_format (output_pydantic).
+# DeepSeek (both V4 Flash and Pro) and most local runtimes accept only
+# text/json_object, so json_schema must be skipped for them.
+_NO_JSON_SCHEMA_PREFIXES = ("deepseek/", "ollama/")
+
+
+def _supports_json_schema(model: Any) -> bool:
+    """False for providers known to reject json_schema structured outputs."""
+    if isinstance(model, str):
+        return not any(model.lower().startswith(p) for p in _NO_JSON_SCHEMA_PREFIXES)
+    return True  # LLM instance or None (env default) — assume supported
+
+
 # ── RoleSpec ─────────────────────────────────────────────────────────────────
 class RoleSpec(BaseModel):
     """A declarative role. Compiles to a CrewAI Agent."""
@@ -172,6 +192,13 @@ class RoleSpec(BaseModel):
     success_criteria: list[str] = Field(default_factory=list)
     allow_delegation: bool = False
 
+    # Whether to attempt OpenAI-style structured outputs (output_pydantic →
+    # response_format: json_schema). OpenAI/Anthropic support it; DeepSeek and
+    # some local models reject json_schema (they only accept json_object), so
+    # the probe wastes a full failed attempt. Set False for those providers to
+    # go straight to JSON-via-instructions + _read_envelope parsing.
+    structured_output: bool = True
+
     # Extension points — wired through to Agent(skills=…, mcps=…)
     skills: list[str | Path] = Field(
         default_factory=list,
@@ -189,14 +216,59 @@ class RoleSpec(BaseModel):
         ),
     )
 
+    def effective_structured(self) -> bool:
+        """Whether to attempt OpenAI json_schema structured outputs.
+
+        True only if the role opts in AND the provider supports json_schema.
+        DeepSeek/local models return False here, so spawn skips the wasted probe.
+        """
+        return self.structured_output and _supports_json_schema(self.model)
+
     def _build_llm(self) -> LLM | str | None:
         llm: LLM | None = None
         if isinstance(self.model, LLM):
             llm = self.model
         elif isinstance(self.model, str):
             llm = LLM(model=self.model)
+        elif self.max_budget_tokens is not None:
+            # No explicit model, but a budget was requested. A token budget can
+            # only be enforced on an LLM instance we control, so build one from
+            # the env default rather than letting CrewAI create an unwrappable
+            # LLM internally (which would silently skip the budget).
+            default_model = (
+                os.environ.get("OPENAI_MODEL_NAME")
+                or os.environ.get("MODEL")
+                or "gpt-4o-mini"
+            )
+            llm = LLM(model=default_model)
         else:
             return None
+
+        # json_object mode for providers that reject OpenAI json_schema
+        # (DeepSeek, local models). A dict response_format routes through the
+        # normal completions path and forces valid JSON, which _read_envelope
+        # parses cleanly.
+        #
+        # CRITICAL: json_object forces *every* completion to be a JSON object,
+        # which SUPPRESSES native tool calls. So only apply it to tool-LESS
+        # roles. A tool-using DeepSeek role runs in "plain" mode (no json_schema,
+        # no json_object) and emits its handoff as text that _read_envelope
+        # extracts — that keeps native tool calls working.
+        # json_object is only safe for a *terminal* role: a single final LLM call
+        # with no tools, no MCP servers, and no delegation. Applying it elsewhere
+        # breaks the role two ways: it suppresses native tool calls, and any
+        # intermediate ReAct/delegation call whose prompt lacks the word "json"
+        # gets a 400 ("prompt must contain 'json'") from the API. Non-terminal
+        # DeepSeek roles run plain and rely on _read_envelope's JSON extraction.
+        is_terminal = (
+            not self.tools
+            and not self.mcp_servers
+            and not self.allow_delegation
+            and self.tier != PermissionTier.ORCHESTRATOR
+        )
+        wants_json_object = (not self.effective_structured()) and is_terminal
+        if wants_json_object and getattr(llm, "response_format", None) is None:
+            llm.response_format = {"type": "json_object"}
 
         if self.max_budget_tokens is not None:
             llm = budget_llm(llm, self.name, self.max_budget_tokens)
@@ -324,6 +396,29 @@ class HandoffEnvelope(BaseModel):
     # on every object. Carry structured findings as a JSON-encoded string.
     payload: str = ""
     notes: str | None = None
+
+    @field_validator("payload", mode="before")
+    @classmethod
+    def _coerce_payload(cls, v: Any) -> str:
+        """Models naturally emit findings as a nested object; the schema wants a
+        JSON string. Coerce dict/list → JSON string, None → "" so a good handoff
+        isn't rejected over payload shape."""
+        if v is None:
+            return ""
+        if isinstance(v, (dict, list)):
+            import json as _json
+            return _json.dumps(v)
+        return v if isinstance(v, str) else str(v)
+
+    @field_validator("artifacts", mode="before")
+    @classmethod
+    def _coerce_artifacts(cls, v: Any) -> Any:
+        """A single artifact string → one-element list; None → []."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v]
+        return v
 
     @classmethod
     def failed(cls, role: str, reason: str) -> "HandoffEnvelope":
