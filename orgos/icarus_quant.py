@@ -72,6 +72,27 @@ def hurst(series: np.ndarray | pd.Series) -> float:
     return float(np.polyfit(np.log(lag_arr), np.log(tau[ok]), 1)[0] * 2)
 
 
+def benjamini_hochberg(pvalues: list[float], fdr: float = 0.10) -> float:
+    """Benjamini-Hochberg p-value cutoff controlling the false-discovery rate.
+
+    The defense against multiple-hypothesis testing: scanning N pairs at a raw
+    p<0.05 yields ~0.05·N false positives (a stock and a random walk look
+    cointegrated 5% of the time). BH returns the largest p that still controls
+    the *expected proportion* of false discoveries at `fdr`. Pairs with adf_p ≤
+    the returned cutoff are the FDR-significant set; everything else is rejected.
+    Returns 0.0 if nothing passes (no discoveries survive correction).
+    """
+    ps = sorted(p for p in pvalues if p is not None and not np.isnan(p))
+    m = len(ps)
+    if m == 0:
+        return 0.0
+    cutoff = 0.0
+    for i, p in enumerate(ps, start=1):  # 1-indexed rank
+        if p <= (i / m) * fdr:
+            cutoff = p  # largest p meeting the BH line so far
+    return cutoff
+
+
 def factor_r2(spread: pd.Series, factor: pd.Series) -> float:
     """R² of spread *returns* on a factor's returns.
 
@@ -166,6 +187,7 @@ def scan(
     factor: pd.Series | None = None,
     sectors: dict[str, str] | None = None,
     p_threshold: float = 0.05,
+    fdr: float | None = None,
     min_half_life: float = 1.0,
     max_half_life: float = 30.0,
     max_hurst: float = 0.5,
@@ -175,16 +197,24 @@ def scan(
 ) -> list[PairStats]:
     """Scan every pair in a price panel (columns = tickers) and rank survivors.
 
-    Filters (the durability funnel): cointegrated (p < p_threshold) AND half-life
-    in [min,max] AND hurst < max_hurst AND (stable if required) AND factor_r2 <
-    max_factor_r2. Ranked by sub-period worst-case then full p-value — a pair
-    that barely holds in one window ranks below one that holds strongly in all.
+    Filters (the durability funnel): cointegrated AND half-life in [min,max] AND
+    hurst < max_hurst AND (stable if required) AND factor_r2 < max_factor_r2.
+    Ranked by sub-period worst-case then full p-value.
+
+    The cointegration gate has two modes:
+      - default (fdr=None): raw ``adf_p < p_threshold``.
+      - ``fdr`` set (e.g. 0.10): Benjamini-Hochberg over the p-values of EVERY
+        pair tested, controlling the false-discovery rate. Use this whenever the
+        universe is large/cross-sector — a raw threshold over thousands of pairs
+        is a false-positive factory (see benjamini_hochberg).
     """
     sectors = sectors or {}
     tickers = list(prices.columns)
     import itertools
 
-    survivors: list[PairStats] = []
+    # Pass 1: analyze every pair (so BH sees the true number of hypotheses
+    # tested), keeping only those that clear the NON-statistical gates.
+    analyzed: list[PairStats] = []
     for a, b in itertools.combinations(tickers, 2):
         if same_sector_only and sectors.get(a) != sectors.get(b):
             continue
@@ -198,7 +228,19 @@ def scan(
             continue
         if st is None:
             continue
-        if st.adf_p >= p_threshold:
+        analyzed.append(st)
+
+    # Cointegration gate: raw threshold, or BH-FDR cutoff over all tested p-values.
+    if fdr is not None:
+        cutoff = benjamini_hochberg([s.adf_p for s in analyzed], fdr=fdr)
+    else:
+        cutoff = p_threshold
+
+    survivors: list[PairStats] = []
+    for st in analyzed:
+        # FDR uses ≤ cutoff (cutoff is an attained p-value); raw uses < threshold.
+        passes_coint = (st.adf_p <= cutoff) if fdr is not None else (st.adf_p < cutoff)
+        if not passes_coint:
             continue
         if not (min_half_life < st.half_life < max_half_life):
             continue
