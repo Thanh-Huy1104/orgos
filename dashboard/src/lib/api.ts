@@ -184,3 +184,76 @@ export async function createProject(goal: string, name?: string): Promise<any> {
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
+
+// ── Quant desk ───────────────────────────────────────────────────────────────
+
+async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export interface Account {
+  as_of: string;
+  total_equity: number;
+  available_funds: number;
+  open_positions: number;
+}
+export interface ActivePair {
+  pair_id: number;
+  pair: string;
+  y: string;
+  x: string;
+  z_score: number | null;
+  as_of: string | null;
+}
+export interface Performance {
+  closed_trades: number;
+  wins: number;
+  win_rate: number | null;
+  total_realized_pnl: number;
+  avg_pnl_per_trade: number;
+}
+export interface QuantBook {
+  account: Account | null;
+  active_pairs: ActivePair[];
+  performance: Performance;
+}
+export interface Candidate {
+  pair: string; y: string; x: string;
+  adf_p: number; beta: number; half_life: number; hurst: number;
+  stable: boolean; beta_drift: number; spread_vol: number;
+  factor_r2: number | null; sub_pvalues: (number | null)[]; sector: string;
+}
+export interface ScanResult {
+  universe: string; sector: string; tickers_scanned: string[];
+  factor: string; candidates_found: number; candidates: Candidate[]; error?: string;
+}
+export interface LegFiling { risk: string; high_forms: string[]; medium_forms: string[]; n_filings: number; }
+export interface Dossier {
+  pair: string;
+  verdict: "PROMOTE" | "REVIEW" | "HOLD";
+  structural_risk: "LOW" | "MEDIUM" | "HIGH";
+  reasons: string[];
+  stats: Record<string, unknown>;
+  leg_filings: Record<string, LegFiling>;
+}
+export interface RecommendReport {
+  live: QuantBook;
+  propose_spawn: Dossier[];
+  promote_already_held: Dossier[];
+  review: Dossier[];
+  hold: Dossier[];
+  summary: string;
+}
+
+export const getUniverses = () => fetchAPI<{ universes: Record<string, string[]> }>("/api/quant/universes");
+export const getBook = () => fetchAPI<QuantBook>("/api/quant/book");
+export const runScan = (universe: string, lookback_days = 504) =>
+  postJSON<ScanResult>("/api/quant/scan", { universe, lookback_days });
+export const getRecommend = (universes: string[], gate_days = 90) =>
+  postJSON<RecommendReport>("/api/quant/recommend", { universes, gate_days });
