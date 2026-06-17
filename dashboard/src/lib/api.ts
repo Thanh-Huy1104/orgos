@@ -226,84 +226,10 @@ export interface QuantBook {
   active_pairs: ActivePair[];
   performance: Performance;
 }
-export interface Candidate {
-  pair: string; y: string; x: string;
-  adf_p: number; beta: number; half_life: number; hurst: number;
-  stable: boolean; beta_drift: number; spread_vol: number;
-  factor_r2: number | null; sub_pvalues: (number | null)[]; sector: string;
-}
-export interface ScanResult {
-  universe: string; sector: string; tickers_scanned: string[];
-  factor: string; candidates_found: number; candidates: Candidate[]; error?: string;
-}
-export interface LegFiling { risk: string; high_forms: string[]; medium_forms: string[]; n_filings: number; }
-export interface Dossier {
-  pair: string;
-  verdict: "PROMOTE" | "REVIEW" | "HOLD";
-  structural_risk: "LOW" | "MEDIUM" | "HIGH";
-  reasons: string[];
-  stats: Record<string, unknown>;
-  leg_filings: Record<string, LegFiling>;
-}
-export interface RecommendReport {
-  live: QuantBook;
-  propose_spawn: Dossier[];
-  promote_already_held: Dossier[];
-  review: Dossier[];
-  hold: Dossier[];
-  summary: string;
-}
 
-export const getUniverses = () => fetchAPI<{ universes: Record<string, string[]> }>("/api/quant/universes");
 export const getBook = () => fetchAPI<QuantBook>("/api/quant/book");
-export const runScan = (universe: string, lookback_days = 504) =>
-  postJSON<ScanResult>("/api/quant/scan", { universe, lookback_days });
-export const getRecommend = (universes: string[], gate_days = 90) =>
-  postJSON<RecommendReport>("/api/quant/recommend", { universes, gate_days });
 
-// ── Event-driven discovery (C6) ──────────────────────────────────────────────
-
-export interface MarketEvent {
-  ticker: string;
-  sector: string | null;
-  risk: "MEDIUM" | "HIGH";
-  forms: string[];
-  n_filings: number;
-}
-export interface SectorResult {
-  sector: string;
-  candidates_found: number;
-  promote: Dossier[];
-  review: Dossier[];
-  hold: Dossier[];
-}
-export interface EventReport {
-  as_of: string;
-  events: MarketEvent[];
-  triggered_sectors: string[];
-  results: SectorResult[];
-  summary: string;
-}
-
-export const getEvents = (event_days = 7, gate_days = 90) =>
-  postJSON<EventReport>("/api/quant/events", { event_days, gate_days });
-
-// ── Crypto + kill switch ──────────────────────────────────────────────────────
-
-export interface CryptoCandidate {
-  pair: string; y: string; x: string; beta: number;
-  adf_p: number; p_recent: number; p_oos: number; oos_confirmed: boolean;
-  half_life: number; hurst: number; factor_r2: number | null; sector: string;
-}
-export interface CryptoReport {
-  asset_class: string; factor: string; coins_scanned: string[];
-  hubs_excluded: string[]; pairs_tested: number; fdr: number;
-  fdr_cutoff: number; candidates_found: number; candidates: CryptoCandidate[];
-  error?: string;
-}
-export const getCryptoScan = (fdr = 0.10) =>
-  postJSON<CryptoReport>("/api/quant/crypto", { fdr });
-
+export interface LegFiling { risk: string; high_forms: string[]; medium_forms: string[]; n_filings: number; }
 export interface RiskAssessment {
   pair_id: number; pair: string;
   structural_risk: "LOW" | "MEDIUM" | "HIGH";

@@ -149,7 +149,7 @@ def departments():
 
 @app.get("/api/org")
 def org_detail():
-    """Return full org structure: departments, roles, tools, MCPs, SOPs."""
+    """Return org structure with live per-department metrics."""
     if not org:
         return {"error": "Org not loaded"}
     result = {
@@ -165,7 +165,16 @@ def org_detail():
             "members": [],
             "sops": [{"name": s.name, "cadence": s.cadence, "objective": s.brief.objective[:200]} for s in d.sops],
             "shared_mcps": [m.get("type", str(type(m).__name__)) if isinstance(m, dict) else str(type(m).__name__) for m in d.shared_mcps],
+            "metrics": _dept_metrics(d.name),
         }
+        dept["metrics"]["recent_runs"] = [
+            {
+                "id": r.id, "role": r.role, "status": r.status,
+                "summary": r.summary[:200], "tokens": r.total_tokens,
+                "created_at": r.created_at,
+            }
+            for r in memory.recent_runs(department=d.name, limit=5)
+        ]
         for r in d.all_roles():
             enriched = d._enrich_role(r)
             role_info = {

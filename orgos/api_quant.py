@@ -1,8 +1,8 @@
-"""Quant desk API — endpoints behind the dashboard's Desk + Scanner pages.
+"""Quant desk API — agentic endpoints only.
 
-All read/recommend-only: surfaces the live Icarus book, runs cointegration scans,
-and produces the research-gated recommendation. Nothing here trades or writes the
-trading DB.
+Live-book monitoring (Desk) and agent-driven discovery (Strategist). Manual
+scanner/signals/crypto shortcuts are gone — the strategist agent owns discovery.
+Nothing here trades or writes the trading DB (except /halt for emergency stop).
 """
 
 from __future__ import annotations
@@ -11,25 +11,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/quant", tags=["quant"])
-
-
-class ScanBody(BaseModel):
-    universe: str
-    lookback_days: int = 504
-
-
-class RecommendBody(BaseModel):
-    universes: list[str]
-    gate_days: int = 90
-    lookback_days: int = 504
-
-
-@router.get("/universes")
-def universes() -> dict:
-    """The curated sector presets the scanner knows."""
-    from .quant_tool import UNIVERSES
-
-    return {"universes": {name: tickers for name, tickers in UNIVERSES.items()}}
 
 
 @router.get("/book")
@@ -45,54 +26,6 @@ def book() -> dict:
         return live_overview()
     except Exception as exc:  # noqa: BLE001 — surface as a clean 503 for the UI
         raise HTTPException(status_code=503, detail=f"Icarus DB unreachable: {exc}")
-
-
-@router.post("/scan")
-def scan(body: ScanBody) -> dict:
-    """Run a cointegration scan over one universe (cached bars)."""
-    from .quant_tool import run_scan
-
-    return run_scan(body.universe, lookback_days=body.lookback_days)
-
-
-@router.post("/recommend")
-def recommend(body: RecommendBody) -> dict:
-    """Scan the universes, research-gate them, weigh against the live book."""
-    from .quant_supervisor import recommend as _recommend
-
-    return _recommend(body.universes, gate_days=body.gate_days,
-                      lookback_days=body.lookback_days)
-
-
-class EventScanBody(BaseModel):
-    event_days: int = 7
-    gate_days: int = 90
-    universes: list[str] | None = None
-
-
-@router.post("/events")
-def events(body: EventScanBody) -> dict:
-    """Event-driven discovery: material SEC filings → implicated sectors → scan → gate."""
-    from .event_discovery import discover_from_events
-
-    return discover_from_events(
-        event_days=body.event_days, gate_days=body.gate_days,
-        universes=body.universes,
-    )
-
-
-class CryptoScanBody(BaseModel):
-    coins: list[str] | None = None
-    lookback_days: int = 365
-    fdr: float = 0.10
-
-
-@router.post("/crypto")
-def crypto(body: CryptoScanBody) -> dict:
-    """Crypto cointegration scan — recent-window durability, hub exclusion, OOS flag."""
-    from .crypto_tool import run_crypto_scan
-
-    return run_crypto_scan(body.coins, lookback_days=body.lookback_days, fdr=body.fdr)
 
 
 class StrategistBody(BaseModel):

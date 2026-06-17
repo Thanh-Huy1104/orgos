@@ -37,15 +37,6 @@ def _panel_with_one_cointegrated(n=750, seed=0):
 
 
 class TestResolveUniverse:
-    def test_known_preset(self):
-        tickers, sector = resolve_universe("utilities")
-        assert sector == "utilities"
-        assert "DUK" in tickers and len(tickers) > 2
-
-    def test_case_insensitive_preset(self):
-        _, sector = resolve_universe("  Utilities ")
-        assert sector == "utilities"
-
     def test_custom_ticker_list_space(self):
         tickers, sector = resolve_universe("aaa bbb ccc")
         assert sector == "custom"

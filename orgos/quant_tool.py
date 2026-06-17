@@ -5,8 +5,8 @@ CrewAI tool an agent can call: give it a universe, it returns a ranked shortlist
 of durable, tradeable cointegrated pairs. Read+compute only — it discovers and
 proposes; it never trades, sizes, or touches Icarus.
 
-Universes are curated, liquid, single-sector lists (cointegration is a
-within-sector phenomenon, and a bounded universe respects the Tiingo free tier).
+No preset universes — the strategist agent builds its own ticker list from live
+index-constituent data and passes tickers explicitly.
 """
 
 from __future__ import annotations
@@ -19,39 +19,23 @@ from pydantic import BaseModel, Field
 from .bars_cache import get_panel
 from .icarus_quant import scan
 
-# Curated liquid universes (single-sector — where cointegration actually lives).
-UNIVERSES: dict[str, list[str]] = {
-    "utilities": ["DUK", "SO", "DTE", "AEP", "EXC", "XEL", "WEC", "ED", "AEE",
-                  "CMS", "FE", "PEG", "ES", "PPL"],
-    "staples": ["PG", "KO", "PEP", "WMT", "COST", "CL", "MDLZ", "GIS", "KHC",
-                "HSY", "K", "KMB", "CLX"],
-    "banks": ["JPM", "BAC", "WFC", "C", "USB", "PNC", "TFC", "GS", "MS", "SCHW"],
-    "insurance": ["ALL", "MET", "PRU", "AIG", "TRV", "PGR", "CB", "HIG"],
-    "rails": ["UNP", "CSX", "NSC", "CP", "CNI"],
-    "energy": ["XOM", "CVX", "COP", "OXY", "SLB", "EOG", "PSX", "VLO"],
-    "payments": ["V", "MA", "AXP", "PYPL", "FI", "GPN"],
-}
-
 DEFAULT_FACTOR = "SPY"  # market factor for the factor_r2 independence check
 
 
 def resolve_universe(universe: str) -> tuple[list[str], str]:
-    """Resolve a universe name or comma-separated tickers → (tickers, sector).
+    """Parse a space/comma-separated ticker list → (tickers, sector).
 
-    A known preset returns its curated list + sector name; otherwise the input
-    is treated as an ad-hoc ticker list (sector = 'custom').
+    No preset universes — the strategist builds its own universe from live
+    index-constituent data and passes tickers explicitly.
     """
-    key = universe.strip().lower()
-    if key in UNIVERSES:
-        return UNIVERSES[key], key
     tickers = [t.strip().upper() for t in universe.replace(",", " ").split() if t.strip()]
     return tickers, "custom"
 
 
 class _ScanInput(BaseModel):
     universe: str = Field(
-        description=("Sector preset (" + ", ".join(UNIVERSES) + ") or a "
-                     "space/comma-separated ticker list, e.g. 'DUK SO DTE AEP'."))
+        description="Space/comma-separated ticker list, e.g. 'DUK SO DTE AEP'. "
+                    "Build this from live index-constituent data — no presets.")
     lookback_days: int = Field(default=504, description="Trading-day lookback (default 504 ≈ 2y).")
     max_half_life: float = Field(default=30.0, description="Max mean-reversion half-life in days.")
     top_n: int = Field(default=15, description="Max candidates to return.")
@@ -93,9 +77,9 @@ class CointegrationScannerTool(BaseTool):
     description: str = (
         "Scan a universe of liquid equities for durable, tradeable cointegrated "
         "pairs. Returns a ranked shortlist with cointegration p-value, half-life, "
-        "Hurst, sub-period stability, and factor independence. Use a sector preset "
-        "(utilities, staples, banks, insurance, rails, energy, payments) or pass "
-        "your own tickers. Proposes candidates only — it does not trade."
+        "Hurst, sub-period stability, and factor independence. Pass a "
+        "space/comma-separated ticker list built from live index-constituent data. "
+        "Proposes candidates only — it does not trade."
     )
     args_schema: type[BaseModel] = _ScanInput
     tool_category: str = "compute"

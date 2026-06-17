@@ -3,11 +3,11 @@
 The proactive layer on top of the desk. Instead of you choosing a universe, a
 *signal* chooses it: a new SEC filing (8-K, merger, etc.) on a ticker we track
 points at that ticker's sector, and we run the durability scan + research gate on
-that field. "Bloomberg mentions microchips → scan semis", but driven by the
-deterministic source we already have wired (EDGAR), not open news.
+that field. The caller must supply an explicit universe → tickers mapping and
+sector membership map — no hardcoded presets.
 
 The fuzzy step (which sector does this event implicate?) only PROPOSES the
-universe — it's a deterministic reverse-lookup of our curated UNIVERSES, so a
+universe — it's a reverse-lookup of the caller-provided sector map, so a
 misread can at worst point the scanner at the wrong sector. The signal itself
 (cointegration + the SEC research gate) stays fully deterministic. No trade is
 ever fabricated by the trigger.
@@ -21,19 +21,14 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Callable
 
-from .quant_tool import UNIVERSES, run_scan
+from .quant_tool import run_scan
 from .research_gate import screen_candidates
 from .sec_edgar import assess_filings, recent_filings
 
-# ticker → sector, derived once from the curated universes (deterministic map).
-_TICKER_SECTOR: dict[str, str] = {
-    ticker: sector for sector, tickers in UNIVERSES.items() for ticker in tickers
-}
 
-
-def ticker_sector(ticker: str) -> str | None:
-    """The curated sector a ticker belongs to, or None if we don't track it."""
-    return _TICKER_SECTOR.get(ticker.strip().upper())
+def ticker_sector(ticker: str, sector_map: dict[str, str]) -> str | None:
+    """Look up a ticker's sector in the caller-provided map."""
+    return sector_map.get(ticker.strip().upper())
 
 
 # Filing fetcher is injectable for testing (default = live EDGAR).
@@ -45,19 +40,25 @@ def _default_fetch(days: int) -> FilingsFetcher:
 
 
 def detect_events(
-    *, lookback_days: int = 7, universes: list[str] | None = None,
+    *, lookback_days: int = 7, universes: dict[str, list[str]] | None = None,
+    sector_map: dict[str, str] | None = None,
     fetcher: FilingsFetcher | None = None,
 ) -> list[dict]:
     """Scan tracked tickers for recent material SEC filings.
 
-    Returns one event per ticker that filed something MEDIUM or HIGH risk within
-    `lookback_days`, tagged with the implicated sector. These are the triggers
-    that warrant a fresh look at the sector.
-    """
-    fetch = fetcher or _default_fetch(lookback_days)
-    sectors = universes or list(UNIVERSES)
-    tickers = [t for s in sectors for t in UNIVERSES.get(s, [])]
+    universes: sector → tickers mapping. Required — no presets exist.
+    sector_map: ticker → sector reverse-lookup map (built by caller).
 
+    Returns one event per ticker that filed something MEDIUM or HIGH risk within
+    ``lookback_days``, tagged with the implicated sector.
+    """
+    if universes is None:
+        return []
+    if sector_map is None:
+        sector_map = {t: s for s, ts in universes.items() for t in ts}
+    fetch = fetcher or _default_fetch(lookback_days)
+    sectors = list(universes)
+    tickers = [t for s in sectors for t in universes.get(s, [])]
     events: list[dict] = []
     for ticker in tickers:
         filings = fetch(ticker)
@@ -65,23 +66,24 @@ def detect_events(
         if a["risk"] in ("MEDIUM", "HIGH"):
             events.append({
                 "ticker": ticker,
-                "sector": ticker_sector(ticker),
+                "sector": ticker_sector(ticker, sector_map),
                 "risk": a["risk"],
                 "forms": a["high_forms"] + a["medium_forms"],
                 "n_filings": a["n_filings"],
             })
-    # Highest structural risk first.
     events.sort(key=lambda e: (e["risk"] != "HIGH", e["ticker"]))
     return events
 
 
 def discover_from_events(
     *, lookback_days: int = 7, event_days: int = 7, gate_days: int = 90,
-    universes: list[str] | None = None, scan_lookback: int = 504,
+    universes: dict[str, list[str]] | None = None, scan_lookback: int = 504,
     fetcher: FilingsFetcher | None = None,
     scanner: Any = run_scan, screener: Any = screen_candidates,
 ) -> dict:
     """End-to-end event-driven discovery.
+
+    universes: sector → tickers mapping. Required — no presets exist.
 
     1. detect_events → which sectors had a material filing.
     2. For each implicated sector (deduped), run the cointegration scan.
