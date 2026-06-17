@@ -546,3 +546,117 @@ class TestBriefRendering:
         desc = TaskBrief(objective="find X").render_description()
         assert "Where to look" not in desc
         assert "Tool-call budget" not in desc
+
+
+class TestCitationVerification:
+    """Deterministic citation grading: reachability is the hard gate, term
+    overlap a soft signal, transient errors never downgrade."""
+
+    @staticmethod
+    def _fetcher(mapping):
+        # mapping: url -> (status_code, body) or an Exception to raise
+        def fetch(url, timeout):
+            v = mapping[url]
+            if isinstance(v, Exception):
+                raise v
+            return v
+        return fetch
+
+    def test_extract_urls_dedup_and_trailing_punct(self):
+        from orgos.citations import extract_urls
+
+        text = "see https://a.com/x. and https://a.com/x again, plus https://b.org/y)."
+        assert extract_urls(text) == ["https://a.com/x", "https://b.org/y"]
+
+    def test_404_is_unreachable(self):
+        from orgos.citations import verify_citation
+
+        c = verify_citation("https://x.com/dead", "claim",
+                            fetcher=self._fetcher({"https://x.com/dead": (404, "")}))
+        assert c.status == "unreachable"
+
+    def test_200_with_terms_is_supported(self):
+        from orgos.citations import verify_citation
+
+        body = "Llama 3.1 8B is a small open model with strong reasoning."
+        c = verify_citation("https://hf.co/llama", "Llama 3.1 8B strong reasoning model",
+                            fetcher=self._fetcher({"https://hf.co/llama": (200, body)}))
+        assert c.status == "supported"
+
+    def test_200_without_terms_is_weak(self):
+        from orgos.citations import verify_citation
+
+        c = verify_citation("https://hf.co/x", "quantum chromodynamics lattice gauge",
+                            fetcher=self._fetcher({"https://hf.co/x": (200, "cooking recipes")}))
+        assert c.status == "weak"
+
+    def test_timeout_is_uncertain_not_fail(self):
+        from orgos.citations import verify_citation
+
+        c = verify_citation("https://slow.com", "claim",
+                            fetcher=self._fetcher({"https://slow.com": TimeoutError("slow")}))
+        assert c.status == "uncertain"
+
+    def test_5xx_is_uncertain(self):
+        from orgos.citations import verify_citation
+
+        c = verify_citation("https://x.com", "claim",
+                            fetcher=self._fetcher({"https://x.com": (503, "")}))
+        assert c.status == "uncertain"
+
+    def test_report_fails_only_on_unreachable(self):
+        from orgos.citations import verify_text
+
+        text = "good https://ok.com/a\nbad https://ok.com/dead\nweak https://ok.com/w"
+        fetch = self._fetcher({
+            "https://ok.com/a": (200, "a a a"),
+            "https://ok.com/dead": (404, ""),
+            "https://ok.com/w": (200, "unrelated"),
+        })
+        rep = verify_text(text, fetcher=fetch)
+        assert rep.passed is False  # one unreachable
+
+    def test_report_passes_when_no_unreachable(self):
+        from orgos.citations import verify_text
+
+        text = "good https://ok.com/a and weak https://ok.com/w"
+        fetch = self._fetcher({
+            "https://ok.com/a": (200, "a"),
+            "https://ok.com/w": (200, "x"),
+        })
+        assert verify_text(text, fetcher=fetch).passed is True
+
+
+class TestCitationGate:
+    """_apply_citation_gate downgrades a completed handoff with a dead URL."""
+
+    def test_dead_url_downgrades_to_needs_revision(self, monkeypatch):
+        from types import SimpleNamespace
+        from orgos import HandoffEnvelope
+        from orgos import departments, citations
+
+        monkeypatch.setattr(citations, "_http_fetch",
+                            lambda url, timeout: (404, ""))
+        env = HandoffEnvelope(role="r", status="completed",
+                              summary="Finding. Source: https://fake.example/dead",
+                              success_criteria_met=True)
+        result = SimpleNamespace(envelope=env)
+        departments._apply_citation_gate(result)
+        assert env.status == "needs_revision"
+        assert env.success_criteria_met is False
+        assert "citation" in (env.notes or "").lower()
+
+    def test_live_url_keeps_completed(self, monkeypatch):
+        from types import SimpleNamespace
+        from orgos import HandoffEnvelope
+        from orgos import departments, citations
+
+        monkeypatch.setattr(citations, "_http_fetch",
+                            lambda url, timeout: (200, "real content here"))
+        env = HandoffEnvelope(role="r", status="completed",
+                              summary="Finding. Source: https://real.example/ok",
+                              success_criteria_met=True)
+        result = SimpleNamespace(envelope=env)
+        departments._apply_citation_gate(result)
+        assert env.status == "completed"
+        assert env.success_criteria_met is True

@@ -53,6 +53,11 @@ class Department(BaseModel):
 
     sops: list[SOP] = Field(default_factory=list)
 
+    # When True, run_department re-fetches every URL cited in the final handoff
+    # and fails the run closed if any is dead/fabricated (P2 citation gate).
+    # Set on departments whose output is research/claims people will rely on.
+    verify_citations: bool = False
+
     def model_post_init(self, __context: Any) -> None:
         """Enforce invariants at construction time."""
         if self.supervisor.tier != PermissionTier.ORCHESTRATOR:
@@ -514,6 +519,28 @@ def spawn_department(
     )
 
 
+def _apply_citation_gate(result: Any, *, max_checks: int = 8) -> None:
+    """Verify the URLs cited in a SpawnResult's handoff and mutate it in place.
+
+    Appends a citation summary to the envelope notes either way. If any citation
+    is definitively unreachable (dead/fabricated URL), downgrades the handoff to
+    needs_revision and clears success_criteria_met — the fail-closed gate.
+    """
+    from .citations import verify_text
+
+    env = result.envelope
+    text = (env.summary or "") + "\n" + (env.payload or "")
+    report = verify_text(text, max_checks=max_checks)
+    if not report.checks:
+        return  # nothing cited — nothing to gate
+
+    env.notes = (env.notes or "") + f" [citations: {report.summary()}]"
+    if not report.passed:
+        env.status = "needs_revision"
+        env.success_criteria_met = False
+        env.notes += " [gate: dead/fabricated citation — see report]"
+
+
 def run_department(
     org: Org,
     department_name: str,
@@ -524,6 +551,7 @@ def run_department(
     record: bool = True,
     sequential: bool = True,
     run_budget_tokens: int | None = None,
+    verify_citations: bool | None = None,
 ):
     """Run a department with memory recording and context injection.
 
@@ -573,6 +601,13 @@ def run_department(
         sequential=sequential,
         run_budget_tokens=run_budget_tokens,
     )
+
+    # ── Citation gate (P2) ────────────────────────────────────────────────
+    # Re-fetch every URL the handoff cites and fail closed on a dead/fabricated
+    # one. Code-enforced ground truth — not the validator LLM's self-report.
+    do_verify = department.verify_citations if verify_citations is None else verify_citations
+    if do_verify and result.envelope.status == "completed":
+        _apply_citation_gate(result)
 
     if record:
         memory.record_run(

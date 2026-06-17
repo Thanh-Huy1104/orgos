@@ -48,6 +48,10 @@ departments:
   # ── Research: web search, analysis, report generation ──────────────────
   - name: research
     description: Web research, data analysis, report generation
+    # P2 citation gate: every URL in the final handoff is re-fetched; a
+    # dead/fabricated one fails the run closed. Research output is claims people
+    # rely on, so its citations must be ground-truth verified, not self-reported.
+    verify_citations: true
     supervisor:
       name: research-lead
       tier: orchestrator
