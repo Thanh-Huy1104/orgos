@@ -318,3 +318,15 @@ export interface RiskReport {
 export const getRisk = () => fetchAPI<RiskReport>("/api/quant/risk");
 export const postHalt = (pair_id: number, reason: string) =>
   postJSON<{ pair_id: number; halted: boolean; reason: string }>("/api/quant/halt", { pair_id, reason });
+
+// ── Quant strategist (agent-driven discovery) ────────────────────────────────
+
+export interface StrategistResult {
+  status: string;
+  criteria_met: boolean;
+  summary: string;
+  notes: string | null;
+  tokens: number | null;
+}
+export const runStrategist = (objective: string, asset_class = "equity", allow_research = false) =>
+  postJSON<StrategistResult>("/api/quant/strategist", { objective, asset_class, allow_research });

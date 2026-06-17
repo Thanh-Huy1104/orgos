@@ -95,6 +95,26 @@ def crypto(body: CryptoScanBody) -> dict:
     return run_crypto_scan(body.coins, lookback_days=body.lookback_days, fdr=body.fdr)
 
 
+class StrategistBody(BaseModel):
+    objective: str
+    asset_class: str = "equity"
+    allow_research: bool = False
+
+
+@router.post("/strategist")
+def strategist(body: StrategistBody) -> dict:
+    """Agent-driven discovery: an LLM strategist proposes universes, scans them,
+    optionally spawns research, and synthesises a handoff. Slow (minutes)."""
+    from .quant_strategist import run_strategist
+
+    r = run_strategist(body.objective, asset_class=body.asset_class,
+                       allow_research=body.allow_research, verbose=False)
+    e = r.envelope
+    return {"status": e.status, "criteria_met": e.success_criteria_met,
+            "summary": e.summary, "notes": e.notes,
+            "tokens": (r.token_usage or {}).get("total_tokens")}
+
+
 @router.get("/risk")
 def risk() -> dict:
     """Read-only risk assessment of the live book + current kill-switch state."""
