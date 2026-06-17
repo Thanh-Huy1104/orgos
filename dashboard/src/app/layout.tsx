@@ -11,6 +11,7 @@ const nav = [
   { href: "/", label: "Desk", icon: "◫" },
   { href: "/scanner", label: "Scanner", icon: "⊞" },
   { href: "/signals", label: "Signals", icon: "⚡" },
+  { href: "/crypto", label: "Crypto", icon: "◈" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

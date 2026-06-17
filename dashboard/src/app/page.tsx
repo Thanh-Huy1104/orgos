@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import {
-  getBook, getUniverses, getRecommend,
-  QuantBook, RecommendReport, Dossier, ActivePair,
+  getBook, getUniverses, getRecommend, getRisk, postHalt,
+  QuantBook, RecommendReport, Dossier, ActivePair, RiskReport,
 } from "@/lib/api";
 
 const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -103,11 +103,24 @@ export default function Desk() {
   const [selected, setSelected] = useState<string[]>(["utilities"]);
   const [rec, setRec] = useState<RecommendReport | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [risk, setRisk] = useState<RiskReport | null>(null);
+  const [halting, setHalting] = useState<number | null>(null);
 
+  const loadRisk = () => getRisk().then(setRisk).catch(() => {});
   useEffect(() => {
     getBook().then(setBook).catch(() => setBookErr(true));
     getUniverses().then((u) => setUniverses(Object.keys(u.universes))).catch(() => {});
+    loadRisk();
   }, []);
+
+  const doHalt = async (pairId: number, pair: string) => {
+    if (!confirm(`HALT ${pair}? This sets Icarus's kill switch — the engine stops `
+      + `trading this pair. orgos cannot un-halt; you re-enable it in Icarus.`)) return;
+    setHalting(pairId);
+    try { await postHalt(pairId, `manual halt from desk (${pair})`); await loadRisk(); }
+    catch { /* surfaced by risk reload */ }
+    finally { setHalting(null); }
+  };
 
   const toggle = (u: string) =>
     setSelected((s) => (s.includes(u) ? s.filter((x) => x !== u) : [...s, u]));
@@ -155,14 +168,32 @@ export default function Desk() {
       )}
 
       <div className="card mb-4">
-        <div className="text-sm font-semibold mb-3">Live Book</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm font-semibold">Live Book</div>
+          {risk && <div className="text-xs" style={{ color: "var(--text-muted)" }}>{risk.summary}</div>}
+        </div>
         {book?.active_pairs?.length
-          ? book.active_pairs.map((p: ActivePair) => (
-              <div key={p.pair} className="flex items-center gap-4 py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
-                <span className="font-medium w-24">{p.pair}</span>
-                <div className="flex-1"><ZBar z={p.z_score} /></div>
-              </div>
-            ))
+          ? book.active_pairs.map((p: ActivePair) => {
+              const r = risk?.active_pairs.find((a) => a.pair === p.pair);
+              const halted = r?.already_halted;
+              return (
+                <div key={p.pair} className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+                  <span className="font-medium w-24">{p.pair}</span>
+                  <div className="flex-1"><ZBar z={p.z_score} /></div>
+                  {r && r.structural_risk !== "LOW" && (
+                    <span className={r.structural_risk === "HIGH" ? "badge badge-red" : "badge badge-yellow"}>
+                      {r.structural_risk}
+                    </span>
+                  )}
+                  {halted
+                    ? <span className="badge badge-gray">halted</span>
+                    : r && <button className="btn btn-secondary" style={{ padding: "2px 10px", fontSize: 12 }}
+                        onClick={() => doHalt(r.pair_id, p.pair)} disabled={halting === r.pair_id}>
+                        {halting === r.pair_id ? "…" : (r.recommend_halt ? "⚠ Halt" : "Halt")}
+                      </button>}
+                </div>
+              );
+            })
           : <div className="text-sm" style={{ color: "var(--text-muted)" }}>No active pairs.</div>}
       </div>
 

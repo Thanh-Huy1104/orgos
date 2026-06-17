@@ -287,3 +287,34 @@ export interface EventReport {
 
 export const getEvents = (event_days = 7, gate_days = 90) =>
   postJSON<EventReport>("/api/quant/events", { event_days, gate_days });
+
+// ── Crypto + kill switch ──────────────────────────────────────────────────────
+
+export interface CryptoCandidate {
+  pair: string; y: string; x: string; beta: number;
+  adf_p: number; p_recent: number; p_oos: number; oos_confirmed: boolean;
+  half_life: number; hurst: number; factor_r2: number | null; sector: string;
+}
+export interface CryptoReport {
+  asset_class: string; factor: string; coins_scanned: string[];
+  hubs_excluded: string[]; pairs_tested: number; fdr: number;
+  fdr_cutoff: number; candidates_found: number; candidates: CryptoCandidate[];
+  error?: string;
+}
+export const getCryptoScan = (fdr = 0.10) =>
+  postJSON<CryptoReport>("/api/quant/crypto", { fdr });
+
+export interface RiskAssessment {
+  pair_id: number; pair: string;
+  structural_risk: "LOW" | "MEDIUM" | "HIGH";
+  recommend_halt: boolean; already_halted: boolean;
+  leg_filings: Record<string, LegFiling>;
+}
+export interface RiskReport {
+  active_pairs: RiskAssessment[];
+  recommend_halt: RiskAssessment[];
+  summary: string;
+}
+export const getRisk = () => fetchAPI<RiskReport>("/api/quant/risk");
+export const postHalt = (pair_id: number, reason: string) =>
+  postJSON<{ pair_id: number; halted: boolean; reason: string }>("/api/quant/halt", { pair_id, reason });

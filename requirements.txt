@@ -15,3 +15,4 @@ statsmodels>=0.14    # optional: real ADF test (falls back to a correlation prox
 # Keys are read from the environment by litellm — no package install needed.
 yfinance
 ccxt
+redis

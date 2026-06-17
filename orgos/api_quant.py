@@ -79,3 +79,49 @@ def events(body: EventScanBody) -> dict:
         event_days=body.event_days, gate_days=body.gate_days,
         universes=body.universes,
     )
+
+
+class CryptoScanBody(BaseModel):
+    coins: list[str] | None = None
+    lookback_days: int = 365
+    fdr: float = 0.10
+
+
+@router.post("/crypto")
+def crypto(body: CryptoScanBody) -> dict:
+    """Crypto cointegration scan — recent-window durability, hub exclusion, OOS flag."""
+    from .crypto_tool import run_crypto_scan
+
+    return run_crypto_scan(body.coins, lookback_days=body.lookback_days, fdr=body.fdr)
+
+
+@router.get("/risk")
+def risk() -> dict:
+    """Read-only risk assessment of the live book + current kill-switch state."""
+    from .kill_switch import assess_active_pairs
+
+    try:
+        return assess_active_pairs()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"risk assessment failed: {exc}")
+
+
+class HaltBody(BaseModel):
+    pair_id: int
+    reason: str
+
+
+@router.post("/halt")
+def halt(body: HaltBody) -> dict:
+    """Publish a HALT to Icarus's Redis kill switch for one pair (set-only).
+
+    This is the one write orgos makes to the live system. It only STOPS a pair
+    (the fail-safe direction) — orgos never clears a halt; un-halting is a human
+    decision in Icarus/Mimir.
+    """
+    from .kill_switch import publish_halt
+
+    try:
+        return publish_halt(body.pair_id, body.reason)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"halt failed: {exc}")
