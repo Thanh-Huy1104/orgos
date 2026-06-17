@@ -13,3 +13,4 @@ statsmodels>=0.14    # optional: real ADF test (falls back to a correlation prox
 #   Anthropic  anthropic/claude-*    -> ANTHROPIC_API_KEY   (console.anthropic.com)
 #   Gemini     gemini/*              -> GEMINI_API_KEY      (aistudio.google.com)
 # Keys are read from the environment by litellm — no package install needed.
+yfinance

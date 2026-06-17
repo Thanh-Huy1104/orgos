@@ -119,9 +119,16 @@ def budget_llm(
     effective ceiling of N × max_tokens with nothing watching the aggregate.
     """
     # Guard against stacking wrappers when the same LLM instance is reused
-    # across roles: always wrap the *original* call, never a previous wrapper,
-    # so re-wrapping replaces (last-cap-wins) instead of nesting.
-    original_call = getattr(llm, "_orgos_budget_original", None) or llm.call
+    # across roles: detect a previous budget wrapper (marked on the function
+    # object below) and re-wrap the *original* call, not the wrapper — so
+    # re-wrapping replaces (last-cap-wins) instead of nesting. Checking a marker
+    # on the call function is robust to mocks (a plain function lacks it),
+    # unlike probing an attribute the LLM object might auto-create.
+    current_call = llm.call
+    if getattr(current_call, "_orgos_budget_wrapper", False):
+        original_call = llm._orgos_budget_original
+    else:
+        original_call = current_call
     llm._orgos_budget_original = original_call
 
     def _budgeted_call(
@@ -168,6 +175,7 @@ def budget_llm(
             )
         return result
 
+    _budgeted_call._orgos_budget_wrapper = True
     llm.call = _budgeted_call
     return llm
 
