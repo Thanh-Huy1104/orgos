@@ -3,18 +3,14 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "orgos",
-  description: "Your company of AI agents",
+  title: "Quant Desk",
+  description: "Cointegration research desk for the Icarus engine",
 };
 
 const nav = [
-  { href: "/", label: "Dashboard", icon: "◫" },
-  { href: "/projects", label: "Projects", icon: "⊞" },
-  { href: "/calendar", label: "Calendar", icon: "◷" },
-  { href: "/org", label: "Organization", icon: "⊡" },
-  { href: "/policies", label: "Policies", icon: "⚖" },
-  { href: "/requests", label: "Requests", icon: "↗" },
-  { href: "/logs", label: "Logs", icon: "☰" },
+  { href: "/", label: "Desk", icon: "◫" },
+  { href: "/scanner", label: "Scanner", icon: "⊞" },
+  { href: "/signals", label: "Signals", icon: "⚡" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -24,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <aside className="w-56 shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--bg-sidebar)" }}>
           <div className="h-14 flex items-center px-4 border-b" style={{ borderColor: "var(--border)" }}>
             <Link href="/" className="font-semibold text-lg tracking-tight" style={{ color: "var(--text-primary)" }}>
-              orgos
+              Quant Desk
             </Link>
           </div>
           <nav className="flex flex-col gap-0.5 p-3 flex-1">

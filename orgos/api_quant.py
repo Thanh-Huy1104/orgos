@@ -62,3 +62,20 @@ def recommend(body: RecommendBody) -> dict:
 
     return _recommend(body.universes, gate_days=body.gate_days,
                       lookback_days=body.lookback_days)
+
+
+class EventScanBody(BaseModel):
+    event_days: int = 7
+    gate_days: int = 90
+    universes: list[str] | None = None
+
+
+@router.post("/events")
+def events(body: EventScanBody) -> dict:
+    """Event-driven discovery: material SEC filings → implicated sectors → scan → gate."""
+    from .event_discovery import discover_from_events
+
+    return discover_from_events(
+        event_days=body.event_days, gate_days=body.gate_days,
+        universes=body.universes,
+    )

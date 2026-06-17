@@ -260,3 +260,30 @@ export const runScan = (universe: string, lookback_days = 504) =>
   postJSON<ScanResult>("/api/quant/scan", { universe, lookback_days });
 export const getRecommend = (universes: string[], gate_days = 90) =>
   postJSON<RecommendReport>("/api/quant/recommend", { universes, gate_days });
+
+// ── Event-driven discovery (C6) ──────────────────────────────────────────────
+
+export interface MarketEvent {
+  ticker: string;
+  sector: string | null;
+  risk: "MEDIUM" | "HIGH";
+  forms: string[];
+  n_filings: number;
+}
+export interface SectorResult {
+  sector: string;
+  candidates_found: number;
+  promote: Dossier[];
+  review: Dossier[];
+  hold: Dossier[];
+}
+export interface EventReport {
+  as_of: string;
+  events: MarketEvent[];
+  triggered_sectors: string[];
+  results: SectorResult[];
+  summary: string;
+}
+
+export const getEvents = (event_days = 7, gate_days = 90) =>
+  postJSON<EventReport>("/api/quant/events", { event_days, gate_days });
