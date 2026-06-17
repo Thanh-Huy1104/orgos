@@ -38,6 +38,16 @@ class LoopDetected(Exception):
     """
 
 
+class ToolBudgetExceeded(Exception):
+    """Raised when an agent makes more tool calls than its brief's call budget.
+
+    The cure for vague delegation (Anthropic): a brief should cap how many tool
+    calls a worker may spend so it can't fan out unboundedly. Distinct from
+    LoopDetected — this trips even on *varied* calls once the total exceeds the
+    budget (e.g. fetching 20 different URLs when the brief allotted 6).
+    """
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Chain-level token budget
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -70,13 +80,21 @@ class RunBudget:
 # Audit log
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def make_audit_callback(role_name: str, run_id: str, *, max_repeats: int = 4):
-    """Create a step_callback that logs every agent step and detects loops.
+def make_audit_callback(
+    role_name: str,
+    run_id: str,
+    *,
+    max_repeats: int = 4,
+    max_actions: int | None = None,
+):
+    """Create a step_callback that logs every agent step and bounds its actions.
 
-    Appends each step to a JSONL audit log, and tracks how often each distinct
-    ``(tool, tool_input)`` action recurs within this agent's reasoning loop.
-    After the same action fires more than ``max_repeats`` times, raises
-    ``LoopDetected`` to abort the run with the offending signature named.
+    Appends each step to a JSONL audit log, then enforces two action limits:
+      - loop guard: if the same ``(tool, tool_input)`` action recurs more than
+        ``max_repeats`` times, raise ``LoopDetected`` (catches cheap loops).
+      - call budget: if total tool calls exceed ``max_actions`` (the brief's
+        ``tool_call_budget``, when set), raise ``ToolBudgetExceeded`` — this
+        trips even on *varied* calls (the cure for unbounded fan-out).
     """
     audit_log = AUDIT_DIR / f"{run_id}.jsonl"
     audit_log.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +122,16 @@ def make_audit_callback(role_name: str, run_id: str, *, max_repeats: int = 4):
                     f"Loop detected: role '{role_name}' issued the same action "
                     f"'{step_output.tool}' with identical input {action_counts[sig]} "
                     f"times (>{max_repeats}). Run aborted. Input: {tool_input[:200]}"
+                )
+            total_actions = sum(action_counts.values())
+            if max_actions is not None and total_actions > max_actions:
+                with audit_log.open("a") as f:
+                    f.write(json.dumps({**record, "type": "tool_budget_exceeded",
+                                        "total_actions": total_actions}) + "\n")
+                raise ToolBudgetExceeded(
+                    f"Tool-call budget exceeded: role '{role_name}' made "
+                    f"{total_actions} tool calls (>{max_actions} allotted by the "
+                    f"brief). Run aborted."
                 )
         elif hasattr(step_output, "output"):
             record.update({

@@ -36,6 +36,7 @@ from .audit import (
     BudgetExceeded,
     LoopDetected,
     RunBudget,
+    ToolBudgetExceeded,
     make_audit_callback,
     make_task_callback,
 )
@@ -176,13 +177,15 @@ def _make_logged_agent(
     approval_fn: Any | None = None,
     verbose: bool = True,
     run_budget: RunBudget | None = None,
+    max_actions: int | None = None,
 ) -> Any:
     """Build a CrewAI Agent with tier enforcement, audit logging, and gates.
 
     Budget enforcement happens at the LLM layer (see contracts.budget_llm)
     so it fires for tool-less agents too. ``run_budget``, when supplied, is the
     shared chain-level ceiling fed by every role's LLM calls. The audit callback
-    also enforces step-repetition (loop) detection.
+    enforces step-repetition (loop) detection and, when ``max_actions`` is set
+    (the brief's tool_call_budget), a hard cap on total tool calls.
 
     Copies tools before wiring so shared instances don't cross-mutate
     (PrivateAttrs are fresh on copy, and _wire_gates sets role + gate fields
@@ -193,7 +196,7 @@ def _make_logged_agent(
 
     return role.to_agent(
         tools=tools,
-        step_callback=make_audit_callback(role.name, run_id),
+        step_callback=make_audit_callback(role.name, run_id, max_actions=max_actions),
         verbose=verbose,
         run_budget=run_budget,
     )
@@ -357,7 +360,7 @@ def _kickoff_with_fallback(build_crew: Any, probe_structured: bool = True) -> An
         return build_crew(False).kickoff()
     try:
         return build_crew(True).kickoff()
-    except (BudgetExceeded, LoopDetected):
+    except (BudgetExceeded, LoopDetected, ToolBudgetExceeded):
         raise
     except Exception as exc:  # noqa: BLE001 — provider errors are opaque
         if _is_structured_unsupported(exc):
@@ -398,13 +401,15 @@ def spawn(
     def build_crew(structured: bool) -> Crew:
         op = _UNSET if structured else None
         agent = _make_logged_agent(
-            role, run_id, approval_fn, verbose=verbose, run_budget=run_budget
+            role, run_id, approval_fn, verbose=verbose, run_budget=run_budget,
+            max_actions=brief.tool_call_budget,
         )
 
         if role.tier == PermissionTier.ORCHESTRATOR and subordinates:
             sub_agents = [
                 _make_logged_agent(
-                    s, run_id, approval_fn, verbose=verbose, run_budget=run_budget
+                    s, run_id, approval_fn, verbose=verbose, run_budget=run_budget,
+                    max_actions=brief.tool_call_budget,
                 )
                 for s in subordinates
             ]
@@ -450,7 +455,7 @@ def spawn(
 
     try:
         result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
-    except (BudgetExceeded, LoopDetected) as exc:
+    except (BudgetExceeded, LoopDetected, ToolBudgetExceeded) as exc:
         return SpawnResult(
             envelope=HandoffEnvelope.failed(role.name, str(exc)),
             run_id=run_id,
@@ -511,7 +516,8 @@ def spawn_chain(
         tasks: list[Task] = []
         for i, (role_spec, task_brief) in enumerate(steps):
             agent = _make_logged_agent(
-                role_spec, run_id, approval_fn, verbose=verbose, run_budget=run_budget
+                role_spec, run_id, approval_fn, verbose=verbose,
+                run_budget=run_budget, max_actions=task_brief.tool_call_budget,
             )
             agents.append(agent)
 
@@ -538,7 +544,7 @@ def spawn_chain(
 
     try:
         result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
-    except (BudgetExceeded, LoopDetected) as exc:
+    except (BudgetExceeded, LoopDetected, ToolBudgetExceeded) as exc:
         return SpawnResult(
             envelope=HandoffEnvelope.failed(last_role, str(exc)),
             run_id=run_id,

@@ -353,6 +353,13 @@ class TaskBrief(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     success_criteria: list[str] = Field(default_factory=list)
 
+    # Anti-vague-delegation fields (Anthropic's documented cure). source_guidance
+    # tells the worker WHERE to look; tool_call_budget caps HOW MANY tool calls it
+    # may spend. The budget is both surfaced in the prompt and enforced in code
+    # (audit callback raises ToolBudgetExceeded past it) — prompts alone don't hold.
+    source_guidance: str = ""
+    tool_call_budget: int | None = None
+
     def render_description(self, role: RoleSpec | None = None) -> str:
         crit = self.success_criteria or (role.success_criteria if role else [])
         parts = [f"# Objective\n{self.objective}"]
@@ -360,6 +367,14 @@ class TaskBrief(BaseModel):
             parts.append("\n# Inputs")
             for k, v in self.inputs.items():
                 parts.append(f"- {k}: {v}")
+        if self.source_guidance:
+            parts.append(f"\n# Where to look\n{self.source_guidance}")
+        if self.tool_call_budget is not None:
+            parts.append(
+                f"\n# Tool-call budget\nYou may make at most {self.tool_call_budget} "
+                f"tool calls. Spend them deliberately — gather what you need, then "
+                f"stop and report. Exceeding this aborts the run."
+            )
         if self.boundaries:
             parts.append("\n# Boundaries (do NOT)")
             parts.extend(f"- {b}" for b in self.boundaries)

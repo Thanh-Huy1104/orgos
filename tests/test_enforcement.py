@@ -488,3 +488,61 @@ class TestLoopDetection:
         step = self._step("web_search", "same query")
         for _ in range(4):  # exactly max_repeats, not over
             cb(step)
+
+
+class TestToolCallBudget:
+    """A brief's tool_call_budget caps total tool calls, even varied ones —
+    the cure for unbounded fan-out (distinct from the loop guard)."""
+
+    @staticmethod
+    def _step(tool, tool_input):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(tool=tool, tool_input=tool_input, thought="")
+
+    def test_varied_calls_aborts_past_budget(self):
+        from orgos.audit import make_audit_callback, ToolBudgetExceeded
+
+        cb = make_audit_callback("fanout", "test-toolbudget", max_actions=5)
+        with pytest.raises(ToolBudgetExceeded):
+            for i in range(20):  # all distinct URLs → loop guard never fires
+                cb(self._step("web_fetch", f"http://x/{i}"))
+
+    def test_within_budget_ok(self):
+        from orgos.audit import make_audit_callback
+
+        cb = make_audit_callback("worker", "test-toolbudget-ok", max_actions=5)
+        for i in range(5):  # exactly the budget, not over
+            cb(self._step("web_fetch", f"http://x/{i}"))
+
+    def test_no_budget_means_unbounded(self):
+        from orgos.audit import make_audit_callback
+
+        cb = make_audit_callback("worker", "test-nobudget", max_actions=None)
+        for i in range(50):
+            cb(self._step("web_fetch", f"http://x/{i}"))  # no cap → no raise
+
+
+class TestBriefRendering:
+    """source_guidance and tool_call_budget must surface in the task prompt."""
+
+    def test_source_guidance_in_description(self):
+        from orgos import TaskBrief
+
+        brief = TaskBrief(objective="find X", source_guidance="prefer arxiv and HF")
+        desc = brief.render_description()
+        assert "prefer arxiv and HF" in desc
+
+    def test_tool_call_budget_in_description(self):
+        from orgos import TaskBrief
+
+        brief = TaskBrief(objective="find X", tool_call_budget=6)
+        desc = brief.render_description()
+        assert "at most 6 tool calls" in desc
+
+    def test_absent_fields_not_rendered(self):
+        from orgos import TaskBrief
+
+        desc = TaskBrief(objective="find X").render_description()
+        assert "Where to look" not in desc
+        assert "Tool-call budget" not in desc

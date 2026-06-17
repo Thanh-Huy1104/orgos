@@ -87,6 +87,12 @@ departments:
             Search for top technology and AI news from the past 24 hours.
             Summarize the 3 most important stories with sources.
           expected_output: Daily briefing with 3 top stories and sources.
+          # Bounded delegation (P1): tell the worker where to look and cap its
+          # tool calls. Surfaced in the prompt AND enforced in code.
+          source_guidance: |
+            Prefer reputable tech press and primary sources. One good source
+            per story is enough — do not over-fetch.
+          tool_call_budget: 8
 
   # ── Engineering: code, git, testing, project builds ───────────────────
   - name: engineering
