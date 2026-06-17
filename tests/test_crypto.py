@@ -110,12 +110,14 @@ class TestCryptoCache:
 
 
 class TestCryptoScanTool:
-    def _panel(self, n=600, seed=0):
+    def _panel(self, n=600, seed=1):
+        # phi=0.80/sd=0.02 → cointegrated in BOTH full and recent windows
+        # (passes the recent-window durability gate), hl~3.4d, hurst~0.08.
         rng = np.random.default_rng(seed)
         x_log = rng.normal(0, 0.02, n).cumsum()
         spread = np.zeros(n)
         for i in range(1, n):
-            spread[i] = 0.90 * spread[i - 1] + rng.normal(0, 0.012)
+            spread[i] = 0.80 * spread[i - 1] + rng.normal(0, 0.02)
         return pd.DataFrame({
             "ETH": 100 * np.exp(0.5 * x_log + spread),
             "SOL": 80 * np.exp(x_log),
@@ -127,6 +129,26 @@ class TestCryptoScanTool:
         out = crypto_tool.run_crypto_scan(["ETH", "SOL"], refresh_cache=False)
         assert "BTC" not in out["coins_scanned"]   # BTC is the factor
         assert out["asset_class"] == "crypto"
+
+    def test_finds_durable_pair_with_oos_flag(self, monkeypatch):
+        monkeypatch.setattr(crypto_tool, "get_panel", lambda syms, lb, **k: self._panel())
+        out = crypto_tool.run_crypto_scan(["ETH", "SOL"], refresh_cache=False)
+        assert out["candidates_found"] >= 1
+        c = out["candidates"][0]
+        # every candidate carries the new durability + confidence fields
+        assert "p_recent" in c and "p_oos" in c and "oos_confirmed" in c
+        assert c["p_recent"] < 0.05               # regime-current gate held
+
+    def test_hub_pairs_excluded(self, monkeypatch):
+        # add a hub coin (FIL) to the panel; it must not appear in coins_scanned.
+        def panel(syms, lb, **k):
+            p = self._panel()
+            p["FIL"] = p["ETH"] * 1.01            # cointegrated-looking hub
+            return p
+        monkeypatch.setattr(crypto_tool, "get_panel", panel)
+        out = crypto_tool.run_crypto_scan(["ETH", "SOL", "FIL"], refresh_cache=False)
+        assert "FIL" not in out["coins_scanned"]
+        assert "FIL" in out["hubs_excluded"]
 
     def test_tool_returns_valid_json(self, monkeypatch):
         monkeypatch.setattr(crypto_tool, "get_panel", lambda syms, lb, **k: self._panel())

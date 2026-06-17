@@ -45,6 +45,41 @@ def engle_granger(y: pd.Series, x: pd.Series, *, use_log: bool = True
     return pvalue, float(beta), pd.Series(spread, index=y.index)
 
 
+def recent_pvalue(y: pd.Series, x: pd.Series, recent: int = 120, *, use_log: bool = True) -> float:
+    """Cointegration p-value on just the most-recent `recent` observations.
+
+    The regime-currency check: is the pair cointegrated *now*, not only over the
+    full sample? Pairs that cointegrate over a year but not in the recent window
+    have already broken — the relationship is stale.
+    """
+    if len(y) < recent + 5:
+        recent = max(30, len(y) - 5)
+    p, _, _ = engle_granger(y.iloc[-recent:], x.iloc[-recent:], use_log=use_log)
+    return p
+
+
+def oos_pvalue(y: pd.Series, x: pd.Series, oos: int = 90, *, use_log: bool = True) -> float:
+    """Walk-forward out-of-sample cointegration p-value.
+
+    Fit the hedge ratio on the in-sample window (everything before the last
+    `oos` obs), then test whether the spread built with that *frozen* ratio is
+    stationary on the held-out window the ratio never saw. The honest "does this
+    persist" test — relationships that only hold in-sample fail here.
+    """
+    n = len(y)
+    if n < oos + 60:
+        oos = max(30, n // 3)
+    yi, xi = y.iloc[:-oos], x.iloc[:-oos]
+    yo, xo = y.iloc[-oos:], x.iloc[-oos:]
+    li_y = np.log(yi.to_numpy(float)) if use_log else yi.to_numpy(float)
+    li_x = np.log(xi.to_numpy(float)) if use_log else xi.to_numpy(float)
+    alpha, beta = sm.OLS(li_y, sm.add_constant(li_x)).fit().params
+    lo_y = np.log(yo.to_numpy(float)) if use_log else yo.to_numpy(float)
+    lo_x = np.log(xo.to_numpy(float)) if use_log else xo.to_numpy(float)
+    spread_oos = lo_y - (alpha + beta * lo_x)
+    return float(adfuller(spread_oos, maxlag=1, regression="c", autolag=None)[1])
+
+
 def half_life(spread: np.ndarray | pd.Series) -> float:
     """Half-life of mean reversion via AR(1) on the spread (NaN if not reverting)."""
     r = np.asarray(spread, dtype=float)
