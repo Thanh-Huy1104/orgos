@@ -30,10 +30,13 @@ class TestStrategistWiring:
         synth_role, _ = steps[1]
         assert strategist_role.tier == PermissionTier.WORKER
         tool_names = {t.name for t in strategist_role.tools}
-        assert {"scan_cointegrated_pairs", "scan_crypto_pairs", "research_linkage"} <= tool_names
+        # grounding tools (arxiv + real constituents) + validators + research
+        assert {"search_arxiv", "index_constituents", "scan_cointegrated_pairs",
+                "scan_crypto_pairs", "research_linkage"} <= tool_names
+        assert strategist_role.skills                    # quant-research SKILL.md attached
         assert synth_role.tools == []                    # terminal synth has no tools
         assert captured["kw"]["run_budget_tokens"] == 400_000
-        assert strat_brief.tool_call_budget == 8
+        assert strat_brief.tool_call_budget == 14
 
     def test_research_can_be_disabled(self, monkeypatch):
         captured = {}

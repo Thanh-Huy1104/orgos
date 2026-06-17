@@ -16,3 +16,4 @@ statsmodels>=0.14    # optional: real ADF test (falls back to a correlation prox
 yfinance
 ccxt
 redis
+lxml

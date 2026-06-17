@@ -26,12 +26,16 @@ from typing import Any
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from pathlib import Path
+
 from .contracts import PermissionTier, RoleSpec, TaskBrief
 from .crypto_tool import CryptoScannerTool
 from .quant_tool import CointegrationScannerTool
+from .research_sources import ArxivSearchTool, IndexConstituentsTool
 from .spawn import spawn_chain
 
 STRATEGIST_MODEL = os.environ.get("ORGOS_STRATEGIST_MODEL", "deepseek/deepseek-v4-pro")
+_SKILL_DIR = Path(__file__).resolve().parent.parent / "skills" / "quant" / "strategy-research"
 
 _ORG = None
 
@@ -86,34 +90,28 @@ class ResearchLinkageTool(BaseTool):
 
 
 _STRATEGIST_PROMPT = (
-    "You are a quantitative strategist hunting cointegration alpha that others "
-    "miss. You do NOT scan obvious same-sector lists — that's crowded. Instead "
-    "you reason about NON-OBVIOUS reasons two assets should move together:\n"
-    "  - supply-chain / customer-supplier links (chip designer & foundry, "
-    "automaker & parts supplier)\n"
-    "  - shared commodity/input exposure (airlines & a refiner; two names both "
-    "driven by copper)\n"
-    "  - corporate-structure pairs (spinoff & parent, dual share classes)\n"
-    "  - cross-sector single-factor (rate-sensitive names across REITs, utilities, "
-    "regional banks)\n\n"
-    "Workflow:\n"
-    "1. From the objective, PROPOSE 2-4 concrete candidate universes (explicit "
-    "ticker lists), each with a one-line economic thesis for why cointegration is "
-    "plausible there.\n"
-    "2. Test each universe by calling the scan tool (scan_cointegrated_pairs for "
-    "equities, scan_crypto_pairs for crypto) with your ticker list.\n"
-    "3. For a pair that SURVIVES the scan, you may call research_linkage once to "
-    "verify the economic rationale (optional, slow).\n"
-    "4. Report the durable surviving pairs, each with: the stats from the scan AND "
-    "the economic thesis that led you to look there. If nothing survives, say so "
-    "honestly — a clean 'no durable pairs in these hypotheses' is a valid result.\n"
-    "You propose and validate; you never trade."
+    "You are a quantitative analyst hunting cointegration alpha others miss. "
+    "Follow the strategy-research skill: research the literature and the REAL "
+    "universe before scanning — never propose tickers from memory.\n\n"
+    "Grounded workflow:\n"
+    "1. search_arxiv for the relationships you're considering — let documented "
+    "findings shape your hypotheses (not your recall).\n"
+    "2. index_constituents to get the ACTUAL, complete membership of a sector — "
+    "pass the real full list to the scanner, never a remembered subset.\n"
+    "3. Look for NON-OBVIOUS structure: supply-chain links, shared-commodity "
+    "exposure, corporate-structure pairs, cross-sector single-factor groups.\n"
+    "4. scan_cointegrated_pairs (equities) / scan_crypto_pairs (crypto) on the real "
+    "universe — the scanner is the deterministic judge (FDR, durability, factor "
+    "independence). Trust it over intuition.\n"
+    "5. Optionally research_linkage once on a survivor to confirm the rationale.\n"
+    "6. Report durable survivors with stats + grounded rationale, or an honest "
+    "'no durable pairs in these hypotheses'. You propose and validate; never trade."
 )
 
 
 def run_strategist(
     objective: str, *, asset_class: str = "equity", allow_research: bool = True,
-    model: str | None = None, tool_call_budget: int = 8, verbose: bool = False,
+    model: str | None = None, tool_call_budget: int = 14, verbose: bool = False,
 ) -> Any:
     """Hypothesize → scan → (optionally) research → synthesise a clean handoff.
 
@@ -125,18 +123,23 @@ def run_strategist(
     clean handoff — the same pattern the departments use.
     """
     mdl = model or STRATEGIST_MODEL
-    tools: list[Any] = [CointegrationScannerTool(), CryptoScannerTool()]
+    # Grounding tools first (research before scanning), then the validators.
+    tools: list[Any] = [
+        ArxivSearchTool(), IndexConstituentsTool(),
+        CointegrationScannerTool(), CryptoScannerTool(),
+    ]
     if allow_research:
         tools.append(ResearchLinkageTool())
 
     strategist = RoleSpec(
         name="quant-strategist",
-        description="Proposes non-obvious cointegration universes and validates them with the scan tools.",
+        description="Researches the literature + real universes, then validates cointegration hypotheses.",
         tier=PermissionTier.WORKER,
         system_prompt=_STRATEGIST_PROMPT,
         tools=tools,
         model=mdl,
         max_iter=20,
+        skills=[str(_SKILL_DIR)] if _SKILL_DIR.is_dir() else [],
     )
     synth = RoleSpec(
         name="quant-synth",
