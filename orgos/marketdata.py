@@ -92,6 +92,30 @@ _PROVIDERS: list[tuple[str, str | None, Provider]] = [
 ]
 
 
+def _run_providers(
+    ticker: str, start_iso: str, end_iso: str,
+    providers: list[tuple[str, str | None, Provider]],
+) -> tuple[str, pd.Series, list[str]]:
+    """Try each provider for an explicit date range; first non-empty wins.
+
+    Skips keyed providers with no key, falls through on error OR empty.
+    Raises MarketDataError if all fail.
+    """
+    errors: list[str] = []
+    for name, env_key, fn in providers:
+        key = os.environ.get(env_key) if env_key else None
+        if env_key is not None and not key:
+            continue
+        try:
+            s = fn(ticker, start_iso, end_iso, key)
+            if s is not None and len(s) > 0:
+                return name, s, errors
+            errors.append(f"{name}: empty")
+        except Exception as exc:  # noqa: BLE001 — try the next provider
+            errors.append(f"{name}: {type(exc).__name__}: {str(exc)[:120]}")
+    raise MarketDataError(f"no price data for {ticker!r}: {errors}")
+
+
 def get_prices_with_source(
     ticker: str,
     lookback_days: int = 504,
@@ -99,35 +123,40 @@ def get_prices_with_source(
     end: dt.date | None = None,
     providers: list[tuple[str, str | None, Provider]] | None = None,
 ) -> tuple[str, pd.Series, list[str]]:
-    """Fetch an adjusted-close series, trying each provider in priority order.
+    """Fetch an adjusted-close series by lookback, trying providers in order.
 
-    Returns (provider_name, series, errors). Skips keyed providers with no key,
-    and falls through on error OR empty. Raises MarketDataError if all fail.
     ``lookback_days`` is in *trading* days; we request extra calendar days and
     trim to the tail.
     """
-    providers = providers or _PROVIDERS
     end = end or dt.date.today()
     # ~1.6 calendar days per trading day, plus a buffer for holidays/weekends.
     start = end - dt.timedelta(days=int(lookback_days * 1.6) + 14)
-    errors: list[str] = []
+    name, s, errors = _run_providers(
+        ticker, start.isoformat(), end.isoformat(), providers or _PROVIDERS
+    )
+    return name, s.tail(lookback_days), errors
 
-    for name, env_key, fn in providers:
-        key = os.environ.get(env_key) if env_key else None
-        if env_key is not None and not key:
-            continue
-        try:
-            s = fn(ticker, start.isoformat(), end.isoformat(), key)
-            if s is not None and len(s) > 0:
-                return name, s.tail(lookback_days), errors
-            errors.append(f"{name}: empty")
-        except Exception as exc:  # noqa: BLE001 — try the next provider
-            errors.append(f"{name}: {type(exc).__name__}: {str(exc)[:120]}")
 
-    raise MarketDataError(f"no price data for {ticker!r}: {errors}")
+def get_prices_range_with_source(
+    ticker: str, start: dt.date, end: dt.date,
+    *, providers: list[tuple[str, str | None, Provider]] | None = None,
+) -> tuple[str, pd.Series, list[str]]:
+    """Fetch an adjusted-close series for an explicit [start, end] date range.
+
+    Used by the bars cache for incremental top-ups (fetch only missing dates).
+    """
+    return _run_providers(
+        ticker, start.isoformat(), end.isoformat(), providers or _PROVIDERS
+    )
 
 
 def get_prices(ticker: str, lookback_days: int = 504, **kw: Any) -> pd.Series:
     """Adjusted-close series for one ticker (provider chosen automatically)."""
     _, series, _ = get_prices_with_source(ticker, lookback_days, **kw)
+    return series
+
+
+def get_prices_range(ticker: str, start: dt.date, end: dt.date, **kw: Any) -> pd.Series:
+    """Adjusted-close series for an explicit date range (provider auto-chosen)."""
+    _, series, _ = get_prices_range_with_source(ticker, start, end, **kw)
     return series
