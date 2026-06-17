@@ -100,7 +100,9 @@ TIER_POLICY: dict[PermissionTier, TierPolicy] = {
 # ── LLM-layer token budget ───────────────────────────────────────────────────
 
 
-def budget_llm(llm: LLM, role_name: str, max_tokens: int) -> LLM:
+def budget_llm(
+    llm: LLM, role_name: str, max_tokens: int, run_budget: Any | None = None
+) -> LLM:
     """Wrap an LLM to enforce a cumulative token budget at the call boundary.
 
     Mirrors the Anthropic SDK approach: enforcement lives on the LLM-call
@@ -110,6 +112,11 @@ def budget_llm(llm: LLM, role_name: str, max_tokens: int) -> LLM:
     The wrapper monkey-patches ``llm.call`` to read ``_token_usage`` before
     and after each invocation; if cumulative usage exceeds *max_tokens* it
     raises ``BudgetExceeded``, which propagates out through ``kickoff()``.
+
+    If *run_budget* (a ``RunBudget``) is supplied, each call's token *delta* is
+    also added to that shared counter, which enforces a ceiling across every
+    role in the run — not just this one LLM. Without it, an N-role chain has an
+    effective ceiling of N × max_tokens with nothing watching the aggregate.
     """
     # Guard against stacking wrappers when the same LLM instance is reused
     # across roles: always wrap the *original* call, never a previous wrapper,
@@ -146,6 +153,12 @@ def budget_llm(llm: LLM, role_name: str, max_tokens: int) -> LLM:
         )
 
         used = llm._token_usage.get("total_tokens", 0)
+        # Feed this call's delta into the shared run budget (counts the chain
+        # total across roles). Tracked per-LLM since _token_usage is cumulative.
+        if run_budget is not None:
+            prev = getattr(llm, "_orgos_last_total", 0)
+            run_budget.add(used - prev, role_name)  # may raise BudgetExceeded
+        llm._orgos_last_total = used
         if used > max_tokens:
             from .audit import BudgetExceeded
 
@@ -224,7 +237,7 @@ class RoleSpec(BaseModel):
         """
         return self.structured_output and _supports_json_schema(self.model)
 
-    def _build_llm(self) -> LLM | str | None:
+    def _build_llm(self, run_budget: Any | None = None) -> LLM | str | None:
         llm: LLM | None = None
         if isinstance(self.model, LLM):
             llm = self.model
@@ -270,8 +283,14 @@ class RoleSpec(BaseModel):
         if wants_json_object and getattr(llm, "response_format", None) is None:
             llm.response_format = {"type": "json_object"}
 
-        if self.max_budget_tokens is not None:
-            llm = budget_llm(llm, self.name, self.max_budget_tokens)
+        # Wrap for budget if there's a per-role cap OR a shared run budget to
+        # feed. A role with no per-role cap still contributes to the run total,
+        # so use a permissive per-role cap in that case and let the run cap bite.
+        if self.max_budget_tokens is not None or run_budget is not None:
+            per_role_cap = self.max_budget_tokens
+            if per_role_cap is None:
+                per_role_cap = run_budget.cap if run_budget is not None else 10**12
+            llm = budget_llm(llm, self.name, per_role_cap, run_budget=run_budget)
         return llm
 
     def _build_system_prompt(self) -> str:
@@ -284,7 +303,10 @@ class RoleSpec(BaseModel):
         Keyword overrides (tools=, step_callback=, llm=, verbose=, skills=,
         mcps=) take precedence over the defaults derived from this RoleSpec.
         """
-        llm = overrides.pop("llm", self._build_llm())
+        run_budget = overrides.pop("run_budget", None)
+        llm = overrides.pop("llm", None)
+        if llm is None:
+            llm = self._build_llm(run_budget=run_budget)
         tools = overrides.pop("tools", self.tools)
         verbose = overrides.pop("verbose", True)
 

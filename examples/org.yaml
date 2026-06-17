@@ -8,10 +8,21 @@ org:
   name: My Company
   description: A general-purpose AI agent company
   default_model: deepseek/deepseek-v4-pro
-  default_max_budget_tokens: 200000
+  # Per-agent token cap — a RUNAWAY SAFETY NET, not a tight cost lever. In a
+  # ReAct loop most counted tokens are cache-hit re-feeds (~$0.0036/M on V4-Pro,
+  # near-free), so a 150K-token research run still costs ~$0.01–0.03. The cap
+  # exists to abort a genuine runaway (an unbounded web-fetch loop hit 406K in
+  # testing) while letting legitimate multi-source research finish.
+  default_max_budget_tokens: 150000
+  # Ceiling on the WHOLE department run (all roles combined). The per-role cap
+  # above is per-LLM, so a 3-role chain could legitimately reach ~450K; this
+  # caps the aggregate so a chain can't bleed tokens role-by-role. A real
+  # multi-source research run lands ~60–120K, so 250K leaves headroom while
+  # still aborting a genuine runaway.
+  default_max_run_tokens: 250000
   default_max_iter: 20
   owner:
-    name: Thomas
+    name: Thanh-Huy
     preferences: >
       Prefer clear, actionable output. Flag anything uncertain.
       Default to asking for approval on irreversible actions.
@@ -50,10 +61,11 @@ departments:
         tier: worker
         system_prompt: |
           Search the web and gather information. Use web_search to find
-          sources, web_fetch to read articles. Be thorough — check multiple
-          sources. Cite your sources.
+          sources, then web_fetch at most 2-3 of the most relevant. Be
+          efficient — do not fetch every result; each fetch is costly. Cite
+          your sources, then conclude.
         model: deepseek/deepseek-v4-pro
-        max_iter: 15
+        max_iter: 6
       - name: analyst
         tier: validator
         system_prompt: |
@@ -61,7 +73,7 @@ departments:
           Identify patterns, contradictions, and gaps. Produce structured
           analysis with clear conclusions. Read-only.
         model: deepseek/deepseek-v4-pro
-        max_iter: 12
+        max_iter: 5
         success_criteria:
           - Every claim verified against at least one source
           - Analysis includes patterns, gaps, and conclusions

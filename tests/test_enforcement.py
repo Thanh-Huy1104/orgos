@@ -424,3 +424,67 @@ class TestJsonExtraction:
         raw = '{"role": "w", "status": "blocked", "summary": "has } brace"}'
         env = _read_envelope(f"noise {raw} noise", "w")
         assert env.status == "blocked"
+
+
+class TestRunBudget:
+    """The chain-level run budget aborts on the aggregate across roles, catching
+    a chain that bleeds tokens role-by-role under each per-role cap."""
+
+    def test_aggregate_aborts_even_when_no_single_role_exceeds(self):
+        from orgos.audit import RunBudget, BudgetExceeded
+
+        rb = RunBudget(cap=100)
+        rb.add(60, "roleA")  # under cap on its own
+        with pytest.raises(BudgetExceeded):
+            rb.add(60, "roleB")  # 120 > 100 aggregate
+        assert rb.used == 120
+
+    def test_under_cap_does_not_abort(self):
+        from orgos.audit import RunBudget
+
+        rb = RunBudget(cap=1000)
+        rb.add(300, "a")
+        rb.add(400, "b")
+        assert rb.used == 700
+
+    def test_negative_delta_clamped(self):
+        from orgos.audit import RunBudget
+
+        rb = RunBudget(cap=1000)
+        rb.add(-50, "a")  # never decrements
+        assert rb.used == 0
+
+
+class TestLoopDetection:
+    """The audit step_callback aborts when the same (tool, input) action repeats
+    past max_repeats — the failure the token budget can't catch (cheap loops)."""
+
+    @staticmethod
+    def _step(tool, tool_input):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(tool=tool, tool_input=tool_input, thought="")
+
+    def test_repeated_action_raises_loop_detected(self):
+        from orgos.audit import make_audit_callback, LoopDetected
+
+        cb = make_audit_callback("looper", "test-loop", max_repeats=3)
+        step = self._step("web_fetch", "http://x")
+        with pytest.raises(LoopDetected):
+            for _ in range(10):
+                cb(step)
+
+    def test_distinct_actions_do_not_trip(self):
+        from orgos.audit import make_audit_callback
+
+        cb = make_audit_callback("worker", "test-distinct", max_repeats=3)
+        for i in range(10):
+            cb(self._step("web_fetch", f"http://x/{i}"))  # all distinct → no raise
+
+    def test_under_threshold_ok(self):
+        from orgos.audit import make_audit_callback
+
+        cb = make_audit_callback("worker", "test-under", max_repeats=4)
+        step = self._step("web_search", "same query")
+        for _ in range(4):  # exactly max_repeats, not over
+            cb(step)

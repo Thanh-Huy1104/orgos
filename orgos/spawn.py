@@ -32,7 +32,13 @@ from .contracts import (
     RoleSpec,
     TaskBrief,
 )
-from .audit import BudgetExceeded, make_audit_callback, make_task_callback
+from .audit import (
+    BudgetExceeded,
+    LoopDetected,
+    RunBudget,
+    make_audit_callback,
+    make_task_callback,
+)
 from .tools import GatedToolBase
 
 
@@ -169,11 +175,14 @@ def _make_logged_agent(
     run_id: str,
     approval_fn: Any | None = None,
     verbose: bool = True,
+    run_budget: RunBudget | None = None,
 ) -> Any:
     """Build a CrewAI Agent with tier enforcement, audit logging, and gates.
 
     Budget enforcement happens at the LLM layer (see contracts.budget_llm)
-    so it fires for tool-less agents too.
+    so it fires for tool-less agents too. ``run_budget``, when supplied, is the
+    shared chain-level ceiling fed by every role's LLM calls. The audit callback
+    also enforces step-repetition (loop) detection.
 
     Copies tools before wiring so shared instances don't cross-mutate
     (PrivateAttrs are fresh on copy, and _wire_gates sets role + gate fields
@@ -186,6 +195,7 @@ def _make_logged_agent(
         tools=tools,
         step_callback=make_audit_callback(role.name, run_id),
         verbose=verbose,
+        run_budget=run_budget,
     )
 
 
@@ -347,7 +357,7 @@ def _kickoff_with_fallback(build_crew: Any, probe_structured: bool = True) -> An
         return build_crew(False).kickoff()
     try:
         return build_crew(True).kickoff()
-    except BudgetExceeded:
+    except (BudgetExceeded, LoopDetected):
         raise
     except Exception as exc:  # noqa: BLE001 — provider errors are opaque
         if _is_structured_unsupported(exc):
@@ -368,6 +378,7 @@ def spawn(
     approval_fn: Any | None = None,
     verbose: bool = True,
     structured: bool | None = None,
+    run_budget_tokens: int | None = None,
 ) -> SpawnResult:
     """Spawn one configured agent for one brief.
 
@@ -377,18 +388,24 @@ def spawn(
          manages; a final sequential synthesis task carries the HandoffEnvelope
          schema so the output is validated without the hierarchical+pydantic crash.
 
-    Tier enforcement happens inside _make_logged_agent.
+    Tier enforcement happens inside _make_logged_agent. ``run_budget_tokens``, if
+    set, caps the total tokens across every agent in this run (chain ceiling).
     """
     run_id = f"{role.name}-{uuid.uuid4().hex[:8]}"
     use_structured = role.effective_structured() if structured is None else structured
+    run_budget = RunBudget(run_budget_tokens) if run_budget_tokens else None
 
     def build_crew(structured: bool) -> Crew:
         op = _UNSET if structured else None
-        agent = _make_logged_agent(role, run_id, approval_fn, verbose=verbose)
+        agent = _make_logged_agent(
+            role, run_id, approval_fn, verbose=verbose, run_budget=run_budget
+        )
 
         if role.tier == PermissionTier.ORCHESTRATOR and subordinates:
             sub_agents = [
-                _make_logged_agent(s, run_id, approval_fn, verbose=verbose)
+                _make_logged_agent(
+                    s, run_id, approval_fn, verbose=verbose, run_budget=run_budget
+                )
                 for s in subordinates
             ]
 
@@ -433,7 +450,7 @@ def spawn(
 
     try:
         result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
-    except BudgetExceeded as exc:
+    except (BudgetExceeded, LoopDetected) as exc:
         return SpawnResult(
             envelope=HandoffEnvelope.failed(role.name, str(exc)),
             run_id=run_id,
@@ -471,12 +488,14 @@ def spawn_chain(
     approval_fn: Any | None = None,
     verbose: bool = True,
     structured: bool | None = None,
+    run_budget_tokens: int | None = None,
 ) -> SpawnResult:
     """Run a sequential chain of agents.
 
     Each step is (RoleSpec, TaskBrief). Agents run in order; each receives the
     previous step's output via task context chaining. Only the final task carries
-    the HandoffEnvelope schema.
+    the HandoffEnvelope schema. ``run_budget_tokens``, if set, caps the total
+    tokens across the whole chain — not just per role.
     """
     run_id = f"chain-{uuid.uuid4().hex[:8]}"
     last_role = steps[-1][0].name if steps else "chain"
@@ -485,12 +504,15 @@ def spawn_chain(
         use_structured = steps[-1][0].effective_structured() if steps else True
     else:
         use_structured = structured
+    run_budget = RunBudget(run_budget_tokens) if run_budget_tokens else None
 
     def build_crew(structured: bool) -> Crew:
         agents: list[Any] = []
         tasks: list[Task] = []
         for i, (role_spec, task_brief) in enumerate(steps):
-            agent = _make_logged_agent(role_spec, run_id, approval_fn, verbose=verbose)
+            agent = _make_logged_agent(
+                role_spec, run_id, approval_fn, verbose=verbose, run_budget=run_budget
+            )
             agents.append(agent)
 
             is_last = (i == len(steps) - 1)
@@ -516,7 +538,7 @@ def spawn_chain(
 
     try:
         result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
-    except BudgetExceeded as exc:
+    except (BudgetExceeded, LoopDetected) as exc:
         return SpawnResult(
             envelope=HandoffEnvelope.failed(last_role, str(exc)),
             run_id=run_id,

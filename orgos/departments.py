@@ -141,6 +141,10 @@ class Org(BaseModel):
 
     default_model: str = "gpt-4o-mini"
     default_max_budget_tokens: int | None = None
+    # Ceiling on total tokens across an *entire* department run (all roles in the
+    # chain combined), not per-role. The per-role cap × N roles is not a real
+    # ceiling; this is. Catches a chain that bleeds tokens role-by-role.
+    default_max_run_tokens: int | None = None
     default_max_iter: int = 20
 
     notification: NotificationConfig = Field(default_factory=NotificationConfig)
@@ -416,7 +420,19 @@ def load_org(path: str | Path) -> Org:
     org_data = data["org"]
     org_data["departments"] = data.get("departments", [])
     org_data["handoffs"] = data.get("handoffs", [])
-    return Org.model_validate(org_data)
+    org = Org.model_validate(org_data)
+
+    # Propagate org-level defaults to roles that don't override them. Without
+    # this, default_max_budget_tokens is dead config and tool-using members run
+    # unbounded (a researcher web-fetch loop hit 406K tokens in testing).
+    for dept in org.departments:
+        for role in [dept.supervisor, *dept.members]:
+            if role.max_budget_tokens is None:
+                role.max_budget_tokens = org.default_max_budget_tokens
+            if role.model is None:
+                role.model = org.default_model
+
+    return org
 
 
 # ── Spawn helpers ─────────────────────────────────────────────────────────────
@@ -428,24 +444,73 @@ def spawn_department(
     *,
     approval_fn: Any | None = None,
     verbose: bool = True,
+    sequential: bool = True,
+    run_budget_tokens: int | None = None,
 ) -> Any:
-    """Compile a department into a hierarchical spawn() call.
+    """Compile a department into a deterministic pipeline (default) or a
+    hierarchical spawn().
 
-    Shortcut for::
+    Default (``sequential=True``): members run in listed order (worker →
+    validator), each receiving the prior members' output via context chaining,
+    then the supervisor synthesises the final handoff. Delegation is wired in
+    code rather than left to the manager-LLM to *choose* — which the live runs
+    showed is unreliable (the manager often narrates "I should delegate" and
+    returns blocked without actually doing it).
 
-        spawn(department.supervisor, brief,
-              subordinates=department.members, ...)
+    ``sequential=False`` falls back to the hierarchical manager-delegation path.
     """
-    from .spawn import spawn
+    from .spawn import spawn, spawn_chain
+    from .contracts import TaskBrief as _TaskBrief, PermissionTier as _Tier
 
     supervisor = department.supervisor  # orchestrator — no tool enrichment needed
     members = [department._enrich_role(m) for m in department.members]
-    return spawn(
-        supervisor,
-        brief,
-        subordinates=members,
+
+    if not sequential or not members:
+        return spawn(
+            supervisor,
+            brief,
+            subordinates=members,
+            approval_fn=approval_fn,
+            verbose=verbose,
+            run_budget_tokens=run_budget_tokens,
+        )
+
+    # Deterministic pipeline: each member works the brief in turn (seeing prior
+    # outputs as context), then a terminal synthesis step produces the handoff.
+    #
+    # The synthesis role is a WORKER (not the orchestrator supervisor): in
+    # sequential mode it doesn't delegate, so worker tier makes it a true
+    # terminal role — which lets json_object apply on DeepSeek and yields a clean
+    # HandoffEnvelope instead of free-form findings. It reuses the supervisor's
+    # model but gets a synthesis prompt (the supervisor's own "delegate to X"
+    # prompt is wrong for a step that has nothing to delegate to).
+    synth_role = supervisor.model_copy(update={
+        "tier": _Tier.WORKER,
+        "allow_delegation": False,
+        "tools": [],
+        "mcp_servers": [],
+        "system_prompt": (
+            "You are a synthesis lead. Your team's findings are provided as "
+            "context. Combine them into one final, accurate handoff that answers "
+            "the objective. Do not redo their work; cite their findings."
+        ),
+    })
+    synth_brief = _TaskBrief(
+        objective=(
+            "Synthesise the findings from your team members (provided as context) "
+            "into a single definitive handoff. Use their outputs as evidence; do "
+            "not redo their work.\n\nOriginal objective:\n" + brief.objective
+        ),
+        expected_output=brief.expected_output,
+        success_criteria=brief.success_criteria or supervisor.success_criteria,
+    )
+    steps = [(m, brief) for m in members]
+    steps.append((synth_role, synth_brief))
+    return spawn_chain(
+        steps,
         approval_fn=approval_fn,
         verbose=verbose,
+        run_budget_tokens=run_budget_tokens,
     )
 
 
@@ -457,6 +522,8 @@ def run_department(
     approval_fn: Any | None = None,
     verbose: bool = True,
     record: bool = True,
+    sequential: bool = True,
+    run_budget_tokens: int | None = None,
 ):
     """Run a department with memory recording and context injection.
 
@@ -494,11 +561,17 @@ def run_department(
             update={"objective": f"{brief.objective}\n\n---\n{ctx}"}
         )
 
+    # Fall back to the org-wide run ceiling when the caller doesn't override it.
+    if run_budget_tokens is None:
+        run_budget_tokens = org.default_max_run_tokens
+
     result = spawn_department(
         department,
         brief,
         approval_fn=approval_fn,
         verbose=verbose,
+        sequential=sequential,
+        run_budget_tokens=run_budget_tokens,
     )
 
     if record:
