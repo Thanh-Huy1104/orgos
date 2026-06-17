@@ -1,4 +1,7 @@
-const API_BASE = "http://192.168.5.197:8420";
+// Empty = same-origin relative URLs. All /api/* calls go through the Next.js
+// rewrite proxy (see next.config.ts → localhost:8420), so the dashboard works
+// over LAN, Tailscale, or localhost without CORS or a hardcoded host.
+const API_BASE = "";
 
 async function fetchAPI<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
