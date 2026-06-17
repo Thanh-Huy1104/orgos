@@ -660,3 +660,95 @@ class TestCitationGate:
         departments._apply_citation_gate(result)
         assert env.status == "completed"
         assert env.success_criteria_met is True
+
+
+class TestSearchBackends:
+    """Pluggable search: parsers map provider JSON to a common shape, and the
+    dispatcher tries keyed providers first, falling through on error/empty."""
+
+    class _FakeAsyncClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    def test_parse_tavily(self):
+        from orgos import internet_mcp
+
+        data = {"results": [{"title": "T", "url": "https://t", "content": "body"}]}
+        out = internet_mcp._parse_tavily(data)
+        assert out == [{"title": "T", "url": "https://t", "snippet": "body"}]
+
+    def test_parse_brave(self):
+        from orgos import internet_mcp
+
+        data = {"web": {"results": [{"title": "B", "url": "https://b", "description": "d"}]}}
+        assert internet_mcp._parse_brave(data)[0]["url"] == "https://b"
+
+    def test_parse_serper(self):
+        from orgos import internet_mcp
+
+        data = {"organic": [{"title": "S", "link": "https://s", "snippet": "snip"}]}
+        out = internet_mcp._parse_serper(data)
+        assert out[0]["url"] == "https://s" and out[0]["snippet"] == "snip"
+
+    def test_keyed_provider_wins(self, monkeypatch):
+        import asyncio
+        from orgos import internet_mcp
+
+        async def fake(client, q, limit, key):
+            return [{"title": "T", "url": "u", "snippet": "s"}]
+
+        monkeypatch.setattr(internet_mcp, "_PROVIDERS", [("tavily", "TAVILY_API_KEY", fake)])
+        monkeypatch.setenv("TAVILY_API_KEY", "x")
+        monkeypatch.setattr(internet_mcp.httpx, "AsyncClient", self._FakeAsyncClient)
+        backend, results, _ = asyncio.run(internet_mcp._run_search("q", 5))
+        assert backend == "tavily" and len(results) == 1
+
+    def test_no_key_skips_to_ddg(self, monkeypatch):
+        import asyncio
+        from orgos import internet_mcp
+
+        async def boom(client, q, limit, key):
+            raise AssertionError("must not call a keyless provider")
+
+        monkeypatch.setattr(internet_mcp, "_PROVIDERS", [("tavily", "TAVILY_API_KEY", boom)])
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        monkeypatch.setattr(internet_mcp.httpx, "AsyncClient", self._FakeAsyncClient)
+        monkeypatch.setattr(internet_mcp, "_ddg", lambda q, l: [{"title": "d", "url": "u", "snippet": "s"}])
+        backend, results, _ = asyncio.run(internet_mcp._run_search("q", 5))
+        assert backend == "duckduckgo"
+
+    def test_empty_provider_falls_through(self, monkeypatch):
+        import asyncio
+        from orgos import internet_mcp
+
+        async def empty(client, q, limit, key):
+            return []
+
+        monkeypatch.setattr(internet_mcp, "_PROVIDERS", [("tavily", "TAVILY_API_KEY", empty)])
+        monkeypatch.setenv("TAVILY_API_KEY", "x")
+        monkeypatch.setattr(internet_mcp.httpx, "AsyncClient", self._FakeAsyncClient)
+        monkeypatch.setattr(internet_mcp, "_ddg", lambda q, l: [{"title": "d", "url": "u", "snippet": "s"}])
+        backend, results, errors = asyncio.run(internet_mcp._run_search("q", 5))
+        assert backend == "duckduckgo"
+        assert any("empty" in e for e in errors)
+
+    def test_all_fail_returns_none(self, monkeypatch):
+        import asyncio
+        from orgos import internet_mcp
+
+        async def err(client, q, limit, key):
+            raise ValueError("rate limited")
+
+        monkeypatch.setattr(internet_mcp, "_PROVIDERS", [("tavily", "TAVILY_API_KEY", err)])
+        monkeypatch.setenv("TAVILY_API_KEY", "x")
+        monkeypatch.setattr(internet_mcp.httpx, "AsyncClient", self._FakeAsyncClient)
+        monkeypatch.setattr(internet_mcp, "_ddg", lambda q, l: [])
+        backend, results, errors = asyncio.run(internet_mcp._run_search("q", 5))
+        assert backend == "none" and results == []
+        assert any("ValueError" in e for e in errors)
