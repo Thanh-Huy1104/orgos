@@ -609,6 +609,22 @@ def run_department(
     if do_verify and result.envelope.status == "completed":
         _apply_citation_gate(result)
 
+    # ── Observability (P3) ────────────────────────────────────────────────
+    # Per-run metrics + MAST failure-mode tag. Runs after the citation gate so
+    # a gate-induced downgrade is reflected in the classification.
+    from .observability import compute_metrics, record_metrics
+
+    metrics = compute_metrics(
+        result.run_id, result.envelope, result.token_usage,
+        department=department_name,
+    )
+    if metrics.failure_mode is not None:
+        result.envelope.notes = (
+            (result.envelope.notes or "")
+            + f" [failure_mode: {metrics.failure_mode.code} {metrics.failure_mode.label}]"
+        )
+    record_metrics(metrics)
+
     if record:
         memory.record_run(
             department=department_name,

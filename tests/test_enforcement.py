@@ -752,3 +752,105 @@ class TestSearchBackends:
         backend, results, errors = asyncio.run(internet_mcp._run_search("q", 5))
         assert backend == "none" and results == []
         assert any("ValueError" in e for e in errors)
+
+
+class TestFailureClassification:
+    """MAST failure-mode tagging keys off the controls' diagnostic strings."""
+
+    @staticmethod
+    def _env(status, summary="", notes=None):
+        from orgos import HandoffEnvelope
+
+        return HandoffEnvelope(role="r", status=status, summary=summary, notes=notes)
+
+    def test_completed_is_not_a_failure(self):
+        from orgos.observability import classify_failure
+
+        assert classify_failure(self._env("completed", "all good")) is None
+
+    def test_loop_is_step_repetition(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("failed", "Loop detected: role 'r' issued..."))
+        assert fm.code == "FM-1.3" and fm.label == "step_repetition"
+
+    def test_run_budget_is_unaware_of_termination(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("failed", "Run budget exceeded: 260000 tokens"))
+        assert fm.code == "FM-1.5"
+
+    def test_tool_budget_is_unaware_of_termination(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("failed", "Tool-call budget exceeded: 9 calls"))
+        assert fm.code == "FM-1.5"
+
+    def test_citation_gate_is_incorrect_verification(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("needs_revision", "x", notes="[gate: dead/fabricated citation — see report]"))
+        assert fm.code == "FM-3.3"
+
+    def test_criteria_unmet_is_premature_termination(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("needs_revision", "x", notes="[gate: success_criteria_met was False]"))
+        assert fm.code == "FM-3.1"
+
+    def test_malformed_handoff_is_disobey_spec(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("needs_revision", "output was not valid JSON: ##hi"))
+        assert fm.code == "FM-1.1"
+
+    def test_kickoff_error_is_execution_error(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("failed", "kickoff failed: ConnectionError"))
+        assert fm.code == "EXEC"
+
+    def test_unmatched_failure_is_unknown(self):
+        from orgos.observability import classify_failure
+
+        fm = classify_failure(self._env("blocked", "waiting on something opaque"))
+        assert fm.code == "UNKNOWN"
+
+
+class TestMetrics:
+    """Per-run metrics from the audit log, and aggregation over many runs."""
+
+    def test_compute_counts_tool_calls(self, tmp_path):
+        import json
+        from orgos import HandoffEnvelope
+        from orgos.observability import compute_metrics
+
+        log = tmp_path / "chain-abc.jsonl"
+        log.write_text("\n".join(json.dumps(r) for r in [
+            {"type": "action", "tool": "web_search"},
+            {"type": "action", "tool": "web_fetch"},
+            {"type": "finish", "output": "done"},
+        ]) + "\n")
+        env = HandoffEnvelope(role="r", status="completed", summary="ok",
+                              success_criteria_met=True)
+        m = compute_metrics("chain-abc", env, {"total_tokens": 1234},
+                            department="research", audit_dir=tmp_path)
+        assert m.tool_calls == 2 and m.steps == 3
+        assert m.total_tokens == 1234 and m.failure_mode is None
+
+    def test_summarize_aggregates(self, tmp_path):
+        from orgos import HandoffEnvelope
+        from orgos.observability import compute_metrics, record_metrics, summarize_metrics
+
+        path = tmp_path / "metrics.jsonl"
+        ok = HandoffEnvelope(role="r", status="completed", summary="ok",
+                             success_criteria_met=True)
+        bad = HandoffEnvelope(role="r", status="failed",
+                              summary="Loop detected: ...")
+        record_metrics(compute_metrics("c1", ok, {"total_tokens": 100}, audit_dir=tmp_path), path=path)
+        record_metrics(compute_metrics("c2", bad, {"total_tokens": 300}, audit_dir=tmp_path), path=path)
+        s = summarize_metrics(path=path)
+        assert s["runs"] == 2
+        assert s["completion_rate"] == 0.5
+        assert s["avg_total_tokens"] == 200
+        assert any("FM-1.3" in k for k in s["failure_modes"])
