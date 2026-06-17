@@ -12,6 +12,20 @@ from orgos import quant_strategist as qs
 from orgos.contracts import PermissionTier
 
 
+class _FakeResult:
+    class envelope:
+        summary = "test"
+        status = "completed"
+    token_usage = {"total_tokens": 1}
+
+
+@pytest.fixture(autouse=True)
+def _isolate_journal(monkeypatch):
+    # Keep wiring tests hermetic: no real journal read/write.
+    monkeypatch.setattr(qs.quant_journal, "prior_research_block", lambda **k: "")
+    monkeypatch.setattr(qs.quant_journal, "record", lambda *a, **k: 1)
+
+
 class TestStrategistWiring:
     def test_chain_is_strategist_then_synth(self, monkeypatch):
         captured = {}
@@ -19,20 +33,19 @@ class TestStrategistWiring:
         def fake_chain(steps, **kw):
             captured["steps"] = steps
             captured["kw"] = kw
-            return "chain-result"
+            return _FakeResult()
 
         monkeypatch.setattr(qs, "spawn_chain", fake_chain)
-        out = qs.run_strategist("find rate-sensitive cross-sector pairs", allow_research=True)
-        assert out == "chain-result"
+        qs.run_strategist("find rate-sensitive cross-sector pairs", allow_research=True)
         steps = captured["steps"]
         assert len(steps) == 2
         strategist_role, strat_brief = steps[0]
         synth_role, _ = steps[1]
         assert strategist_role.tier == PermissionTier.WORKER
         tool_names = {t.name for t in strategist_role.tools}
-        # grounding tools (arxiv + real constituents) + validators + research
-        assert {"search_arxiv", "index_constituents", "scan_cointegrated_pairs",
-                "scan_crypto_pairs", "research_linkage"} <= tool_names
+        # grounding (news + arxiv + real constituents) + validators + research
+        assert {"news_catalysts", "search_arxiv", "index_constituents",
+                "scan_cointegrated_pairs", "scan_crypto_pairs", "research_linkage"} <= tool_names
         assert strategist_role.skills                    # quant-research SKILL.md attached
         assert synth_role.tools == []                    # terminal synth has no tools
         assert captured["kw"]["run_budget_tokens"] == 400_000
@@ -40,15 +53,30 @@ class TestStrategistWiring:
 
     def test_research_can_be_disabled(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(qs, "spawn_chain", lambda steps, **kw: captured.setdefault("steps", steps))
+        monkeypatch.setattr(qs, "spawn_chain", lambda steps, **kw: captured.setdefault("steps", steps) or _FakeResult())
         qs.run_strategist("x", allow_research=False)
         tool_names = {t.name for t in captured["steps"][0][0].tools}
         assert "research_linkage" not in tool_names      # research off
         assert "scan_cointegrated_pairs" in tool_names
 
+    def test_prior_research_injected_and_finding_recorded(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(qs.quant_journal, "prior_research_block",
+                            lambda **k: "## Prior research notes\n- AEE/NI durable")
+        recorded = {}
+        monkeypatch.setattr(qs.quant_journal, "record",
+                            lambda obj, summ, **k: recorded.update(objective=obj, summary=summ))
+        def fake_chain(steps, **kw):
+            captured["steps"] = steps
+            return _FakeResult()
+        monkeypatch.setattr(qs, "spawn_chain", fake_chain)
+        qs.run_strategist("utilities")
+        assert "Prior research notes" in captured["steps"][0][1].objective   # injected
+        assert recorded["objective"] == "utilities"                          # recorded after
+
     def test_objective_and_asset_class_in_brief(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(qs, "spawn_chain", lambda steps, **kw: captured.setdefault("steps", steps))
+        monkeypatch.setattr(qs, "spawn_chain", lambda steps, **kw: captured.setdefault("steps", steps) or _FakeResult())
         qs.run_strategist("semis supply chain", asset_class="equity")
         strat_brief = captured["steps"][0][1]
         assert "semis supply chain" in strat_brief.objective

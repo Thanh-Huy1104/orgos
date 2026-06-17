@@ -28,10 +28,11 @@ from pydantic import BaseModel, Field
 
 from pathlib import Path
 
+from . import quant_journal
 from .contracts import PermissionTier, RoleSpec, TaskBrief
 from .crypto_tool import CryptoScannerTool
 from .quant_tool import CointegrationScannerTool
-from .research_sources import ArxivSearchTool, IndexConstituentsTool
+from .research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCatalystTool
 from .spawn import spawn_chain
 
 STRATEGIST_MODEL = os.environ.get("ORGOS_STRATEGIST_MODEL", "deepseek/deepseek-v4-pro")
@@ -94,18 +95,22 @@ _STRATEGIST_PROMPT = (
     "Follow the strategy-research skill: research the literature and the REAL "
     "universe before scanning — never propose tickers from memory.\n\n"
     "Grounded workflow:\n"
-    "1. search_arxiv for the relationships you're considering — let documented "
+    "0. If the brief has 'Prior research notes', read them — don't re-test known "
+    "dead ends; build on pairs you previously found durable.\n"
+    "1. news_catalysts to see what's moving now (M&A, regime shifts, supply-chain "
+    "events) — a catalyst is a reason to look at a universe.\n"
+    "2. search_arxiv for the relationships you're considering — let documented "
     "findings shape your hypotheses (not your recall).\n"
-    "2. index_constituents to get the ACTUAL, complete membership of a sector — "
+    "3. index_constituents to get the ACTUAL, complete membership of a sector — "
     "pass the real full list to the scanner, never a remembered subset.\n"
-    "3. Look for NON-OBVIOUS structure: supply-chain links, shared-commodity "
-    "exposure, corporate-structure pairs, cross-sector single-factor groups.\n"
-    "4. scan_cointegrated_pairs (equities) / scan_crypto_pairs (crypto) on the real "
-    "universe — the scanner is the deterministic judge (FDR, durability, factor "
-    "independence). Trust it over intuition.\n"
-    "5. Optionally research_linkage once on a survivor to confirm the rationale.\n"
-    "6. Report durable survivors with stats + grounded rationale, or an honest "
-    "'no durable pairs in these hypotheses'. You propose and validate; never trade."
+    "4. Look for NON-OBVIOUS structure: supply-chain, shared-commodity, "
+    "corporate-structure, cross-sector single-factor.\n"
+    "5. scan_cointegrated_pairs (equities) / scan_crypto_pairs (crypto) on the real "
+    "universe — the deterministic judge (FDR, durability, factor independence). "
+    "Trust it over intuition.\n"
+    "6. Optionally research_linkage once on a survivor to confirm.\n"
+    "7. Report durable survivors with stats + grounded rationale + a one-line "
+    "LESSON, or an honest 'no durable pairs'. You propose and validate; never trade."
 )
 
 
@@ -125,7 +130,7 @@ def run_strategist(
     mdl = model or STRATEGIST_MODEL
     # Grounding tools first (research before scanning), then the validators.
     tools: list[Any] = [
-        ArxivSearchTool(), IndexConstituentsTool(),
+        NewsCatalystTool(), ArxivSearchTool(), IndexConstituentsTool(),
         CointegrationScannerTool(), CryptoScannerTool(),
     ]
     if allow_research:
@@ -155,11 +160,15 @@ def run_strategist(
         model=mdl,
         max_iter=5,
     )
+    # Memory: inject the desk's own recent findings so it builds on prior runs
+    # instead of starting cold (don't re-test known dead ends; revisit live pairs).
+    prior = quant_journal.prior_research_block(n=5)
     strat_brief = TaskBrief(
         objective=(
             f"Objective: {objective}\n\nAsset class focus: {asset_class}. "
             "Propose candidate universes, test each with the scan tool, optionally "
             "verify a survivor's linkage, and lay out the durable pairs with rationale."
+            + (f"\n\n{prior}" if prior else "")
         ),
         tool_call_budget=tool_call_budget,
         success_criteria=[
@@ -177,7 +186,17 @@ def run_strategist(
             "Surviving pairs reported with stats and rationale, or an honest 'none'",
         ],
     )
-    return spawn_chain(
+    result = spawn_chain(
         [(strategist, strat_brief), (synth, synth_brief)],
         verbose=verbose, run_budget_tokens=400_000,
     )
+    # Memory: record this run's finding so the next run can build on it.
+    try:
+        quant_journal.record(
+            objective, result.envelope.summary or "",
+            status=result.envelope.status,
+            tokens=(result.token_usage or {}).get("total_tokens"),
+        )
+    except Exception:  # noqa: BLE001 — journaling must never fail the run
+        pass
+    return result

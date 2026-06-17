@@ -17,6 +17,7 @@ tools on one agent without MCP plumbing.
 from __future__ import annotations
 
 import json
+import os
 import re
 from io import StringIO
 
@@ -129,5 +130,52 @@ class IndexConstituentsTool(BaseTool):
     def _run(self, sector: str = "") -> str:
         try:
             return json.dumps(sp500_constituents(sector), indent=2)
+        except Exception as exc:  # noqa: BLE001
+            return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+
+
+# ── News catalysts (Tavily) ───────────────────────────────────────────────────
+
+def search_news(query: str, *, days: int = 14, max_results: int = 6) -> list[dict]:
+    """Recent finance news for a theme via Tavily (news topic). Grounds idea
+    generation in what's actually moving — sector shifts, M&A, regime changes."""
+    import httpx
+
+    key = os.environ.get("TAVILY_API_KEY")
+    if not key:
+        raise RuntimeError("TAVILY_API_KEY not set")
+    resp = httpx.post(
+        "https://api.tavily.com/search",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"query": query, "topic": "news", "days": days,
+              "max_results": max_results, "search_depth": "basic"},
+        timeout=25,
+    )
+    resp.raise_for_status()
+    return [{"title": r.get("title", ""), "url": r.get("url", ""),
+             "snippet": (r.get("content", "") or "")[:300]}
+            for r in resp.json().get("results", [])]
+
+
+class _NewsInput(BaseModel):
+    query: str = Field(description="Catalyst/theme to scan recent news for, e.g. "
+                       "'semiconductor supply chain', 'utility mergers', 'oil refining margins'.")
+    days: int = Field(default=14, description="How many days back (default 14).")
+
+
+class NewsCatalystTool(BaseTool):
+    name: str = "news_catalysts"
+    description: str = (
+        "Search RECENT finance news for catalysts on a theme — M&A, regime shifts, "
+        "supply-chain events, sector moves. Use this to find what's changing NOW "
+        "and let it point you at a universe worth scanning (e.g. news of a merger "
+        "→ scan that sector). Idea generation grounded in current events, not memory."
+    )
+    args_schema: type[BaseModel] = _NewsInput
+    tool_category: str = "read"
+
+    def _run(self, query: str, days: int = 14) -> str:
+        try:
+            return json.dumps({"query": query, "news": search_news(query, days=days)}, indent=2)
         except Exception as exc:  # noqa: BLE001
             return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
