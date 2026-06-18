@@ -24,7 +24,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .audit import AUDIT_DIR
+from .spawn.audit import AUDIT_DIR
 
 METRICS_LOG = AUDIT_DIR / "metrics.jsonl"
 

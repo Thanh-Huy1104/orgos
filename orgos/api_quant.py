@@ -40,7 +40,7 @@ def strategist(body: StrategistBody) -> dict:
     optionally spawns research, and synthesises a handoff. Slow (minutes)."""
     from .quant_strategist import run_strategist
 
-    from .audit import read_trail
+    from .spawn import read_trail
 
     r = run_strategist(body.objective, asset_class=body.asset_class,
                        allow_research=body.allow_research, verbose=False)

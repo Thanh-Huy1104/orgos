@@ -41,7 +41,7 @@ from pydantic import BaseModel
 from orgos import OrgMemory, PMStore
 from orgos.memory import OwnerProfile
 from orgos.departments import Org, Department, NotificationConfig, run_department, spawn_project
-from orgos.contracts import TaskBrief
+from orgos.spawn import TaskBrief
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -456,7 +456,7 @@ def _route_simple(goal: str, org: Any) -> dict:
 
     Skips department delegation — just spawns a single enriched agent.
     """
-    from orgos.contracts import TaskBrief
+    from orgos.spawn import TaskBrief
     from orgos.spawn import spawn
 
     # Pick the best department and role
@@ -575,7 +575,7 @@ def dispatch_project(project_id: str):
 
 def _synthesize_report(project_id: str, progress: dict, results: list) -> None:
     """Spawn a synthesis agent to produce a consolidated project report."""
-    from orgos.contracts import RoleSpec, TaskBrief, PermissionTier
+    from orgos.spawn import RoleSpec, TaskBrief, PermissionTier
     from orgos.spawn import spawn
     import json
 

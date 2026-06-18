@@ -9,7 +9,7 @@ import json
 import pytest
 
 from orgos import quant_strategist as qs
-from orgos.contracts import PermissionTier
+from orgos.spawn import PermissionTier
 
 
 class _FakeResult:

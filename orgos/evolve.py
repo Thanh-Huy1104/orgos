@@ -311,7 +311,7 @@ class OrgAnalyzer:
         - Cross-reference department outputs
         - Propose full departments with system prompts, roles, and tools
         """
-        from .contracts import RoleSpec, TaskBrief, PermissionTier
+        from .spawn import RoleSpec, TaskBrief, PermissionTier
         from .spawn import spawn
         from .memory import create_memory_mcp
 
@@ -475,7 +475,7 @@ def review_proposals(
 ) -> list[dict[str, Any]]:
     """Send proposals through legal review. Returns verdicts."""
     from .legal import legal_review_with_agent
-    from .contracts import HandoffEnvelope
+    from .spawn import HandoffEnvelope
 
     verdicts = []
     for p in proposals:

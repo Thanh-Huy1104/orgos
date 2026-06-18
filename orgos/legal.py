@@ -263,7 +263,7 @@ def legal_review_with_agent(
     legal_dept.members[0] = reviewer
 
     # ── 4. Build the review brief ─────────────────────────────────────────
-    from .contracts import TaskBrief
+    from .spawn import TaskBrief
 
     summary = getattr(envelope, "summary", "")
     artifacts = getattr(envelope, "artifacts", [])
@@ -302,7 +302,7 @@ def legal_review_with_agent(
     # Spawn the reviewer directly (not the department) so we can enforce
     # output_pydantic=LegalVerdict for clean, parsable results.
     # We build a single-agent spawn — no delegation needed for review.
-    from .contracts import TaskBrief as TB
+    from .spawn import TaskBrief as TB
 
     try:
         review_result = spawn(

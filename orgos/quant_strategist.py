@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 
 from . import quant_journal
-from .contracts import PermissionTier, RoleSpec, TaskBrief
+from .spawn import PermissionTier, RoleSpec, TaskBrief
 from .crypto_tool import CryptoScannerTool
 from .quant_tool import CointegrationScannerTool
 from .research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCatalystTool

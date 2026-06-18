@@ -17,7 +17,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
-from .contracts import PermissionTier, RoleSpec, TaskBrief
+from .spawn import PermissionTier, RoleSpec, TaskBrief
 from .memory import OrgMemory, OwnerProfile
 
 
@@ -241,7 +241,7 @@ def spawn_project(
 
     Returns: {"project": Project, "tasks": [...], "dispatched": [...]}
     """
-    from .contracts import RoleSpec, TaskBrief, PermissionTier
+    from .spawn import RoleSpec, TaskBrief, PermissionTier
     from .spawn import spawn
     from .pm import PMStore
 
@@ -465,7 +465,7 @@ def spawn_department(
     ``sequential=False`` falls back to the hierarchical manager-delegation path.
     """
     from .spawn import spawn, spawn_chain
-    from .contracts import TaskBrief as _TaskBrief, PermissionTier as _Tier
+    from .spawn import TaskBrief as _TaskBrief, PermissionTier as _Tier
 
     supervisor = department.supervisor  # orchestrator — no tool enrichment needed
     members = [department._enrich_role(m) for m in department.members]

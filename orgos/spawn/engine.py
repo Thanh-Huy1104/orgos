@@ -41,7 +41,7 @@ from .audit import (
     make_task_callback,
     trace_tool,
 )
-from .tools import GatedToolBase
+from .toolbase import GatedToolBase
 
 
 # ── Sentinel for _build_task ─────────────────────────────────────────────────

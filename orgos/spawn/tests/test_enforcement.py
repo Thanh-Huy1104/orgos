@@ -25,9 +25,10 @@ from orgos import (
     RoleSpec,
     TaskBrief,
 )
-from orgos.contracts import CATEGORY_PUBLISH, CATEGORY_READ, CATEGORY_SANDBOX
-from orgos.tools import BashTool, GatedToolBase
-from orgos.spawn import (
+from orgos.spawn.contracts import CATEGORY_PUBLISH, CATEGORY_READ, CATEGORY_SANDBOX
+from orgos.tools import BashTool
+from orgos.spawn.toolbase import GatedToolBase
+from orgos.spawn.engine import (
     _TierViolation,
     _build_task,
     _UNSET,
@@ -431,7 +432,7 @@ class TestRunBudget:
     a chain that bleeds tokens role-by-role under each per-role cap."""
 
     def test_aggregate_aborts_even_when_no_single_role_exceeds(self):
-        from orgos.audit import RunBudget, BudgetExceeded
+        from orgos.spawn.audit import RunBudget, BudgetExceeded
 
         rb = RunBudget(cap=100)
         rb.add(60, "roleA")  # under cap on its own
@@ -440,7 +441,7 @@ class TestRunBudget:
         assert rb.used == 120
 
     def test_under_cap_does_not_abort(self):
-        from orgos.audit import RunBudget
+        from orgos.spawn.audit import RunBudget
 
         rb = RunBudget(cap=1000)
         rb.add(300, "a")
@@ -448,7 +449,7 @@ class TestRunBudget:
         assert rb.used == 700
 
     def test_negative_delta_clamped(self):
-        from orgos.audit import RunBudget
+        from orgos.spawn.audit import RunBudget
 
         rb = RunBudget(cap=1000)
         rb.add(-50, "a")  # never decrements
@@ -466,7 +467,7 @@ class TestLoopDetection:
         return SimpleNamespace(tool=tool, tool_input=tool_input, thought="")
 
     def test_repeated_action_raises_loop_detected(self):
-        from orgos.audit import make_audit_callback, LoopDetected
+        from orgos.spawn.audit import make_audit_callback, LoopDetected
 
         cb = make_audit_callback("looper", "test-loop", max_repeats=3)
         step = self._step("web_fetch", "http://x")
@@ -475,14 +476,14 @@ class TestLoopDetection:
                 cb(step)
 
     def test_distinct_actions_do_not_trip(self):
-        from orgos.audit import make_audit_callback
+        from orgos.spawn.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-distinct", max_repeats=3)
         for i in range(10):
             cb(self._step("web_fetch", f"http://x/{i}"))  # all distinct → no raise
 
     def test_under_threshold_ok(self):
-        from orgos.audit import make_audit_callback
+        from orgos.spawn.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-under", max_repeats=4)
         step = self._step("web_search", "same query")
@@ -501,7 +502,7 @@ class TestToolCallBudget:
         return SimpleNamespace(tool=tool, tool_input=tool_input, thought="")
 
     def test_varied_calls_aborts_past_budget(self):
-        from orgos.audit import make_audit_callback, ToolBudgetExceeded
+        from orgos.spawn.audit import make_audit_callback, ToolBudgetExceeded
 
         cb = make_audit_callback("fanout", "test-toolbudget", max_actions=5)
         with pytest.raises(ToolBudgetExceeded):
@@ -509,14 +510,14 @@ class TestToolCallBudget:
                 cb(self._step("web_fetch", f"http://x/{i}"))
 
     def test_within_budget_ok(self):
-        from orgos.audit import make_audit_callback
+        from orgos.spawn.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-toolbudget-ok", max_actions=5)
         for i in range(5):  # exactly the budget, not over
             cb(self._step("web_fetch", f"http://x/{i}"))
 
     def test_no_budget_means_unbounded(self):
-        from orgos.audit import make_audit_callback
+        from orgos.spawn.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-nobudget", max_actions=None)
         for i in range(50):

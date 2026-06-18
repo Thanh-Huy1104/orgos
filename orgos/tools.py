@@ -1,48 +1,20 @@
-"""Tools for orgos — the hands that agents use to act.
+"""Concrete agent tools — the hands that agents use to act.
 
-Provides:
-  - GatedToolBase: BaseTool subclass that requires recorded human approval before
-    executing. Fail-closed: if _gate_required is True and no approval_fn is set,
-    every execution is denied.
-  - BashTool: shell command execution with approval gate.
+  - BashTool: shell command execution behind an approval gate.
 
-Tool categories (tool_category) for tier enforcement in spawn.py:
-  "read", "sandbox", "compute", "publish", "orchestrate"
+The tool *framework* (``GatedToolBase``, ``ApprovalFn``) lives in the engine at
+:mod:`orgos.spawn.toolbase`; tool *categories* used for tier enforcement
+("read", "sandbox", "compute", "publish", "orchestrate") live in
+:mod:`orgos.spawn.contracts`.
 """
 
 from __future__ import annotations
 
 import subprocess
-from typing import Any, Callable
 
-from crewai.tools import BaseTool
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field
 
-
-ApprovalFn = Callable[[str, str, dict[str, Any]], bool]
-
-
-class GatedToolBase(BaseTool):
-    """Base class for tools that require human approval before execution.
-
-    Fail-closed: if _gate_required is True (set by spawn's _wire_gates) and
-    no approval_fn is configured, every execution is denied. Spawn refuses to
-    launch a role whose tier requires gating but has no approval_fn.
-    """
-
-    approval_fn: ApprovalFn | None = Field(default=None, exclude=True)
-    _agent_role: str = PrivateAttr(default="unknown")
-    _gate_required: bool = PrivateAttr(default=False)
-
-    def _check_gate(self, tool_input: dict[str, Any]) -> bool:
-        """Returns True if the action is permitted, False if denied."""
-        if self.approval_fn is not None:
-            return self.approval_fn(self._agent_role, self.name, tool_input)
-        # No approval surface — fail closed if gating is required
-        return not self._gate_required
-
-    def _run(self, *args: Any, **kwargs: Any) -> str:
-        raise NotImplementedError("Subclass must implement _run")
+from .spawn.toolbase import GatedToolBase
 
 
 # ── Bash tool ────────────────────────────────────────────────────────────────

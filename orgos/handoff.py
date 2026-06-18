@@ -226,7 +226,7 @@ class HandoffBus:
         Returns the spawn result or error info.
         """
         from .departments import spawn_department
-        from .contracts import TaskBrief
+        from .spawn import TaskBrief
 
         target_dept = self.org.find_department(rule.to_department)
         if target_dept is None:

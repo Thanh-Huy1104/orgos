@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from orgos import RoleSpec, PermissionTier
-from orgos.contracts import budget_llm
+from orgos.spawn.contracts import budget_llm
 
 
 # ── Budget LLM ─────────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ class TestBudgetLLM:
         mock_llm.call = original_call
 
         wrapped = budget_llm(mock_llm, "test-role", 100)
-        from orgos.audit import BudgetExceeded
+        from orgos.spawn.audit import BudgetExceeded
         with pytest.raises(BudgetExceeded, match="150 real tokens"):
             wrapped.call("hello")
 
@@ -64,7 +64,7 @@ class TestBudgetLLM:
         mock_llm.call = original_call
 
         wrapped = budget_llm(mock_llm, "test-role", 100)
-        from orgos.audit import BudgetExceeded
+        from orgos.spawn.audit import BudgetExceeded
         with pytest.raises(BudgetExceeded, match="200 real tokens"):
             wrapped.call("hello")
 
@@ -76,7 +76,7 @@ class TestBudgetLLM:
         mock_llm._token_usage = {"total_tokens": 999}
 
         wrapped = budget_llm(mock_llm, "finance-scanner", 100)
-        from orgos.audit import BudgetExceeded
+        from orgos.spawn.audit import BudgetExceeded
         with pytest.raises(BudgetExceeded, match="finance-scanner"):
             wrapped.call("hello")
 
