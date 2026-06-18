@@ -27,7 +27,7 @@ def _isolate_journal(monkeypatch):
 
 
 class TestStrategistWiring:
-    def test_chain_is_strategist_then_synth(self, monkeypatch):
+    def test_chain_is_researcher_scanner_synth(self, monkeypatch):
         captured = {}
 
         def fake_chain(steps, **kw):
@@ -38,26 +38,31 @@ class TestStrategistWiring:
         monkeypatch.setattr(qs, "spawn_chain", fake_chain)
         qs.run_strategist("find rate-sensitive cross-sector pairs", allow_research=True)
         steps = captured["steps"]
-        assert len(steps) == 2
-        strategist_role, strat_brief = steps[0]
-        synth_role, _ = steps[1]
-        assert strategist_role.tier == PermissionTier.WORKER
-        tool_names = {t.name for t in strategist_role.tools}
-        # grounding (news + arxiv + real constituents) + validators + research
-        assert {"news_catalysts", "search_arxiv", "index_constituents",
-                "scan_cointegrated_pairs", "scan_crypto_pairs", "research_linkage"} <= tool_names
-        assert strategist_role.skills                    # quant-research SKILL.md attached
+        assert len(steps) == 3                           # researcher → scanner → synth
+        researcher_role, research_brief = steps[0]
+        scanner_role, _ = steps[1]
+        synth_role, _ = steps[2]
+        assert researcher_role.tier == PermissionTier.WORKER
+        # Phase 1 grounds in news + arxiv + real constituents (no scanners).
+        researcher_tools = {t.name for t in researcher_role.tools}
+        assert {"news_catalysts", "search_arxiv", "index_constituents"} <= researcher_tools
+        assert "scan_cointegrated_pairs" not in researcher_tools
+        # Phase 2 validates: scanners + (optional) research linkage.
+        scanner_tools = {t.name for t in scanner_role.tools}
+        assert {"scan_cointegrated_pairs", "scan_crypto_pairs", "research_linkage"} <= scanner_tools
+        assert researcher_role.skills                    # quant-research SKILL.md attached
         assert synth_role.tools == []                    # terminal synth has no tools
         assert captured["kw"]["run_budget_tokens"] == 400_000
-        assert strat_brief.tool_call_budget == 14
+        # research brief gets half the budget (floor 4); default budget is 12 → 6
+        assert research_brief.tool_call_budget == 6
 
-    def test_research_can_be_disabled(self, monkeypatch):
+    def test_research_linkage_can_be_disabled(self, monkeypatch):
         captured = {}
         monkeypatch.setattr(qs, "spawn_chain", lambda steps, **kw: captured.setdefault("steps", steps) or _FakeResult())
         qs.run_strategist("x", allow_research=False)
-        tool_names = {t.name for t in captured["steps"][0][0].tools}
-        assert "research_linkage" not in tool_names      # research off
-        assert "scan_cointegrated_pairs" in tool_names
+        scanner_tools = {t.name for t in captured["steps"][1][0].tools}
+        assert "research_linkage" not in scanner_tools   # linkage off
+        assert "scan_cointegrated_pairs" in scanner_tools
 
     def test_prior_research_injected_and_finding_recorded(self, monkeypatch):
         captured = {}

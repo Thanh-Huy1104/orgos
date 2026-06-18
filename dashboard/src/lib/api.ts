@@ -247,12 +247,22 @@ export const postHalt = (pair_id: number, reason: string) =>
 
 // ── Quant strategist (agent-driven discovery) ────────────────────────────────
 
+export interface TrailStep {
+  role: string;
+  tool: string;
+  tool_input: unknown;
+  ok: boolean;
+  output_preview: string;
+  ts: string;
+}
 export interface StrategistResult {
   status: string;
   criteria_met: boolean;
   summary: string;
   notes: string | null;
   tokens: number | null;
+  run_id?: string;
+  trail?: TrailStep[];
 }
 export const runStrategist = (objective: string, asset_class = "equity", allow_research = false) =>
   postJSON<StrategistResult>("/api/quant/strategist", { objective, asset_class, allow_research });

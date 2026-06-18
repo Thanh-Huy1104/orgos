@@ -39,6 +39,7 @@ from .audit import (
     ToolBudgetExceeded,
     make_audit_callback,
     make_task_callback,
+    trace_tool,
 )
 from .tools import GatedToolBase
 
@@ -193,6 +194,10 @@ def _make_logged_agent(
     """
     tools = [copy.copy(t) for t in _enforce_tier(role)]
     tools = _wire_gates(tools, role, approval_fn)
+    # Trace tool calls at the tool layer — CrewAI 1.14's native executor batches
+    # tool calls and never surfaces them through step_callback, so this is the
+    # only reliable place to capture the research trail (and each tool's output).
+    tools = [trace_tool(t, role.name, run_id) for t in tools]
 
     return role.to_agent(
         tools=tools,

@@ -1,20 +1,23 @@
 """Quant strategist — the AI-organization layer driving cointegration discovery.
 
-This is the agent that was missing. Instead of scanning hardcoded sector lists,
-an LLM strategist *reasons* about where non-obvious cointegration might live
-(supply-chain links, shared-commodity exposure, cross-sector single-factor,
-corporate-structure pairs), PROPOSES concrete ticker universes, and tests each
-with the deterministic scanner tools. It can SPAWN the research department to
-verify the economic rationale for a promising pair.
+The strategist is a deterministic 3-agent chain (no manager, no delegation —
+just a hard pipeline like the departments use with sequential=True):
 
-The division of labour that keeps it both autonomous and rigorous:
-  - the agent is creative about WHAT to look at (hypothesis generation — the
-    alpha-bearing, genuinely agentic part);
-  - the tools are strict about WHAT'S REAL (cointegration + FDR + durability).
-A bad hypothesis just yields a universe that fails the screen — contained.
+  quant-researcher → quant-scanner → quant-synth
+    (ground truth)     (validation)     (handoff)
 
-Agent-driven (the strategist decides the universes and the tool calls), uses the
-scanner/crypto tools as skills, and spawns real orgos research. Recommend-only.
+Each agent sees the prior agent's output as context. The pipeline is enforced
+in code, not left to a manager-LLM to *decide* — the same battle-tested pattern
+that fixed department runs (managers narrate "I should delegate" and block).
+
+Division of labour:
+  - Researcher: creative hypothesis generation (the alpha-bearing part), grounded
+    in news catalysts, arXiv literature, and live S&P 500 index constituents.
+  - Scanner: deterministic validation — FDR, durability, factor independence.
+    The math judge. Optionally research_linkage on a top survivor.
+  - Synth: terminal synthesis into the HandoffEnvelope. No tools, just writes.
+
+Agent-driven, recommend-only. Never trades or writes Icarus.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ from .research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCataly
 from .spawn import spawn_chain
 
 STRATEGIST_MODEL = os.environ.get("ORGOS_STRATEGIST_MODEL", "deepseek/deepseek-v4-pro")
+_FAST_MODEL = os.environ.get("ORGOS_STRATEGIST_FAST_MODEL", "deepseek/deepseek-v4-pro")
 _SKILL_DIR = Path(__file__).resolve().parent.parent / "skills" / "quant" / "strategy-research"
 
 _ORG = None
@@ -49,6 +53,8 @@ def _org():
         _ORG = load_org(os.environ.get("ORGOS_ORG_YAML", "./examples/org.yaml"))
     return _ORG
 
+
+# ── ResearchLinkageTool (on scanner — vet a survivor with the org research dept)
 
 class _ResearchInput(BaseModel):
     thesis: str = Field(description="The economic-linkage thesis to investigate, "
@@ -90,113 +96,189 @@ class ResearchLinkageTool(BaseTool):
             return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
 
 
-_STRATEGIST_PROMPT = (
-    "You are a quantitative analyst hunting cointegration alpha others miss. "
-    "Follow the strategy-research skill: research the literature and the REAL "
-    "universe before scanning — never propose tickers from memory.\n\n"
-    "Grounded workflow:\n"
-    "0. If the brief has 'Prior research notes', read them — don't re-test known "
-    "dead ends; build on pairs you previously found durable.\n"
-    "1. news_catalysts to see what's moving now (M&A, regime shifts, supply-chain "
-    "events) — a catalyst is a reason to look at a universe.\n"
-    "2. search_arxiv for the relationships you're considering — let documented "
-    "findings shape your hypotheses (not your recall).\n"
-    "3. index_constituents to get the ACTUAL, complete membership of a sector — "
-    "pass the real full list to the scanner, never a remembered subset.\n"
-    "4. Look for NON-OBVIOUS structure: supply-chain, shared-commodity, "
-    "corporate-structure, cross-sector single-factor.\n"
-    "5. scan_cointegrated_pairs (equities) / scan_crypto_pairs (crypto) on the real "
-    "universe — the deterministic judge (FDR, durability, factor independence). "
-    "Trust it over intuition.\n"
-    "6. Optionally research_linkage once on a survivor to confirm.\n"
-    "7. Report durable survivors with stats + grounded rationale + a one-line "
-    "LESSON, or an honest 'no durable pairs'. You propose and validate; never trade."
+# ── Phase 1: Research — ground truth from live sources ────────────────────────
+
+_RESEARCHER_PROMPT = (
+    "You are a quantitative research analyst. Your job is to ground the "
+    "objective in REAL, current evidence — never from memory.\n\n"
+    "Pipeline (follow in order):\n"
+    "1. If the brief mentions 'Prior research notes', read them first — don't "
+    "re-test known dead ends; build on previously found live pairs.\n"
+    "2. Use news_catalysts to find what's moving now (M&A announcements, regime "
+    "shifts, supply-chain events, sector rotation). A catalyst is a REASON to "
+    "look at a universe.\n"
+    "3. Use search_arxiv to find documented cointegration relationships in the "
+    "q-fin literature. Let findings shape your hypotheses, not your recall.\n"
+    "4. Use index_constituents to get the ACTUAL, complete S&P 500 membership "
+    "for any sector you're investigating — pass the full real list forward, "
+    "never a remembered subset.\n"
+    "5. For each candidate universe, state the economic thesis clearly and "
+    "which specific evidence (catalyst / paper / constituent membership) "
+    "supports it.\n"
+    "6. Output: concrete ticker lists (space-separated for the scanner), the "
+    "economic thesis for each universe, and the evidence trail.\n\n"
+    "You propose ideas; the scanner judges them. A rejected hypothesis is not "
+    "a failure — it's a contained dead end."
+)
+
+# ── Phase 2: Scan — deterministic validation ──────────────────────────────────
+
+_SCANNER_PROMPT = (
+    "You are a quantitative validation analyst. The researcher's grounded "
+    "universes and economic theses are in your context. Your job: run "
+    "deterministic cointegration scans on each proposed universe.\n\n"
+    "Pipeline:\n"
+    "1. For each universe (ticker list) from the researcher, call "
+    "scan_cointegrated_pairs (equities) or scan_crypto_pairs (crypto) with "
+    "the full ticker list as a space-separated string.\n"
+    "2. The scanner implements Benjamini-Hochberg FDR + sub-period durability "
+    "+ factor independence + half-life bounds. TRUST its output — it is the "
+    "ground truth. You cannot override a negative scan result.\n"
+    "3. For each SURVIVING pair, report: tickers, adf_p, half-life, hurst, "
+    "beta, factor_r2, sub-period p-values, and the researcher's economic "
+    "thesis.\n"
+    "4. If a top survivor needs deeper economic vetting, optionally call "
+    "research_linkage (slow — spawns the full research department). Use for "
+    "at most 1-2 candidates.\n"
+    "5. If a universe returns zero survivors, note it — the hypothesis was "
+    "wrong, which is a valid result.\n\n"
+    "You validate; you never fabricate. The scanner is the judge."
+)
+
+# ── Phase 3: Synthesis — terminal handoff ─────────────────────────────────────
+
+_SYNTH_PROMPT = (
+    "You are a synthesis lead. The researcher's grounded evidence and the "
+    "scanner's validated results are in your context. Combine everything into "
+    "a single, honest handoff.\n\n"
+    "For each durable surviving pair, report:\n"
+    "- Pair tickers\n"
+    "- Cointegration stats (adf_p, half-life, hurst, beta, factor_r2, "
+    "sub-period p-values)\n"
+    "- The economic thesis that led there (from the researcher)\n"
+    "- Whether research_linkage verified it\n"
+    "- Whether it's a known-live pair from prior research or newly discovered\n\n"
+    "If no durable pairs survived any universe, say so plainly. An honest "
+    "'no durable pairs found' is better than fabrication.\n\n"
+    "End with a one-line LESSON for the journal — what worked, what didn't, "
+    "what to try next time."
 )
 
 
+# ── Main entry point ──────────────────────────────────────────────────────────
+
 def run_strategist(
     objective: str, *, asset_class: str = "equity", allow_research: bool = True,
-    model: str | None = None, tool_call_budget: int = 14, verbose: bool = False,
+    model: str | None = None, tool_call_budget: int = 12, verbose: bool = False,
 ) -> Any:
-    """Hypothesize → scan → (optionally) research → synthesise a clean handoff.
+    """Research → scan → synthesise — a hard 3-agent pipeline.
 
-    Two-step chain: a tool-using strategist does the discovery (proposes
-    universes, calls the scan/research tools), then a terminal synthesis worker
-    (no tools → json_object on DeepSeek) wraps the findings into a valid
-    HandoffEnvelope. A single tool-using agent can't reliably emit the envelope
-    shape (it returns domain JSON), so the synthesis step is what guarantees a
-    clean handoff — the same pattern the departments use.
+    Deterministic chain (like department runs with sequential=True): each agent
+    owns one phase and sees prior outputs as context. No manager, no delegation
+    failures — the order is enforced in code.
     """
     mdl = model or STRATEGIST_MODEL
-    # Grounding tools first (research before scanning), then the validators.
-    tools: list[Any] = [
-        NewsCatalystTool(), ArxivSearchTool(), IndexConstituentsTool(),
-        CointegrationScannerTool(), CryptoScannerTool(),
-    ]
-    if allow_research:
-        tools.append(ResearchLinkageTool())
+    skills = [str(_SKILL_DIR)] if _SKILL_DIR.is_dir() else []
 
-    strategist = RoleSpec(
-        name="quant-strategist",
-        description="Researches the literature + real universes, then validates cointegration hypotheses.",
+    # ── Agent specs ──────────────────────────────────────────────────────────
+
+    scanner_tools: list[Any] = [CointegrationScannerTool(), CryptoScannerTool()]
+    if allow_research:
+        scanner_tools.append(ResearchLinkageTool())
+
+    researcher = RoleSpec(
+        name="quant-researcher",
+        description="Grounds the objective in news catalysts, arXiv literature, and live S&P 500 constituents.",
         tier=PermissionTier.WORKER,
-        system_prompt=_STRATEGIST_PROMPT,
-        tools=tools,
-        model=mdl,
-        max_iter=20,
-        skills=[str(_SKILL_DIR)] if _SKILL_DIR.is_dir() else [],
+        system_prompt=_RESEARCHER_PROMPT,
+        tools=[NewsCatalystTool(), ArxivSearchTool(), IndexConstituentsTool()],
+        model=_FAST_MODEL,
+        max_iter=12,
+        skills=skills,
+    )
+    scanner = RoleSpec(
+        name="quant-scanner",
+        description="Runs deterministic cointegration scans on proposed universes; optionally vets a survivor.",
+        tier=PermissionTier.WORKER,
+        system_prompt=_SCANNER_PROMPT,
+        tools=scanner_tools,
+        model=_FAST_MODEL,
+        max_iter=12,
+        skills=skills,
     )
     synth = RoleSpec(
         name="quant-synth",
-        description="Synthesises the strategist's findings into the final handoff.",
+        description="Synthesises research and scan results into the final handoff.",
         tier=PermissionTier.WORKER,
-        system_prompt=(
-            "You are a synthesis lead. The strategist's findings (proposed "
-            "universes, scan results, rationale) are in your context. Combine them "
-            "into one final handoff: list each durable surviving pair with its "
-            "stats and the economic thesis that led there; if none survived, say so "
-            "plainly. Do not redo the work or call tools — just synthesise."
-        ),
+        system_prompt=_SYNTH_PROMPT,
         model=mdl,
-        max_iter=5,
+        max_iter=4,
+        skills=skills,
     )
-    # Memory: inject the desk's own recent findings so it builds on prior runs
-    # instead of starting cold (don't re-test known dead ends; revisit live pairs).
+
+    # ── Briefs (each phase gets a focused objective + prior research injected) ─
+
     prior = quant_journal.prior_research_block(n=5)
-    strat_brief = TaskBrief(
+
+    research_brief = TaskBrief(
         objective=(
             f"Objective: {objective}\n\nAsset class focus: {asset_class}. "
-            "Propose candidate universes, test each with the scan tool, optionally "
-            "verify a survivor's linkage, and lay out the durable pairs with rationale."
+            "Research current catalysts, relevant literature, and live index "
+            "constituents for candidate sectors. Propose concrete ticker "
+            "universes with economic theses grounded in evidence — never from "
+            "memory."
             + (f"\n\n{prior}" if prior else "")
         ),
-        tool_call_budget=tool_call_budget,
+        tool_call_budget=max(tool_call_budget // 2, 4),
         success_criteria=[
-            "At least 2 candidate universes proposed, each with an economic thesis",
-            "Each proposed universe tested with the scan tool",
+            "At least 2 candidate universes proposed with concrete ticker lists from live index data",
+            "Each universe has an economic thesis citing specific evidence",
+        ],
+    )
+    scan_brief = TaskBrief(
+        objective=(
+            "Scan each universe proposed by the researcher (see context). Run "
+            "scan_cointegrated_pairs for equities, scan_crypto_pairs for crypto. "
+            "Report every surviving pair with full stats. Optionally "
+            "research_linkage on the top survivor. If a universe returns zero "
+            "survivors, report that honestly."
+        ),
+        tool_call_budget=8,
+        success_criteria=[
+            "Each proposed universe scanned",
+            "Surviving pairs reported with stats (adf_p, half-life, hurst, beta, factor_r2)",
         ],
     )
     synth_brief = TaskBrief(
         objective=(
-            "Synthesise the strategist's findings (in context) into the final "
-            "handoff: durable surviving cointegrated pairs with stats + the economic "
-            "rationale for each, or an honest 'no durable pairs in these hypotheses'."
+            "Synthesise the researcher's evidence and the scanner's validated "
+            "results (both in context) into the final handoff. Report each "
+            "durable surviving pair with stats and its economic thesis. If none "
+            "survived, say so plainly. End with a one-line LESSON for the "
+            "journal."
         ),
         success_criteria=[
-            "Surviving pairs reported with stats and rationale, or an honest 'none'",
+            "Durable pairs reported with stats and rationale, or an honest 'none'",
+            "One-line LESSON for the journal",
         ],
     )
+
+    # ── Run the deterministic chain ──────────────────────────────────────────
+
     result = spawn_chain(
-        [(strategist, strat_brief), (synth, synth_brief)],
-        verbose=verbose, run_budget_tokens=400_000,
+        [(researcher, research_brief), (scanner, scan_brief), (synth, synth_brief)],
+        verbose=verbose,
+        run_budget_tokens=400_000,
     )
-    # Memory: record this run's finding so the next run can build on it.
+
+    # ── Record to journal ────────────────────────────────────────────────────
+
     try:
         quant_journal.record(
             objective, result.envelope.summary or "",
             status=result.envelope.status,
             tokens=(result.token_usage or {}).get("total_tokens"),
         )
-    except Exception:  # noqa: BLE001 — journaling must never fail the run
+    except Exception:
         pass
     return result

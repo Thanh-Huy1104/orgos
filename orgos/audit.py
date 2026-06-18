@@ -151,6 +151,83 @@ def make_audit_callback(
     return _log_step
 
 
+def trace_tool(tool: Any, role_name: str, run_id: str) -> Any:
+    """Wrap a tool's ``_run`` so every call is logged to the run's audit log.
+
+    CrewAI 1.14's native function-calling executor batches tool calls and never
+    routes them through ``step_callback`` as ``AgentAction`` steps, so the audit
+    log captured zero tool calls. We intercept at the tool layer instead — this
+    is version-proof and also records the tool's *output*, which step_callback
+    never gave us. ``to_structured_tool()`` captures ``self._run`` at kickoff, so
+    shadowing the bound method on the instance (before the crew runs) is enough.
+    """
+    audit_log = AUDIT_DIR / f"{run_id}.jsonl"
+    audit_log.parent.mkdir(parents=True, exist_ok=True)
+    tool_name = getattr(tool, "name", tool.__class__.__name__)
+    original = tool._run
+
+    def _traced(*args: Any, **kwargs: Any) -> Any:
+        ts = datetime.now(timezone.utc).isoformat()
+        # Native calls pass kwargs; fall back to positional for ReAct.
+        tool_input = kwargs if kwargs else (args[0] if len(args) == 1 else list(args))
+        try:
+            result = original(*args, **kwargs)
+            ok, preview = True, str(result)[:1200]
+            return result
+        except Exception as exc:  # noqa: BLE001 — never let tracing swallow/alter behaviour
+            ok, preview = False, f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            try:
+                record = {
+                    "ts": ts, "run_id": run_id, "role": role_name,
+                    "type": "tool_call", "tool": tool_name,
+                    "tool_input": _safe_json(tool_input), "ok": ok,
+                    "output_preview": preview,
+                }
+                with audit_log.open("a") as f:
+                    f.write(json.dumps(record) + "\n")
+            except Exception:  # noqa: BLE001 — logging must never break the run
+                pass
+
+    object.__setattr__(tool, "_run", _traced)
+    return tool
+
+
+def _safe_json(value: Any) -> Any:
+    """Coerce a tool input into something JSON-serialisable for the audit log."""
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return str(value)[:1000]
+
+
+def read_trail(run_id: str) -> list[dict[str, Any]]:
+    """Read a run's tool-call trail (the research trail) from its audit log.
+
+    Returns the ordered list of ``tool_call`` records — what each agent actually
+    read/scanned, with inputs and a preview of each result. Empty list if the log
+    is missing (e.g. a run that made no tool calls, or was never executed).
+    """
+    audit_log = AUDIT_DIR / f"{run_id}.jsonl"
+    if not audit_log.exists():
+        return []
+    trail: list[dict[str, Any]] = []
+    with audit_log.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("type") == "tool_call":
+                trail.append(rec)
+    return trail
+
+
 def make_task_callback(run_id: str):
     """Create a task_callback that logs each completed task to the same JSONL log.
 

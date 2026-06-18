@@ -40,12 +40,15 @@ def strategist(body: StrategistBody) -> dict:
     optionally spawns research, and synthesises a handoff. Slow (minutes)."""
     from .quant_strategist import run_strategist
 
+    from .audit import read_trail
+
     r = run_strategist(body.objective, asset_class=body.asset_class,
                        allow_research=body.allow_research, verbose=False)
     e = r.envelope
     return {"status": e.status, "criteria_met": e.success_criteria_met,
             "summary": e.summary, "notes": e.notes,
-            "tokens": (r.token_usage or {}).get("total_tokens")}
+            "tokens": (r.token_usage or {}).get("total_tokens"),
+            "run_id": r.run_id, "trail": read_trail(r.run_id)}
 
 
 @router.get("/risk")

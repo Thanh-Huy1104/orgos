@@ -1,7 +1,52 @@
 "use client";
 
 import { useState } from "react";
-import { runStrategist, StrategistResult } from "@/lib/api";
+import { runStrategist, StrategistResult, TrailStep } from "@/lib/api";
+
+const PHASE: Record<string, string> = {
+  "quant-researcher": "Research",
+  "quant-scanner": "Scan",
+  "quant-synth": "Synthesis",
+};
+
+function fmtInput(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") {
+    const vals = Object.values(v as Record<string, unknown>).map(String);
+    return vals.join("  ");
+  }
+  return String(v);
+}
+
+function Trail({ steps }: { steps: TrailStep[] }) {
+  if (!steps.length) return null;
+  return (
+    <div className="card mt-4">
+      <div className="text-sm font-medium mb-3">
+        Research trail <span style={{ color: "var(--text-muted)" }}>· {steps.length} tool calls</span>
+      </div>
+      <ol className="flex flex-col gap-2">
+        {steps.map((s, i) => (
+          <li key={i} className="text-xs" style={{ borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="badge badge-gray">{PHASE[s.role] ?? s.role}</span>
+              <span className="font-mono" style={{ color: "var(--text-primary)" }}>{s.tool}</span>
+              {!s.ok && <span className="badge badge-yellow">error</span>}
+              <span className="font-mono" style={{ color: "var(--text-muted)" }}>{fmtInput(s.tool_input).slice(0, 80)}</span>
+            </div>
+            <details className="mt-1">
+              <summary style={{ color: "var(--text-muted)", cursor: "pointer" }}>output</summary>
+              <pre className="mt-1 whitespace-pre-wrap" style={{ color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
+                {s.output_preview}
+              </pre>
+            </details>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 const EXAMPLES = [
   "Find non-obvious cointegrated equity pairs outside the same sector — shared commodity or supply-chain links.",
@@ -84,6 +129,7 @@ export default function Strategist() {
           {result.notes && <div className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>{result.notes}</div>}
         </div>
       )}
+      {result && !loading && result.trail && <Trail steps={result.trail} />}
       {!result && !loading && !err && (
         <div className="text-sm" style={{ color: "var(--text-muted)" }}>
           Pick an example or write your own thesis, then dispatch the agent.

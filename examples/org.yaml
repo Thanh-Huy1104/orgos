@@ -148,8 +148,7 @@ departments:
       tier: orchestrator
       system_prompt: |
         You manage the owner's operations. Delegate calendar checks to
-        calendar-agent, research tasks to research-agent. Keep things
-        organized and on schedule.
+        calendar-agent. Keep things organized and on schedule.
       model: deepseek/deepseek-v4-pro
       max_iter: 15
     members:
@@ -161,13 +160,6 @@ departments:
           to check the calendar. Report events clearly with times.
         model: deepseek/deepseek-v4-pro
         max_iter: 10
-      - name: research-agent
-        tier: worker
-        system_prompt: |
-          Research anything the owner asks about. Use web_search and
-          web_fetch. Summarize findings concisely with sources.
-        model: deepseek/deepseek-v4-pro
-        max_iter: 12
     shared_mcps:
       - type: internet
       - type: gcal_tool
@@ -181,6 +173,39 @@ departments:
             Check the owner's calendar for today and tomorrow. Summarize
             upcoming events, flag any scheduling conflicts.
           expected_output: Daily calendar briefing with event summary.
+
+  # ── Quant: cointegration discovery, research-grounded, deterministic ───
+  - name: quant
+    description: Cointegration pair discovery — grounded research, deterministic validation, journal-compounding
+    supervisor:
+      name: quant-strategist
+      tier: orchestrator
+      system_prompt: |
+        You are the quant discovery desk. When invoked, you research live
+        catalysts + literature + real index constituents, hypothesise
+        non-obvious cointegration universes, validate with deterministic
+        FDR/durability scans, optionally vet a survivor with the research
+        department, and produce a handoff with stats, rationale, and a
+        lesson for the journal.
+      model: deepseek/deepseek-v4-pro
+      max_iter: 15
+    members: []
+    shared_skills:
+      - ./skills/quant
+    shared_mcps:
+      - type: internet
+    sops:
+      - name: nightly_hunt
+        cadence: daily
+        brief:
+          objective: |
+            Hunt for non-obvious cointegrated equity pairs. Research current
+            catalysts (news), relevant literature (arXiv q-fin), and live
+            S&P 500 sector constituents. Propose candidate universes, scan
+            each with the deterministic FDR + durability pipeline, and
+            report durable survivors with stats and economic rationale.
+            Record findings to the journal so the desk compounds.
+          expected_output: Ranked survivors with cointegration stats and economic thesis, or an honest 'no durable pairs'.
 
   # ── Compliance: policy review, legal checks ───────────────────────────
   - name: compliance

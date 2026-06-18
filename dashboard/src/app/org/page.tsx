@@ -26,8 +26,8 @@ interface DeptInfo {
 function unique(arr: string[]) { return [...new Set(arr)]; }
 
 const deptColor: Record<string, string> = {
-  assistant: "#3B82F6", finance: "#059669", legal: "#D97706",
-  research: "#8B5CF6", engineering: "#F59E0B", operations: "#10B981", compliance: "#EF4444",
+  research: "#8B5CF6", engineering: "#F59E0B", operations: "#10B981",
+  compliance: "#EF4444", quant: "#3B82F6",
 };
 
 const STATUS_COLOR: Record<string, string> = {
