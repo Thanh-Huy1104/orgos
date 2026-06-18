@@ -31,16 +31,16 @@ from pydantic import BaseModel, Field
 
 from pathlib import Path
 
-from . import quant_journal
-from .spawn import PermissionTier, RoleSpec, TaskBrief
-from .tools.crypto_tool import CryptoScannerTool
-from .tools.quant_tool import CointegrationScannerTool
-from .tools.research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCatalystTool
-from .spawn import spawn_chain
+from orgos import quant_journal
+from orgos.spawn import PermissionTier, RoleSpec, TaskBrief
+from orgos.tools.crypto_tool import CryptoScannerTool
+from orgos.tools.quant_tool import CointegrationScannerTool
+from orgos.tools.research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCatalystTool
+from orgos.spawn import spawn_chain
 
 STRATEGIST_MODEL = os.environ.get("ORGOS_STRATEGIST_MODEL", "deepseek/deepseek-v4-pro")
 _FAST_MODEL = os.environ.get("ORGOS_STRATEGIST_FAST_MODEL", "deepseek/deepseek-v4-pro")
-_SKILL_DIR = Path(__file__).resolve().parent.parent / "skills" / "quant" / "strategy-research"
+_SKILL_DIR = Path(__file__).resolve().parent.parent.parent / "skills" / "quant" / "strategy-research"
 
 _ORG = None
 
@@ -48,7 +48,7 @@ _ORG = None
 def _org():
     global _ORG
     if _ORG is None:
-        from .departments import load_org
+        from orgos.departments import load_org
 
         _ORG = load_org(os.environ.get("ORGOS_ORG_YAML", "./examples/org.yaml"))
     return _ORG
@@ -74,7 +74,7 @@ class ResearchLinkageTool(BaseTool):
     tool_category: str = "read"
 
     def _run(self, thesis: str) -> str:
-        from .departments import run_department
+        from orgos.departments import run_department
 
         brief = TaskBrief(
             objective=(

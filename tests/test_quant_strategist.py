@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from orgos import quant_strategist as qs
+from orgos.subagents import quant_strategist as qs
 from orgos.spawn import PermissionTier
 
 

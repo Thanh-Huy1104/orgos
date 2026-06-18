@@ -2,7 +2,7 @@
 
 import pytest
 
-from orgos import quant_supervisor
+from orgos.subagents import quant_supervisor
 
 
 def _dossier(pair, verdict):
