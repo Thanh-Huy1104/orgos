@@ -4,12 +4,12 @@ Usage as a CrewAI MCP server::
 
     from crewai.mcp.config import MCPServerStdio
     mcp = MCPServerStdio(
-        command="python", args=["-m", "orgos.memory_mcp", "--db", "./_orgos_memory/memory.db"]
+        command="python", args=["-m", "orgos.mcps.memory_mcp", "--db", "./_orgos_memory/memory.db"]
     )
 
 Run standalone for testing::
 
-    python -m orgos.memory_mcp --db ./_orgos_memory/memory.db
+    python -m orgos.mcps.memory_mcp --db ./_orgos_memory/memory.db
 
 Tools exposed to agents:
   - recall_past_runs(query, department, limit)  — text search over run history
@@ -27,7 +27,7 @@ import os
 import sys
 from pathlib import Path
 
-# ── Bootstrap: ensure orgos is importable when run as `python -m orgos.memory_mcp`
+# ── Bootstrap: ensure orgos is importable when run as `python -m orgos.mcps.memory_mcp`
 _here = Path(__file__).resolve().parent.parent
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))

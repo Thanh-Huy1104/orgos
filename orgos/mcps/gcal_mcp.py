@@ -8,11 +8,11 @@ Requires Google Cloud credentials. Setup:
   5. First run will open a browser for OAuth consent
 
 Usage:
-    from orgos.gcal import create_gcal_mcp
+    from orgos.mcps.gcal import create_gcal_mcp
     dept.shared_mcps = [create_gcal_mcp()]
 
 Run standalone:
-    python -m orgos.gcal_mcp --creds ~/.orgos/google-credentials.json
+    python -m orgos.mcps.gcal_mcp --creds ~/.orgos/google-credentials.json
 
 Tools:
   - list_events(calendar_id, time_min, time_max, limit)
@@ -61,7 +61,7 @@ def _get_service(creds_path: str, token_path: str):
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            return None  # needs auth — run python -m orgos.gcal_auth first
+            return None  # needs auth — run python -m orgos.mcps.gcal_auth first
     return build("calendar", "v3", credentials=creds)
 
 

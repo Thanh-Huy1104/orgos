@@ -194,7 +194,7 @@ def _resolve_mcp(mcp_spec: Any) -> Any:
 
     mtype = mcp_spec["type"]
     if mtype == "internet":
-        from .internet import create_internet_mcp
+        from .mcps.internet import create_internet_mcp
         return create_internet_mcp()
     elif mtype == "memory":
         from .memory import create_memory_mcp
@@ -203,7 +203,7 @@ def _resolve_mcp(mcp_spec: Any) -> Any:
         from .pm import create_pm_mcp
         return create_pm_mcp(mcp_spec.get("db", "./_orgos_memory/pm.db"))
     elif mtype == "gcal":
-        from .gcal import create_gcal_mcp
+        from .mcps.gcal import create_gcal_mcp
         return create_gcal_mcp(
             creds_path=mcp_spec.get("creds"),
             token_path=mcp_spec.get("token"),

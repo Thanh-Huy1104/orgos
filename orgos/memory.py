@@ -451,5 +451,5 @@ def create_memory_mcp(db_path: str = "./_orgos_memory/memory.db") -> Any:
     import sys
     return MCPServerStdio(
         command=sys.executable,
-        args=["-m", "orgos.memory_mcp", "--db", db_path],
+        args=["-m", "orgos.mcps.memory_mcp", "--db", db_path],
     )

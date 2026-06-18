@@ -30,8 +30,8 @@ from .departments import (
 )
 from .evolve import OrgAnalyzer, Proposal, ProposalType, apply_proposal, review_proposals
 from .handoff import HandoffBus, HandoffRule
-from .gcal import create_gcal_mcp
-from .internet import create_internet_mcp
+from .mcps.gcal import create_gcal_mcp
+from .mcps.internet import create_internet_mcp
 from .legal import (
     DEFAULT_POLICY,
     LegalPolicy,

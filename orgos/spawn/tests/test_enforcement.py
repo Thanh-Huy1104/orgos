@@ -678,20 +678,20 @@ class TestSearchBackends:
             return False
 
     def test_parse_tavily(self):
-        from orgos import internet_mcp
+        from orgos.mcps import internet_mcp
 
         data = {"results": [{"title": "T", "url": "https://t", "content": "body"}]}
         out = internet_mcp._parse_tavily(data)
         assert out == [{"title": "T", "url": "https://t", "snippet": "body"}]
 
     def test_parse_brave(self):
-        from orgos import internet_mcp
+        from orgos.mcps import internet_mcp
 
         data = {"web": {"results": [{"title": "B", "url": "https://b", "description": "d"}]}}
         assert internet_mcp._parse_brave(data)[0]["url"] == "https://b"
 
     def test_parse_serper(self):
-        from orgos import internet_mcp
+        from orgos.mcps import internet_mcp
 
         data = {"organic": [{"title": "S", "link": "https://s", "snippet": "snip"}]}
         out = internet_mcp._parse_serper(data)
@@ -699,7 +699,7 @@ class TestSearchBackends:
 
     def test_keyed_provider_wins(self, monkeypatch):
         import asyncio
-        from orgos import internet_mcp
+        from orgos.mcps import internet_mcp
 
         async def fake(client, q, limit, key):
             return [{"title": "T", "url": "u", "snippet": "s"}]
@@ -712,7 +712,7 @@ class TestSearchBackends:
 
     def test_no_key_skips_to_ddg(self, monkeypatch):
         import asyncio
-        from orgos import internet_mcp
+        from orgos.mcps import internet_mcp
 
         async def boom(client, q, limit, key):
             raise AssertionError("must not call a keyless provider")
@@ -726,7 +726,7 @@ class TestSearchBackends:
 
     def test_empty_provider_falls_through(self, monkeypatch):
         import asyncio
-        from orgos import internet_mcp
+        from orgos.mcps import internet_mcp
 
         async def empty(client, q, limit, key):
             return []
@@ -741,7 +741,7 @@ class TestSearchBackends:
 
     def test_all_fail_returns_none(self, monkeypatch):
         import asyncio
-        from orgos import internet_mcp
+        from orgos.mcps import internet_mcp
 
         async def err(client, q, limit, key):
             raise ValueError("rate limited")

@@ -14,11 +14,11 @@ research (the model falls back to memorized URLs). Set TAVILY_API_KEY for
 reliable search; the others are optional extra fallbacks.
 
 Usage:
-    from orgos.internet import create_internet_mcp
+    from orgos.mcps.internet import create_internet_mcp
     dept.shared_mcps = [create_internet_mcp()]
 
 Run standalone:
-    python -m orgos.internet_mcp
+    python -m orgos.mcps.internet_mcp
 
 Tools:
   - web_fetch(url, method?, headers?, body?)  — fetch a URL, return content

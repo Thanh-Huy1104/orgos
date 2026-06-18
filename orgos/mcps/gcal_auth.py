@@ -1,7 +1,7 @@
 """One-time Google Calendar OAuth authorization.
 
 Run once to authorize orgos:
-    python -m orgos.gcal_auth
+    python -m orgos.mcps.gcal_auth
 
 Opens a browser for OAuth consent. If you're on a headless server,
 it prints the URL — open it on any machine with a browser.

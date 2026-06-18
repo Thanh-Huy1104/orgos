@@ -7,7 +7,7 @@ Usage as CrewAI MCP:
     dept.shared_mcps = [create_pm_mcp("./_orgos_memory/pm.db")]
 
 Run standalone for testing:
-    python -m orgos.pm_mcp --db ./_orgos_memory/pm.db
+    python -m orgos.mcps.pm_mcp --db ./_orgos_memory/pm.db
 
 Tools:
   - create_task(title, description?, department?, priority?)

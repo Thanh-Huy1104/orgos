@@ -71,7 +71,7 @@ class ListEventsTool(BaseTool):
     def _run(self, calendar_id: str = "primary", time_min: str = "", time_max: str = "", limit: int = 25) -> str:
         service = _get_calendar_service()
         if service is None:
-            return json.dumps({"error": "Google Calendar not configured. Run: python -m orgos.gcal_auth"})
+            return json.dumps({"error": "Google Calendar not configured. Run: python -m orgos.mcps.gcal_auth"})
 
         try:
             events = service.events().list(
