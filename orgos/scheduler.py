@@ -8,7 +8,7 @@ Usage::
 
     from orgos import load_org, Scheduler
 
-    org = load_org("org.yaml")
+    org = load_org("config/org.yaml")
     scheduler = Scheduler(org)
     scheduler.run_pending()       # run everything that's due now
     scheduler.run_loop()          # run continuously, checking every 60s

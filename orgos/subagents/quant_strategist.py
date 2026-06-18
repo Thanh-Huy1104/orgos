@@ -50,7 +50,7 @@ def _org():
     if _ORG is None:
         from orgos.departments import load_org
 
-        _ORG = load_org(os.environ.get("ORGOS_ORG_YAML", "./examples/org.yaml"))
+        _ORG = load_org(os.environ.get("ORGOS_ORG_YAML", "./config/org.yaml"))
     return _ORG
 
 

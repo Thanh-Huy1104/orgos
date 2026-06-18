@@ -10,7 +10,7 @@ import yaml
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-DEFAULT_POLICY_PATH = Path(__file__).resolve().parent.parent.parent / "examples" / "policy-bank.yaml"
+DEFAULT_POLICY_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "policy-bank.yaml"
 
 
 class _PolicyInput(BaseModel):

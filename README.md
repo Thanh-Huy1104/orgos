@@ -20,15 +20,18 @@ export AZURE_OPENAI_API_KEY=...      # Azure
 CrewAI uses litellm under the hood for most providers. For Anthropic native support:
 `pip install crewai[anthropic]`. See [CrewAI LLM docs](https://docs.crewai.com/how-to/LLM-Connections/).
 
-## Run the example
+## Run it
 
 ```bash
-# Sequential chain (scanner → validator) — default:
-python examples/quant_pair_scanner.py
+# The full suite (offline, no API keys needed):
+python -m pytest -q
 
-# Hierarchical orchestration (supervisor manages scanner + validator):
-python examples/quant_pair_scanner.py --hierarchical
+# The REST API + dashboard backend (reads config/org.yaml):
+python -m uvicorn orgos.api:app --host 0.0.0.0 --port 8420
 ```
+
+The org constitution lives in `config/org.yaml`; the compliance policy bank in
+`config/policy-bank.yaml`.
 
 ## The primitive
 

@@ -45,7 +45,7 @@ from orgos.spawn import TaskBrief
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-ORG_YAML = os.environ.get("ORGOS_ORG_YAML", "./examples/org.yaml")
+ORG_YAML = os.environ.get("ORGOS_ORG_YAML", "./config/org.yaml")
 MEMORY_DB = os.environ.get("ORGOS_MEMORY_DB", "./_orgos_memory/memory.db")
 PM_DB = os.environ.get("ORGOS_PM_DB", "./_orgos_memory/pm.db")
 
@@ -282,7 +282,7 @@ def logs(limit: int = 100, department: str | None = None):
 @app.get("/api/policies")
 def get_policies(category: str | None = None):
     """List all policies in the policy bank. Optional category filter."""
-    path = Path("examples/policy-bank.yaml")
+    path = Path("config/policy-bank.yaml")
     if not path.exists():
         return {"policies": []}
     data = yaml.safe_load(path.read_text())
@@ -309,7 +309,7 @@ class AddPolicyBody(BaseModel):
 @app.post("/api/policies")
 def add_policy(body: AddPolicyBody):
     """Add a new policy to the policy bank."""
-    path = Path("examples/policy-bank.yaml")
+    path = Path("config/policy-bank.yaml")
     if not path.exists():
         data = {"policies": []}
     else:
@@ -327,7 +327,7 @@ def add_policy(body: AddPolicyBody):
 @app.delete("/api/policies/{policy_id}")
 def delete_policy(policy_id: str):
     """Remove a policy from the bank."""
-    path = Path("examples/policy-bank.yaml")
+    path = Path("config/policy-bank.yaml")
     if not path.exists():
         raise HTTPException(404, "Policy bank not found")
     data = yaml.safe_load(path.read_text())

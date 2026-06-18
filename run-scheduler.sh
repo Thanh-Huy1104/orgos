@@ -8,7 +8,7 @@ exec python -c "
 import sys, time
 sys.path.insert(0, '/home/th/orgos')
 from orgos import load_org, Scheduler
-org = load_org('examples/org.yaml')
+org = load_org('config/org.yaml')
 org.use_memory()
 s = Scheduler(org)
 notify_owner(org, 'scheduler', 'Scheduler starting — watching for due jobs')

@@ -126,8 +126,12 @@ Two orchestration patterns:
 
 | Concern | File |
 |---------|------|
-| Typed contracts (RoleSpec, TaskBrief, HandoffEnvelope, tiers) | `contracts.py` |
-| Spawn factory (spawn, spawn_chain, SpawnResult) | `spawn.py` |
-| Tools (GatedToolBase, BashTool) | `tools.py` |
-| Audit + human gate (make_audit_callback, cli_approval) | `audit.py` |
-| Concrete example (quant pair scanning) | `examples/quant_pair_scanner.py` |
+| Typed contracts (RoleSpec, TaskBrief, HandoffEnvelope, tiers) | `orgos/spawn/contracts.py` |
+| Spawn engine (spawn, spawn_chain, SpawnResult) | `orgos/spawn/engine.py` |
+| Tool framework (GatedToolBase) | `orgos/spawn/toolbase.py` |
+| Audit + research trail + human gate | `orgos/spawn/audit.py` |
+| Concrete tools (Bash, scanners, research sources) | `orgos/tools/` |
+| MCP servers + factories | `orgos/mcps/` |
+| Pre-built agent definitions | `orgos/subagents/` |
+| Quant research desk (cointegration, Icarus bridge) | `orgos/quant/` |
+| Org config (constitution, policy bank) | `config/` |
