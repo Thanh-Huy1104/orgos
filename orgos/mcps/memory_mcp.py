@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 # ── Bootstrap: ensure orgos is importable when run as `python -m orgos.mcps.memory_mcp`
-_here = Path(__file__).resolve().parent.parent
+_here = Path(__file__).resolve().parent.parent.parent  # repo root (mcps/ is one level deeper)
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 

@@ -28,7 +28,7 @@ import os
 import sys
 from pathlib import Path
 
-_here = Path(__file__).resolve().parent.parent
+_here = Path(__file__).resolve().parent.parent.parent  # repo root (mcps/ is one level deeper)
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
