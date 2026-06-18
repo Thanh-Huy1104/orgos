@@ -20,7 +20,7 @@ def book() -> dict:
     Reads the trading DB read-only. 503 if the DB is unreachable (engine off /
     network) so the UI can show a clear 'engine offline' state.
     """
-    from .subagents.quant_supervisor import live_overview
+    from orgos.subagents.quant_supervisor import live_overview
 
     try:
         return live_overview()
@@ -38,9 +38,9 @@ class StrategistBody(BaseModel):
 def strategist(body: StrategistBody) -> dict:
     """Agent-driven discovery: an LLM strategist proposes universes, scans them,
     optionally spawns research, and synthesises a handoff. Slow (minutes)."""
-    from .subagents.quant_strategist import run_strategist
+    from orgos.subagents.quant_strategist import run_strategist
 
-    from .spawn import read_trail
+    from orgos.spawn import read_trail
 
     r = run_strategist(body.objective, asset_class=body.asset_class,
                        allow_research=body.allow_research, verbose=False)

@@ -21,7 +21,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Callable
 
-from .tools.quant_tool import run_scan
+from orgos.tools.quant_tool import run_scan
 from .research_gate import screen_candidates
 from .sec_edgar import assess_filings, recent_filings
 

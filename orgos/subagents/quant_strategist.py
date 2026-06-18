@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from pathlib import Path
 
-from orgos import quant_journal
+from orgos.quant import journal as quant_journal
 from orgos.spawn import PermissionTier, RoleSpec, TaskBrief
 from orgos.tools.crypto_tool import CryptoScannerTool
 from orgos.tools.quant_tool import CointegrationScannerTool

@@ -2,7 +2,7 @@
 
 import pytest
 
-from orgos import event_discovery as ed
+from orgos.quant import event_discovery as ed
 
 
 def _sector_map():

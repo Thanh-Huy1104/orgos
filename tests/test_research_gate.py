@@ -2,8 +2,8 @@
 
 import pytest
 
-from orgos.sec_edgar import assess_filings
-from orgos.research_gate import screen_candidates, screen_pair
+from orgos.quant.sec_edgar import assess_filings
+from orgos.quant.research_gate import screen_candidates, screen_pair
 
 
 def _filings(*forms):

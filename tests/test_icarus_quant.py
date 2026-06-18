@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from orgos.icarus_quant import (
+from orgos.quant.icarus_quant import (
     analyze_pair,
     engle_granger,
     half_life,

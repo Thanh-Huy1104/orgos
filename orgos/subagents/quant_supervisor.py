@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from orgos import icarus_db
+from orgos.quant import icarus_db
 from orgos.tools.quant_tool import run_scan
-from orgos.research_gate import screen_candidates
+from orgos.quant.research_gate import screen_candidates
 
 
 def live_overview() -> dict:

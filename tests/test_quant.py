@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from orgos.marketdata import MarketDataError, get_prices_with_source
-from orgos.quant import _coint_from_series, scan_universe
+from orgos.quant.marketdata import MarketDataError, get_prices_with_source
+from orgos.quant.core import _coint_from_series, scan_universe
 
 
 def _series(values, start="2023-01-01"):
@@ -86,7 +86,7 @@ class TestScanUniverse:
     """scan_universe ranks tradeable pairs and tolerates unavailable tickers."""
 
     def test_unavailable_ticker_tolerated(self, monkeypatch):
-        import orgos.quant as quant
+        import orgos.quant.core as quant
 
         def fake_get_prices(ticker, lookback_days=504, **kw):
             if ticker == "BAD":

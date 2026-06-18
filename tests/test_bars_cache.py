@@ -5,7 +5,7 @@ import datetime as dt
 import pandas as pd
 import pytest
 
-from orgos import bars_cache
+from orgos.quant import bars_cache
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ class TestIncrementalRefresh:
         assert out["written"]["CUR"] == 0
 
     def test_provider_error_recorded_not_raised(self, captured, monkeypatch):
-        from orgos.marketdata import MarketDataError
+        from orgos.quant.marketdata import MarketDataError
 
         monkeypatch.setattr(bars_cache, "cached_max_dates", lambda syms, *a, **k: {})
 

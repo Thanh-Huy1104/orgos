@@ -81,7 +81,7 @@ app = FastAPI(title="orgos API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Quant desk endpoints (Desk + Scanner dashboard pages).
-from orgos.api_quant import router as quant_router  # noqa: E402
+from orgos.quant.api import router as quant_router  # noqa: E402
 
 app.include_router(quant_router)
 

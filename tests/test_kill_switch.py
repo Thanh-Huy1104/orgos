@@ -2,7 +2,7 @@
 
 import pytest
 
-from orgos import kill_switch as ks
+from orgos.quant import kill_switch as ks
 
 
 class FakeRedis:

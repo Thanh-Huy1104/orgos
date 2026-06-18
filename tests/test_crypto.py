@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from orgos.icarus_quant import benjamini_hochberg, scan
-from orgos import crypto_data
+from orgos.quant.icarus_quant import benjamini_hochberg, scan
+from orgos.quant import crypto_data
 from orgos.tools import crypto_tool
 
 
