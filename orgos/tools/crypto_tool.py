@@ -30,8 +30,8 @@ import pandas as pd
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from .crypto_data import DEFAULT_UNIVERSE, FACTOR, get_panel
-from .icarus_quant import (
+from orgos.crypto_data import DEFAULT_UNIVERSE, FACTOR, get_panel
+from orgos.icarus_quant import (
     benjamini_hochberg,
     engle_granger,
     factor_r2,

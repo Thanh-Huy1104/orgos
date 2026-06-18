@@ -33,9 +33,9 @@ from pathlib import Path
 
 from . import quant_journal
 from .spawn import PermissionTier, RoleSpec, TaskBrief
-from .crypto_tool import CryptoScannerTool
-from .quant_tool import CointegrationScannerTool
-from .research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCatalystTool
+from .tools.crypto_tool import CryptoScannerTool
+from .tools.quant_tool import CointegrationScannerTool
+from .tools.research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCatalystTool
 from .spawn import spawn_chain
 
 STRATEGIST_MODEL = os.environ.get("ORGOS_STRATEGIST_MODEL", "deepseek/deepseek-v4-pro")

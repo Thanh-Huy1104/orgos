@@ -14,7 +14,7 @@ import subprocess
 
 from pydantic import BaseModel, Field
 
-from .spawn.toolbase import GatedToolBase
+from orgos.spawn.toolbase import GatedToolBase
 
 
 # ── Bash tool ────────────────────────────────────────────────────────────────

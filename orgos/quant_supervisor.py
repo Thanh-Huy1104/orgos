@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import icarus_db
-from .quant_tool import run_scan
+from .tools.quant_tool import run_scan
 from .research_gate import screen_candidates
 
 

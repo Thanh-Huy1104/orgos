@@ -5,7 +5,7 @@ import json
 import pytest
 
 from orgos import quant_journal as jr
-from orgos import research_sources as rs
+from orgos.tools import research_sources as rs
 
 
 class TestJournal:

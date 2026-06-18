@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from orgos import quant_tool
-from orgos.quant_tool import (
+from orgos.tools import quant_tool
+from orgos.tools.quant_tool import (
     CointegrationScannerTool,
     resolve_universe,
     run_scan,

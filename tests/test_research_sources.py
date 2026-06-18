@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import pytest
 
-from orgos import research_sources as rs
+from orgos.tools import research_sources as rs
 
 
 class TestArxiv:

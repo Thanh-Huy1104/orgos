@@ -16,8 +16,8 @@ import json
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from .bars_cache import get_panel
-from .icarus_quant import scan
+from orgos.bars_cache import get_panel
+from orgos.icarus_quant import scan
 
 DEFAULT_FACTOR = "SPY"  # market factor for the factor_r2 independence check
 

@@ -85,12 +85,12 @@ class Department(BaseModel):
         if role.tier != PermissionTier.ORCHESTRATOR:
             for m in self.shared_mcps:
                 if isinstance(m, dict) and m.get("type") == "gcal_tool":
-                    from .gcal_tool import create_gcal_tools
+                    from .tools.gcal_tool import create_gcal_tools
                     for t in create_gcal_tools():
                         if t.name not in [getattr(et, 'name', '') for et in extra_tools]:
                             extra_tools.append(t)
                 elif isinstance(m, dict) and m.get("type") == "policy_bank":
-                    from .policy_bank import create_policy_bank_tool
+                    from .tools.policy_bank import create_policy_bank_tool
                     t = create_policy_bank_tool()
                     if t.name not in [getattr(et, 'name', '') for et in extra_tools]:
                         extra_tools.append(t)

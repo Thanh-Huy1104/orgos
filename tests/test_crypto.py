@@ -7,7 +7,8 @@ import pandas as pd
 import pytest
 
 from orgos.icarus_quant import benjamini_hochberg, scan
-from orgos import crypto_data, crypto_tool
+from orgos import crypto_data
+from orgos.tools import crypto_tool
 
 
 def _idx(n):
