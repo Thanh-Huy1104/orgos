@@ -1,37 +1,83 @@
 # orgos
 
-A company of agents on **CrewAI** — model-agnostic, multi-provider LLM support.
+**A framework for AI agents you can actually deploy — governed, auditable, and
+self-correcting** — built on CrewAI, model-agnostic via litellm.
 
-This repo is **Phase 0**: the spawn library — the primitive everything else composes from.
-Read [`DESIGN.md`](./DESIGN.md) first; it holds the settled decisions.
+Most agent stacks make it easy to *run* an agent. orgos makes agents **safe to put
+in front of stakeholders**: capability is separated from authority, every action is
+logged, outputs are **graded against a rubric rather than trusted**, and anything
+consequential passes a human gate. Its worked example is a **quant research desk**
+that discovers and rigorously back-tests trading strategies — and honestly reports
+when something *doesn't* work.
 
-## Install
+> Architecture decisions live in [`DESIGN.md`](./DESIGN.md). A demo walkthrough lives
+> in [`DEMO.md`](./DEMO.md).
+
+---
+
+## What's in the box
+
+**Governance core (`orgos/spawn/`)**
+- **Four permission tiers** — `worker` / `validator` / `publisher` / `orchestrator`.
+  A worker can compute but can't publish or act externally; that needs a validator
+  and a human approval, enforced in code (`GatedToolBase`), never in the model's
+  judgement.
+- **Typed handoffs** — every result is a validated `HandoffEnvelope`; bad output
+  becomes a `failed` envelope, never silent garbage.
+- **Append-only audit + research trail** — `_audit_logs/<run_id>.jsonl` records every
+  tool call (inputs *and* outputs); `read_trail()` reconstructs what an agent did.
+- **Budgets & caps** — per-role token/iteration/time limits and a whole-run ceiling.
+
+**Rubric loop (`orgos/spawn/rubric.py`)**
+- State "good enough" as a `Rubric`; `spawn_until` / `chain_until` run → grade →
+  re-aim → **fail closed**. `optimize` mode keeps the best-scoring attempt. Graders
+  are registered by name so a rubric stays declarative.
+
+**Self-improvement (`orgos/evolve.py`)** — the org analyses its own run history and
+**proposes** changes to its own structure (add a role, request a tool, adjust a
+budget). It changes nothing autonomously — **you approve every change**, and applies
+are comment-preserving with backups.
+
+**Quant research desk (`orgos/quant/`, `orgos/subagents/`)** — the proof it works on
+real, gradeable work:
+- Deterministic **cointegration** engine + scanner (Engle-Granger, half-life, Hurst,
+  sub-period durability, factor independence, Benjamini-Hochberg FDR).
+- **Out-of-sample, after-cost P&L backtest** with walk-forward folds (`backtest.py`) —
+  selection hinges on *did this trade profitably out-of-sample*, not on a p-value.
+- **Funding-rate carry** research (`funding.py`) and **trend-following** backtests
+  (`trend.py`).
+- A **journal** (`journal.py`) — cross-run memory so the desk compounds.
+- The **strategist** — a research → scan → synthesise agent chain run under the
+  rubric loop, recommend-only.
+
+**Dashboard (`dashboard/`, Next.js)** — Desk · Strategist · **Journal** (results +
+rubric strength + every attempt) · **Logs** (the research trail) · Org · Proposals ·
+Calendar · Policies.
+
+---
+
+## Install & run
 
 ```bash
-pip install crewai pydantic          # Python 3.10+
+pip install -r requirements.txt        # Python 3.10+ (CrewAI, pydantic, ruamel.yaml, …)
 
-# Set your LLM provider key (any of these work):
-export OPENAI_API_KEY=sk-...         # OpenAI
-export ANTHROPIC_API_KEY=sk-ant-...  # Anthropic
-export GEMINI_API_KEY=...            # Google
-export AZURE_OPENAI_API_KEY=...      # Azure
-```
+# Set any provider key (litellm under the hood):
+export OPENAI_API_KEY=sk-...            # or ANTHROPIC_API_KEY / GEMINI_API_KEY / DEEPSEEK_API_KEY
 
-CrewAI uses litellm under the hood for most providers. For Anthropic native support:
-`pip install crewai[anthropic]`. See [CrewAI LLM docs](https://docs.crewai.com/how-to/LLM-Connections/).
+# Full test suite (offline, no API keys needed):
+python -m pytest -q                     # 337 passing
 
-## Run it
-
-```bash
-# The full suite (offline, no API keys needed):
-python -m pytest -q
-
-# The REST API + dashboard backend (reads config/org.yaml):
+# REST API (reads config/org.yaml):
 python -m uvicorn orgos.api:app --host 0.0.0.0 --port 8420
+
+# Dashboard:
+cd dashboard && npm install && npm run dev   # http://localhost:3000
 ```
 
-The org constitution lives in `config/org.yaml`; the compliance policy bank in
-`config/policy-bank.yaml`.
+Config lives in `config/org.yaml` (the org "constitution") and
+`config/policy-bank.yaml` (compliance rules).
+
+---
 
 ## The primitive
 
@@ -40,53 +86,51 @@ from orgos import RoleSpec, TaskBrief, PermissionTier, spawn
 
 role = RoleSpec(
     name="researcher",
-    description="Use this role to research a topic and write a brief.",
+    description="Research a topic and write a brief.",
     tier=PermissionTier.WORKER,
     system_prompt="You are a careful research assistant.",
-    model="gpt-4o",
     max_iter=15,
 )
 result = spawn(role, TaskBrief(objective="Summarise X into a one-page brief"))
 print(result.envelope.status, result.envelope.summary)
 ```
 
-### Sequential chain
+Run it under a rubric so it grades itself and retries until it passes (or fails closed):
 
 ```python
-from orgos import spawn_chain
+from orgos import Rubric, spawn_until
 
-result = spawn_chain([
-    (scanner_role, scan_brief),
-    (validator_role, validate_brief),
-])
-# Each step's output feeds into the next via CrewAI task context.
+result = spawn_until(role, brief, Rubric(grader="completed", max_attempts=3))
 ```
 
-`spawn()` gives you, for free on every run:
+`spawn()` gives you, on every run: a structured brief (no free-form delegation),
+tier-enforced guardrails, the audit trail, the human gate on publish-class actions,
+hard caps, and a validated `HandoffEnvelope`.
 
-- a role-scoped system prompt + a **structured brief** (no free-form delegation)
-- **tier-enforced guardrails** — `worker` / `validator` / `publisher` / `orchestrator`
-  (capability separated from authority)
-- an append-only **audit log** (`_audit_logs/<run_id>.jsonl`) of every agent step
-- a deterministic **human gate** on publish-class actions (via CrewAI's `human_input`)
-- hard **iteration + execution time caps**
-- a **validated `HandoffEnvelope`** out — bad output becomes a `failed` envelope, never
-  silent garbage
+---
 
-## How the pieces map to the design
+## Layout
 
-| Decision (DESIGN.md) | Where it lives |
+| Concern | Where |
 |---|---|
-| Two-tier supervisor | `spawn()` with `subordinates=` or `spawn_chain()` |
-| Strict envelope, free payload | `HandoffEnvelope` in `contracts.py` |
-| Capability vs authority | `PermissionTier` + `TIER_POLICY` in `contracts.py` |
-| Human gate in code, not judgement | `human_input=True` on publish Tasks + `cli_approval` in `audit.py` |
-| Observability | `make_audit_callback` in `audit.py` → `_audit_logs/` |
-| Cost discipline | `max_iter` / `max_execution_time` on every `RoleSpec` |
+| Contracts (RoleSpec, TaskBrief, HandoffEnvelope, tiers) | `orgos/spawn/contracts.py` |
+| Spawn engine (`spawn`, `spawn_chain`, `SpawnResult`) | `orgos/spawn/engine.py` |
+| Rubric loop (`Rubric`, `spawn_until`, `chain_until`, graders) | `orgos/spawn/rubric.py` |
+| Tool framework + audit/research trail | `orgos/spawn/toolbase.py`, `orgos/spawn/audit.py` |
+| Concrete tools (scanners, research sources, bash) | `orgos/tools/` |
+| MCP servers | `orgos/mcps/` |
+| Pre-built agents (the strategist) | `orgos/subagents/` |
+| Quant desk (cointegration, backtest, funding, trend, journal) | `orgos/quant/` |
+| Org model, self-improvement, REST API | `orgos/departments.py`, `orgos/evolve.py`, `orgos/api.py` |
+| Dashboard | `dashboard/` |
+| Constitution + policy bank | `config/` |
 
-## Building with AI coding agents
+---
 
-Point your coding agent at this repo and reference `DESIGN.md`. Good next tasks:
-write a `cointegration` CrewAI tool, add real publish-tool names to the `publisher`
-tier's `requires_approval`, and build the Phase 1 orchestrator that runs the
-quant-maintenance job end-to-end.
+## Honest scope
+
+The desk **researches and recommends** — it does not place trades. The strategy
+search in this repo found that easy market edges are largely arbitraged away; the
+desk's value is producing *rigorous, out-of-sample, honestly-graded* analysis (and
+saying "this doesn't work" when it doesn't) — exactly the reliability the governance
+layer is built to guarantee.
