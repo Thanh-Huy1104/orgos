@@ -20,7 +20,7 @@ import fnmatch
 import json
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from crewai import Crew, Process, Task
@@ -55,6 +55,12 @@ class SpawnResult:
     token_usage: dict[str, int] | None
     raw_output: str | None
     tasks_output: list[Any]
+    # Set by the rubric loop (spawn_until / chain_until): how many attempts ran,
+    # the final grade (a GradeResult, or None when not run under a rubric), and
+    # the run_id of every attempt (so a report can show all the runs it did).
+    attempts: int = 1
+    grade: Any = None
+    attempt_run_ids: list[str] = field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -387,6 +393,7 @@ def spawn(
     verbose: bool = True,
     structured: bool | None = None,
     run_budget_tokens: int | None = None,
+    validate_brief: bool = True,
 ) -> SpawnResult:
     """Spawn one configured agent for one brief.
 
@@ -400,6 +407,14 @@ def spawn(
     set, caps the total tokens across every agent in this run (chain ceiling).
     """
     run_id = f"{role.name}-{uuid.uuid4().hex[:8]}"
+
+    # Reject an under-specified brief before spending a single token on it.
+    if validate_brief and (reason := brief.underspecified()):
+        return SpawnResult(
+            envelope=HandoffEnvelope.failed(role.name, f"brief rejected: {reason}"),
+            run_id=run_id, token_usage=None, raw_output=None, tasks_output=[],
+        )
+
     use_structured = role.effective_structured() if structured is None else structured
     run_budget = RunBudget(run_budget_tokens) if run_budget_tokens else None
 
@@ -499,6 +514,7 @@ def spawn_chain(
     verbose: bool = True,
     structured: bool | None = None,
     run_budget_tokens: int | None = None,
+    validate_brief: bool = True,
 ) -> SpawnResult:
     """Run a sequential chain of agents.
 
@@ -509,6 +525,16 @@ def spawn_chain(
     """
     run_id = f"chain-{uuid.uuid4().hex[:8]}"
     last_role = steps[-1][0].name if steps else "chain"
+
+    # Reject up front if any step's brief is too vague to execute.
+    if validate_brief:
+        for role_spec, task_brief in steps:
+            if reason := task_brief.underspecified():
+                return SpawnResult(
+                    envelope=HandoffEnvelope.failed(
+                        role_spec.name, f"brief rejected: {reason}"),
+                    run_id=run_id, token_usage=None, raw_output=None, tasks_output=[],
+                )
     # The last task carries the schema, so the last role's preference governs.
     if structured is None:
         use_structured = steps[-1][0].effective_structured() if steps else True

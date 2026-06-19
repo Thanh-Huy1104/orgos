@@ -39,15 +39,43 @@ class _ArxivInput(BaseModel):
 
 
 def search_arxiv(query: str, max_results: int = 5) -> list[dict]:
+    """Query arXiv q-fin for relevant papers.
+
+    arXiv's public API is frequently slow or rate-limited (429), so this is
+    *bounded* best-effort: a tight read timeout and at most one short backoff
+    retry for transient failures. It never blocks a run for long — a literature
+    miss is acceptable; a stalled run is not. The caller (ArxivSearchTool) turns
+    any failure into an explicit 'unavailable, do not retry' signal so the agent
+    moves on rather than re-calling a dead source.
+    """
+    import time
+
     import httpx
 
-    r = httpx.get(
-        "https://export.arxiv.org/api/query",
-        params={"search_query": f"cat:q-fin.* AND all:{query}",
-                "max_results": max_results, "sortBy": "relevance"},
-        headers=_UA, timeout=20, follow_redirects=True,
-    )
-    r.raise_for_status()
+    # Fast-fail: connect quickly, give up on a stalled read in ~8s.
+    timeout = httpx.Timeout(connect=4.0, read=8.0, write=4.0, pool=4.0)
+    last_exc: Exception | None = None
+    for attempt in range(2):  # one bounded retry, transient errors only
+        try:
+            r = httpx.get(
+                "https://export.arxiv.org/api/query",
+                params={"search_query": f"cat:q-fin.* AND all:{query}",
+                        "max_results": max_results, "sortBy": "relevance"},
+                headers=_UA, timeout=timeout, follow_redirects=True,
+            )
+            r.raise_for_status()
+            break
+        except Exception as exc:  # noqa: BLE001 — classify, then decide to retry
+            last_exc = exc
+            is_429 = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+            transient = is_429 or isinstance(exc, httpx.TimeoutException)
+            if transient and attempt == 0:
+                time.sleep(1.5)
+                continue
+            raise
+    else:  # pragma: no cover — loop always breaks or raises
+        raise last_exc  # type: ignore[misc]
+
     out = []
     for entry in re.findall(r"<entry>(.*?)</entry>", r.text, re.DOTALL):
         title = re.search(r"<title>(.*?)</title>", entry, re.DOTALL)
@@ -78,7 +106,8 @@ class ArxivSearchTool(BaseTool):
         try:
             return json.dumps({"query": query, "papers": search_arxiv(query, max_results)}, indent=2)
         except Exception as exc:  # noqa: BLE001
-            return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+            return json.dumps({"arxiv": "unavailable",
+                               "reason": f"{type(exc).__name__}: {exc}"}, indent=2)
 
 
 # ── Real index/sector membership ──────────────────────────────────────────────
@@ -86,12 +115,28 @@ class ArxivSearchTool(BaseTool):
 def _sp500_table():
     global _CONSTITUENTS_CACHE
     if _CONSTITUENTS_CACHE is None:
+        import time
         import httpx
         import pandas as pd
 
-        r = httpx.get(_SP500_URL, headers=_UA, timeout=20, follow_redirects=True)
-        r.raise_for_status()
-        _CONSTITUENTS_CACHE = pd.read_html(StringIO(r.text))[0]
+        timeout = httpx.Timeout(connect=4.0, read=8.0, write=4.0, pool=4.0)
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                r = httpx.get(_SP500_URL, headers=_UA, timeout=timeout, follow_redirects=True)
+                r.raise_for_status()
+                _CONSTITUENTS_CACHE = pd.read_html(StringIO(r.text))[0]
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                is_429 = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+                transient = is_429 or isinstance(exc, httpx.TimeoutException)
+                if transient and attempt == 0:
+                    time.sleep(1.5)
+                    continue
+                raise
+        else:  # pragma: no cover
+            raise last_exc  # type: ignore[misc]
     return _CONSTITUENTS_CACHE
 
 
@@ -131,27 +176,53 @@ class IndexConstituentsTool(BaseTool):
         try:
             return json.dumps(sp500_constituents(sector), indent=2)
         except Exception as exc:  # noqa: BLE001
-            return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+            return json.dumps({"constituents": "unavailable",
+                               "reason": f"{type(exc).__name__}: {exc}"}, indent=2)
+
 
 
 # ── News catalysts (Tavily) ───────────────────────────────────────────────────
 
 def search_news(query: str, *, days: int = 14, max_results: int = 6) -> list[dict]:
     """Recent finance news for a theme via Tavily (news topic). Grounds idea
-    generation in what's actually moving — sector shifts, M&A, regime changes."""
+    generation in what's actually moving — sector shifts, M&A, regime changes.
+
+    Bounded best-effort — tight timeout with at most one short backoff retry for
+    transient failures. A news miss is acceptable; a stalled run is not.
+    The caller (NewsCatalystTool) turns any failure into an explicit 'unavailable,
+    do not retry' signal so the agent moves on.
+    """
+    import time
     import httpx
 
     key = os.environ.get("TAVILY_API_KEY")
     if not key:
         raise RuntimeError("TAVILY_API_KEY not set")
-    resp = httpx.post(
-        "https://api.tavily.com/search",
-        headers={"Authorization": f"Bearer {key}"},
-        json={"query": query, "topic": "news", "days": days,
-              "max_results": max_results, "search_depth": "basic"},
-        timeout=25,
-    )
-    resp.raise_for_status()
+
+    timeout = httpx.Timeout(connect=4.0, read=8.0, write=4.0, pool=4.0)
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            resp = httpx.post(
+                "https://api.tavily.com/search",
+                headers={"Authorization": f"Bearer {key}"},
+                json={"query": query, "topic": "news", "days": days,
+                      "max_results": max_results, "search_depth": "basic"},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            is_429 = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+            transient = is_429 or isinstance(exc, httpx.TimeoutException)
+            if transient and attempt == 0:
+                time.sleep(1.5)
+                continue
+            raise
+    else:  # pragma: no cover
+        raise last_exc  # type: ignore[misc]
+
     return [{"title": r.get("title", ""), "url": r.get("url", ""),
              "snippet": (r.get("content", "") or "")[:300]}
             for r in resp.json().get("results", [])]
@@ -178,4 +249,5 @@ class NewsCatalystTool(BaseTool):
         try:
             return json.dumps({"query": query, "news": search_news(query, days=days)}, indent=2)
         except Exception as exc:  # noqa: BLE001
-            return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+            return json.dumps({"news": "unavailable",
+                               "reason": f"{type(exc).__name__}: {exc}"}, indent=2)

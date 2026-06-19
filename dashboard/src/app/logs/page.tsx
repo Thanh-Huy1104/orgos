@@ -1,47 +1,61 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RunEntry, getLogs } from "@/lib/api";
+import { TrailRun, TrailStep, getTrails, getTrail } from "@/lib/api";
+import { Trail, Digest } from "@/lib/trail";
 
-function Badge({ status }: { status: string }) {
-  const c: Record<string, string> = { completed: "badge-green", failed: "badge-red", blocked: "badge-yellow", needs_revision: "badge-yellow" };
-  return <span className={`badge ${c[status] || "badge-gray"}`}>{status}</span>;
+function RunRow({ run }: { run: TrailRun }) {
+  const [trail, setTrail] = useState<TrailStep[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    if (trail || loading) return;
+    setLoading(true);
+    try { setTrail((await getTrail(run.run_id)).trail); }
+    catch { setTrail([]); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <details className="card" onToggle={(ev) => (ev.currentTarget as HTMLDetailsElement).open && load()}>
+      <summary className="flex items-center gap-3 flex-wrap" style={{ cursor: "pointer" }}>
+        <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>{run.run_id}</span>
+        <span className="badge badge-gray">{run.tool_calls} calls</span>
+        {run.tool_calls > 0 && run.ok < run.tool_calls && (
+          <span className="badge badge-yellow">{run.tool_calls - run.ok} errored</span>
+        )}
+        <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>
+          {new Date(run.ts).toLocaleString()}{loading ? " · loading…" : ""}
+        </span>
+      </summary>
+      {trail && <><Digest steps={trail} /><Trail steps={trail} /></>}
+    </details>
+  );
 }
 
 export default function LogsPage() {
-  const [logs, setLogs] = useState<RunEntry[]>([]);
-  const [dept, setDept] = useState("");
+  const [runs, setRuns] = useState<TrailRun[] | null>(null);
+  const [err, setErr] = useState(false);
 
-  useEffect(() => { getLogs(dept || undefined).then(setLogs); }, [dept]);
+  useEffect(() => { getTrails(40).then((r) => setRuns(r.runs)).catch(() => setErr(true)); }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h1 className="text-xl font-semibold">Logs</h1>
-        <select className="input text-sm" value={dept} onChange={e => setDept(e.target.value)}>
-          <option value="">All departments</option>
-          <option value="assistant">Assistant</option>
-          <option value="finance">Finance</option>
-          <option value="legal">Legal</option>
-        </select>
-      </div>
+    <div className="max-w-3xl mx-auto">
+      <h1 className="text-2xl font-semibold tracking-tight mb-1">Logs</h1>
+      <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
+        The research trail of every recent run — exactly what each agent read, scanned, and tested,
+        with inputs and outputs. Expand a run to see its tool-by-tool log.
+      </p>
 
-      {logs.length === 0 ? (
-        <div className="card text-sm" style={{ color: "var(--text-muted)" }}>No runs yet.</div>
-      ) : (
-        <div className="space-y-1">
-          {logs.map(r => (
-            <div key={r.id} className="card flex items-start gap-3" style={{ padding: "10px 14px" }}>
-              <Badge status={r.status} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{r.department}/{r.role}</div>
-                <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>{r.summary}</div>
-                <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                  {r.tokens?.toLocaleString() ?? 0} tokens · {new Date(r.created_at).toLocaleString()}
-                </div>
-              </div>
-            </div>
-          ))}
+      {err && <div className="card" style={{ borderColor: "var(--red)" }}>
+        <span style={{ color: "var(--red)" }}>Couldn&apos;t load run logs.</span>
+      </div>}
+      {runs && runs.length === 0 && (
+        <div className="card text-sm" style={{ color: "var(--text-muted)" }}>No runs with a trail yet.</div>
+      )}
+      {runs && runs.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {runs.map((r) => <RunRow key={r.run_id} run={r} />)}
         </div>
       )}
     </div>

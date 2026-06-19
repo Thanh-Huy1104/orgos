@@ -213,6 +213,13 @@ class RoleSpec(BaseModel):
     success_criteria: list[str] = Field(default_factory=list)
     allow_delegation: bool = False
 
+    # Temporary contract. An ISO date/datetime ("2026-07-01" or full timestamp);
+    # past it, the role is pruned at org-load time so the constitution self-cleans
+    # instead of accreting dead roles. Lets a role be granted for a one-off need
+    # (e.g. an evolve ADD_ROLE for a transient gap) and expire on its own. None =
+    # permanent seat.
+    expire_at: str | None = None
+
     # Whether to attempt OpenAI-style structured outputs (output_pydantic →
     # response_format: json_schema). OpenAI/Anthropic support it; DeepSeek and
     # some local models reject json_schema (they only accept json_object), so
@@ -236,6 +243,27 @@ class RoleSpec(BaseModel):
             "instances, or string URLs. Passed directly to Agent(mcps=…)."
         ),
     )
+
+    def is_expired(self, *, now: Any = None) -> bool:
+        """True if this role's temporary contract has lapsed (see ``expire_at``).
+
+        Tolerant by design: no ``expire_at`` or an unparseable one → never
+        expires (we don't silently drop a role over a typo'd date). Naive
+        timestamps are read as UTC.
+        """
+        if not self.expire_at:
+            return False
+        from datetime import datetime, timezone
+        try:
+            exp = datetime.fromisoformat(self.expire_at)
+        except (ValueError, TypeError):
+            return False
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        ref = now or datetime.now(timezone.utc)
+        if ref.tzinfo is None:
+            ref = ref.replace(tzinfo=timezone.utc)
+        return ref >= exp
 
     def effective_structured(self) -> bool:
         """Whether to attempt OpenAI json_schema structured outputs.
@@ -354,6 +382,16 @@ class RoleSpec(BaseModel):
 
 
 # ── TaskBrief ────────────────────────────────────────────────────────────────
+
+# A worker spawned on a one-word "objective" has nothing to execute against and
+# diverges — burning tokens to produce a failed envelope. spawn() rejects a brief
+# below this bar up front (the French desk's "profil trop vague → refusé" gate).
+# Deliberately permissive: catches stubs ("research", "do it", "help me"), not
+# legitimately concise objectives ("Summarise X into a one-page brief").
+_MIN_OBJECTIVE_CHARS = 15
+_MIN_OBJECTIVE_WORDS = 4
+
+
 class TaskBrief(BaseModel):
     objective: str
     expected_output: str = "Provide a comprehensive result with clear reasoning."
@@ -367,6 +405,24 @@ class TaskBrief(BaseModel):
     # (audit callback raises ToolBudgetExceeded past it) — prompts alone don't hold.
     source_guidance: str = ""
     tool_call_budget: int | None = None
+
+    def underspecified(self) -> str | None:
+        """Return why this brief is too vague to spawn on, or None if actionable.
+
+        A deterministic, zero-token pre-spawn gate. The structured fields
+        (boundaries, success_criteria, expected_output) are the real cure for
+        vague delegation, but they're optional and often empty; the objective is
+        the one field every brief must carry, so that's what we hold to a floor.
+        """
+        obj = (self.objective or "").strip()
+        if not obj:
+            return "objective is empty"
+        if len(obj) < _MIN_OBJECTIVE_CHARS or len(obj.split()) < _MIN_OBJECTIVE_WORDS:
+            return (
+                f"objective too vague ({len(obj.split())} words): state the role, "
+                "what to produce, and its boundaries/output format"
+            )
+        return None
 
     def render_description(self, role: RoleSpec | None = None) -> str:
         crit = self.success_criteria or (role.success_criteria if role else [])

@@ -185,6 +185,15 @@ class PairStats:
     factor_r2: float | None
     sub_pvalues: list[float]
     sector: str = ""
+    # Out-of-sample, after-cost P&L (filled when scan(backtest=True)). The money
+    # metric: did trading this pair on held-out data actually make money?
+    oos_sharpe: float | None = None
+    oos_return: float | None = None
+    n_trades: int | None = None
+    win_rate: float | None = None
+    max_dd: float | None = None
+    n_folds: int | None = None
+    folds_profitable: int | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -229,6 +238,7 @@ def scan(
     require_stable: bool = True,
     max_factor_r2: float | None = 0.5,
     same_sector_only: bool = False,
+    backtest: bool = False,
 ) -> list[PairStats]:
     """Scan every pair in a price panel (columns = tickers) and rank survivors.
 
@@ -287,6 +297,28 @@ def scan(
                 and not np.isnan(st.factor_r2) and st.factor_r2 >= max_factor_r2):
             continue
         survivors.append(st)
+
+    # Backtest survivors out-of-sample and rank by money, not significance:
+    # a statistically clean pair that wouldn't have traded profitably ranks last.
+    if backtest:
+        from .backtest import walk_forward
+
+        for s in survivors:
+            try:
+                bt = walk_forward(prices[s.y], prices[s.x])
+            except Exception:  # noqa: BLE001 — a bad backtest must not drop the pair
+                bt = {}
+            s.oos_sharpe = bt.get("oos_sharpe")
+            s.oos_return = bt.get("oos_return")
+            s.n_trades = bt.get("n_trades")
+            s.win_rate = bt.get("win_rate")
+            s.max_dd = bt.get("max_dd")
+            s.n_folds = bt.get("n_folds")
+            s.folds_profitable = bt.get("folds_profitable")
+        # Highest OOS Sharpe first (None/no-trade pairs sink to the bottom).
+        survivors.sort(key=lambda s: (s.oos_sharpe if s.oos_sharpe is not None else -1e9),
+                       reverse=True)
+        return survivors
 
     def _worst_sub(s: PairStats) -> float:
         vals = [p for p in s.sub_pvalues if p is not None]

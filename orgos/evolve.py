@@ -123,6 +123,11 @@ class Proposal(BaseModel):
 
 # ── Org analyzer ──────────────────────────────────────────────────────────────
 
+# Don't propose changes to a department until it has enough runs to judge — below
+# this, one or two failures fire noisy, low-confidence proposals (the desk has
+# ~10 runs total today, so the old thresholds were guaranteed to fire on noise).
+_MIN_RUNS_FOR_PROPOSAL = 10
+
 
 class OrgAnalyzer:
     """Analyzes org performance and generates improvement proposals.
@@ -145,7 +150,7 @@ class OrgAnalyzer:
 
         for dept in self.org.departments:
             recent = self.memory.recent_runs(department=dept.name, limit=20)
-            if not recent:
+            if len(recent) < _MIN_RUNS_FOR_PROPOSAL:
                 continue
 
             fails = sum(1 for r in recent if r.status not in ("completed",))
@@ -181,7 +186,7 @@ class OrgAnalyzer:
                 if any(kw in summary_lower for kw in _tool_gap_keywords):
                     tool_gaps.append(r.summary[:200])
 
-            if cred_needs and len(cred_needs) >= 2:
+            if cred_needs and len(cred_needs) >= 3:
                 proposals.append(Proposal.make(
                     ProposalType.NEEDS_CREDENTIALS, dept.name,
                     f"{dept.name} agents need credentials from owner",
@@ -195,7 +200,7 @@ class OrgAnalyzer:
                     ],
                 ))
 
-            if tool_gaps and len(tool_gaps) >= 2:
+            if tool_gaps and len(tool_gaps) >= 3:
                 proposals.append(Proposal.make(
                     ProposalType.NEEDS_TOOLS, dept.name,
                     f"{dept.name} agents need additional tools or MCPs",
@@ -207,18 +212,30 @@ class OrgAnalyzer:
                     mcps=["Internet/HTTP access MCP for external data"],
                 ))
 
-            # High token spend → reduce cadence
+            # High token spend → throttle. Emit an *actionable* change the apply
+            # path honours: slow the most frequent SOP a notch (daily→weekly), or
+            # — if there's no daily SOP — halve the supervisor's token budget.
+            # (The old version emitted a free-text 'recommendation' that no-oped.)
             budget = self.org.default_max_budget_tokens or 100000
             if spend_7d["total_tokens"] > budget * 0.5:
-                proposals.append(Proposal.make(
-                    ProposalType.MODIFY_CADENCE, dept.name,
-                    f"Reduce {dept.name} SOP frequency to control costs",
-                    f"{dept.name} spent {spend_7d['total_tokens']:,} tokens in 7 days "
-                    f"({spend_7d['total_tokens'] / max(budget, 1) * 100:.0f}% of budget).",
-                    changes={"department": dept.name, "recommendation": "reduce frequency or switch model"},
-                    risk="medium",
-                    evidence={"spend_7d": spend_7d["total_tokens"], "budget": budget},
-                ))
+                reason = (f"{dept.name} spent {spend_7d['total_tokens']:,} tokens in 7 days "
+                          f"({spend_7d['total_tokens'] / max(budget, 1) * 100:.0f}% of budget).")
+                evidence = {"spend_7d": spend_7d["total_tokens"], "budget": budget}
+                slowable = next((s for s in dept.sops if s.cadence == "daily"), None)
+                if slowable:
+                    proposals.append(Proposal.make(
+                        ProposalType.MODIFY_CADENCE, dept.name,
+                        f"Slow {dept.name}'s '{slowable.name}' SOP from daily to weekly to control cost",
+                        reason, changes={"sop_name": slowable.name, "cadence": "weekly"},
+                        risk="medium", evidence=evidence,
+                    ))
+                else:
+                    proposals.append(Proposal.make(
+                        ProposalType.MODIFY_THRESHOLD, dept.name,
+                        f"Halve {dept.name}'s supervisor token budget to control cost",
+                        reason, changes={"max_budget_tokens": int(budget * 0.5)},
+                        risk="medium", evidence=evidence,
+                    ))
 
             # No SOPs → needs structure
             if not dept.sops and len(dept.all_roles()) > 1:
@@ -273,7 +290,13 @@ class OrgAnalyzer:
         # Department with success but no handoffs → missing oversight
         for dept in self.org.departments:
             recent = self.memory.recent_runs(department=dept.name, limit=20)
-            if len(recent) >= 5 and success_rate > 70:
+            if len(recent) < _MIN_RUNS_FOR_PROPOSAL:
+                continue
+            # Compute this department's own success rate (the old code leaked the
+            # first loop's last value here, an UnboundLocalError waiting to happen).
+            dept_fails = sum(1 for r in recent if r.status not in ("completed",))
+            dept_success_rate = round((len(recent) - dept_fails) / len(recent) * 100, 1)
+            if dept_success_rate > 70:
                 has_handoff = any(
                     h.get("from") == dept.name
                     for h in (getattr(self.org, "handoffs", []) or [])
@@ -495,7 +518,167 @@ def review_proposals(
     return verdicts
 
 
+# ── Proposal store ─────────────────────────────────────────────────────────────
+
+
+class ProposalStore:
+    """Persistent store for proposals between the analyzer and the owner.
+
+    Proposals survive restarts so the owner can review and approve/deny at
+    their convenience, not within a single API session.
+    """
+
+    def __init__(self, db_path: str = "./_orgos_memory/proposals.db"):
+        import sqlite3
+        self.db_path = db_path
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS proposals (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'pending',
+                type TEXT NOT NULL,
+                target TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                reasoning TEXT NOT NULL,
+                risk TEXT DEFAULT 'low',
+                evidence TEXT DEFAULT '{}',
+                changes TEXT DEFAULT '{}',
+                recommended_tools TEXT DEFAULT '[]',
+                recommended_mcps TEXT DEFAULT '[]',
+                credential_needs TEXT DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            )
+        """)
+        self._conn.commit()
+
+    def add(self, proposal: Proposal) -> bool:
+        """Store a proposal, skipping it if an identical one is still live.
+
+        Ids are random per analysis run, so ``INSERT OR IGNORE`` on the id never
+        dedups — re-running ``analyze`` would stack the same proposal forever.
+        We dedup on content (type+target+summary) against proposals that are
+        still pending or already approved; a previously *denied* one may recur
+        (conditions may have changed). Returns True if inserted."""
+        import json
+        dup = self._conn.execute(
+            "SELECT 1 FROM proposals WHERE type=? AND target=? AND summary=? "
+            "AND status IN ('pending', 'approved') LIMIT 1",
+            (proposal.type.value, proposal.target, proposal.summary),
+        ).fetchone()
+        if dup:
+            return False
+        self._conn.execute(
+            """INSERT OR IGNORE INTO proposals
+               (id, type, target, summary, reasoning, risk, evidence, changes,
+                recommended_tools, recommended_mcps, credential_needs, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                proposal.id, proposal.type.value, proposal.target,
+                proposal.summary, proposal.reasoning, proposal.risk,
+                json.dumps(proposal.evidence), json.dumps(proposal.changes),
+                json.dumps(proposal.recommended_tools),
+                json.dumps(proposal.recommended_mcps),
+                json.dumps(proposal.credential_needs),
+                proposal.created_at,
+            ),
+        )
+        self._conn.commit()
+        return True
+
+    def add_all(self, proposals: list[Proposal]) -> int:
+        """Store proposals, returning how many were newly added (dedup-aware)."""
+        return sum(1 for p in proposals if self.add(p))
+
+    def list_pending(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM proposals WHERE status='pending' ORDER BY created_at DESC"
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def get(self, proposal_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM proposals WHERE id=?", (proposal_id,)
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+
+    def approve(self, proposal_id: str) -> dict | None:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "UPDATE proposals SET status='approved', resolved_at=? WHERE id=? AND status='pending'",
+            (now, proposal_id),
+        )
+        self._conn.commit()
+        return self.get(proposal_id)
+
+    def deny(self, proposal_id: str) -> dict | None:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "UPDATE proposals SET status='denied', resolved_at=? WHERE id=? AND status='pending'",
+            (now, proposal_id),
+        )
+        self._conn.commit()
+        return self.get(proposal_id)
+
+    def close(self) -> None:
+        self._conn.close()
+
+
+def _row_to_dict(row: tuple) -> dict:
+    import json
+    return {
+        "id": row[0], "status": row[1], "type": row[2], "target": row[3],
+        "summary": row[4], "reasoning": row[5], "risk": row[6],
+        "evidence": json.loads(row[7]), "changes": json.loads(row[8]),
+        "recommended_tools": json.loads(row[9]),
+        "recommended_mcps": json.loads(row[10]),
+        "credential_needs": json.loads(row[11]),
+        "created_at": row[12], "resolved_at": row[13],
+    }
+
+
 # ── Apply ─────────────────────────────────────────────────────────────────────
+
+
+# org.yaml is a hand-curated constitution with ~25 comment lines of rationale
+# (token-cap reasoning, safety notes). PyYAML's safe_load→dump round-trip strips
+# all of it and reflows the file, turning every approve into a destructive, noisy
+# diff. ruamel preserves comments and layout; we fall back to PyYAML only if it's
+# unavailable, and always snapshot the file first so nothing is unrecoverable.
+try:
+    from ruamel.yaml import YAML as _RuamelYAML
+
+    _ruamel = _RuamelYAML()
+    _ruamel.preserve_quotes = True
+    _ruamel.width = 4096  # don't let line-wrapping reflow comments/strings
+    _ruamel.indent(mapping=2, sequence=4, offset=2)
+except Exception:  # noqa: BLE001 — ruamel optional; degrade to PyYAML + backup
+    _ruamel = None
+
+
+def _load_org_doc(path: Path) -> Any:
+    """Load org.yaml, preserving comments/formatting when ruamel is present."""
+    text = path.read_text()
+    return _ruamel.load(text) if _ruamel is not None else yaml.safe_load(text)
+
+
+def _dump_org_doc(data: Any, path: Path) -> None:
+    """Write org.yaml back, snapshotting the current file first (recoverable even
+    if formatting churns) and keeping comments when ruamel is available."""
+    backup_dir = path.parent / ".org-backups"
+    backup_dir.mkdir(exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    (backup_dir / f"{path.name}.{ts}").write_text(path.read_text())
+
+    if _ruamel is not None:
+        with path.open("w") as f:
+            _ruamel.dump(data, f)
+    else:
+        path.write_text(yaml.dump(data, default_flow_style=False,
+                                  allow_unicode=True, sort_keys=False, width=120))
 
 
 def apply_proposal(
@@ -511,7 +694,7 @@ def apply_proposal(
     if not path.exists():
         return {"applied": False, "message": f"org.yaml not found at {path}"}
 
-    data = yaml.safe_load(path.read_text())
+    data = _load_org_doc(path)
     dept_list: list = data.get("departments", [])
 
     try:
@@ -568,13 +751,31 @@ def apply_proposal(
 
         elif proposal.type in (ProposalType.MODIFY_THRESHOLD, ProposalType.MODIFY_CADENCE):
             dept_name = proposal.target
+            applied_any = False
             for d in dept_list:
                 if d.get("name") == dept_name:
                     supervisor = d.get("supervisor", {})
                     for k, v in proposal.changes.items():
                         if k in ("model", "max_iter", "max_budget_tokens", "max_execution_time"):
                             supervisor[k] = v
+                            applied_any = True
+                    # SOP cadence change (daily→weekly etc.)
+                    sop_name = proposal.changes.get("sop_name")
+                    new_cadence = proposal.changes.get("cadence")
+                    if sop_name and new_cadence:
+                        for sop in d.get("sops", []):
+                            if sop.get("name") == sop_name:
+                                sop["cadence"] = new_cadence
+                                applied_any = True
+                                break
                     break
+            else:
+                return {"applied": False, "message": f"Department '{dept_name}' not found"}
+            if not applied_any:
+                # Honest failure rather than a silent no-op that claims success.
+                return {"applied": False,
+                        "message": f"No actionable change in proposal {proposal.id} "
+                                   f"(changes: {list(proposal.changes)})"}
 
         elif proposal.type == ProposalType.ADD_POLICY_RULE:
             pending = data.get("pending_policy_changes", [])
@@ -591,8 +792,7 @@ def apply_proposal(
                 "reasoning": proposal.reasoning[:300],
             })
             data["pending_tool_requests"] = pending_tools
-            output = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120)
-            path.write_text(output)
+            _dump_org_doc(data, path)
             return {"applied": True, "message": f"Tool request logged: {proposal.summary}"}
 
         elif proposal.type == ProposalType.NEEDS_CREDENTIALS:
@@ -604,16 +804,13 @@ def apply_proposal(
                 "reasoning": proposal.reasoning[:300],
             })
             data["pending_credential_requests"] = pending_creds
-            output = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120)
-            path.write_text(output)
+            _dump_org_doc(data, path)
             return {"applied": True, "message": f"Credential request logged: {proposal.summary}"}
 
         else:
             return {"applied": False, "message": f"Cannot auto-apply {proposal.type.value} yet"}
 
-        # Preserve YAML formatting: use block style
-        output = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120)
-        path.write_text(output)
+        _dump_org_doc(data, path)
 
         return {"applied": True, "message": f"Applied {proposal.id}: {proposal.summary}"}
 

@@ -97,6 +97,25 @@ export interface ToolRequest {
   reasoning: string;
 }
 
+// ── Evolve (self-improvement proposals) ──────────────────────────────────
+
+export interface EvolveProposal {
+  id: string;
+  status: string;
+  type: string;
+  target: string;
+  summary: string;
+  reasoning: string;
+  risk: string;
+  evidence: Record<string, unknown>;
+  changes: Record<string, unknown>;
+  recommended_tools: string[];
+  recommended_mcps: string[];
+  credential_needs: { name: string; purpose: string; url?: string }[];
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export function getDashboard(): Promise<DashboardData> {
   return fetchAPI<DashboardData>("/api/dashboard");
 }
@@ -178,7 +197,30 @@ export function resolveCredential(index: number): Promise<{ resolved: string; re
   return postAPI(`/api/credentials/${index}/resolve`);
 }
 
-export async function createProject(goal: string, name?: string): Promise<any> {
+// ── Evolve ───────────────────────────────────────────────────────────────
+
+export function triggerAnalysis(mode: "basic" | "deep" = "basic"): Promise<{
+  mode: string;
+  proposals_found: number;
+  proposals_stored: number;
+  proposal_ids: string[];
+}> {
+  return postJSON("/api/evolve/analyze", { mode });
+}
+
+export function getEvolveProposals(): Promise<{ proposals: EvolveProposal[] }> {
+  return fetchAPI("/api/evolve/proposals");
+}
+
+export function approveProposal(id: string): Promise<{ approved: boolean; proposal_id: string; message: string }> {
+  return postAPI(`/api/evolve/proposals/${id}/approve`);
+}
+
+export function denyProposal(id: string): Promise<{ denied: boolean; proposal_id: string }> {
+  return postAPI(`/api/evolve/proposals/${id}/deny`);
+}
+
+export async function createProject(goal: string, name?: string): Promise<unknown> {
   const res = await fetch(`${API_BASE}/api/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -255,6 +297,12 @@ export interface TrailStep {
   output_preview: string;
   ts: string;
 }
+export interface RubricVerdict {
+  passed: boolean;
+  score: number;
+  grader: string;
+  notes: string;
+}
 export interface StrategistResult {
   status: string;
   criteria_met: boolean;
@@ -263,6 +311,49 @@ export interface StrategistResult {
   tokens: number | null;
   run_id?: string;
   trail?: TrailStep[];
+  attempts?: number;
+  rubric?: RubricVerdict | null;
+  attempt_run_ids?: string[];
 }
-export const runStrategist = (objective: string, asset_class = "equity", allow_research = false) =>
-  postJSON<StrategistResult>("/api/quant/strategist", { objective, asset_class, allow_research });
+// A hunt runs for minutes — longer than any proxy will hold a connection. So we
+// dispatch (returns a job id) and poll for the result.
+export const startStrategist = (objective: string, asset_class = "equity", allow_research = false, max_attempts = 2) =>
+  postJSON<{ job_id: string; status: string }>("/api/quant/strategist", { objective, asset_class, allow_research, max_attempts });
+
+export interface StrategistJob {
+  job_id: string;
+  status: "running" | "done" | "error";
+  elapsed_s?: number;
+  result?: StrategistResult;
+  error?: string;
+}
+export const getStrategistJob = (jobId: string) =>
+  fetchAPI<StrategistJob>(`/api/quant/strategist/${jobId}`);
+
+// ── Journal (past hunts / discoveries) + research trails ─────────────────────
+
+export interface JournalEntry {
+  ts: string;
+  objective: string;
+  status: string;
+  summary: string;
+  tokens: number | null;
+  run_id: string | null;
+  score: number | null;
+  attempts: number | null;
+  attempt_run_ids?: string[];
+}
+export const getJournal = (limit = 25) =>
+  fetchAPI<{ entries: JournalEntry[] }>(`/api/quant/journal?limit=${limit}`);
+
+export interface TrailRun {
+  run_id: string;
+  ts: string;
+  tool_calls: number;
+  ok: number;
+}
+export const getTrails = (limit = 30) =>
+  fetchAPI<{ runs: TrailRun[] }>(`/api/quant/trails?limit=${limit}`);
+
+export const getTrail = (runId: string) =>
+  fetchAPI<{ run_id: string; trail: TrailStep[] }>(`/api/quant/trail/${runId}`);

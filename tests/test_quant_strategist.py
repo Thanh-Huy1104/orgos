@@ -58,7 +58,10 @@ class TestStrategistWiring:
 
     def test_research_linkage_can_be_disabled(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(qs, "spawn_chain", lambda steps, **kw: captured.setdefault("steps", steps) or _FakeResult())
+        def fake_chain(steps, **kw):
+            captured["steps"] = steps
+            return _FakeResult()
+        monkeypatch.setattr(qs, "spawn_chain", fake_chain)
         qs.run_strategist("x", allow_research=False)
         scanner_tools = {t.name for t in captured["steps"][1][0].tools}
         assert "research_linkage" not in scanner_tools   # linkage off
@@ -81,7 +84,10 @@ class TestStrategistWiring:
 
     def test_objective_and_asset_class_in_brief(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(qs, "spawn_chain", lambda steps, **kw: captured.setdefault("steps", steps) or _FakeResult())
+        def fake_chain(steps, **kw):
+            captured["steps"] = steps
+            return _FakeResult()
+        monkeypatch.setattr(qs, "spawn_chain", fake_chain)
         qs.run_strategist("semis supply chain", asset_class="equity")
         strat_brief = captured["steps"][0][1]
         assert "semis supply chain" in strat_brief.objective

@@ -14,5 +14,6 @@ venv/
 _audit_logs/
 .crewai_write_test
 _orgos_memory/
+config/.org-backups/
 client_secret_*.json
 google-*.json

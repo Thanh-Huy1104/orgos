@@ -228,6 +228,29 @@ def read_trail(run_id: str) -> list[dict[str, Any]]:
     return trail
 
 
+def recent_trails(n: int = 25) -> list[dict[str, Any]]:
+    """List recent runs that have an audit log, newest first.
+
+    Each entry summarises one run's tool trail — run_id, when it last ran, and how
+    many tool calls it made (and how many succeeded) — so a UI can browse runs and
+    drill into any one via ``read_trail``.
+    """
+    if not AUDIT_DIR.exists():
+        return []
+    files = sorted(AUDIT_DIR.glob("*.jsonl"),
+                   key=lambda p: p.stat().st_mtime, reverse=True)[:n]
+    out: list[dict[str, Any]] = []
+    for p in files:
+        calls = read_trail(p.stem)
+        out.append({
+            "run_id": p.stem,
+            "ts": datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat(),
+            "tool_calls": len(calls),
+            "ok": sum(1 for c in calls if c.get("ok")),
+        })
+    return out
+
+
 def make_task_callback(run_id: str):
     """Create a task_callback that logs each completed task to the same JSONL log.
 

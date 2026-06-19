@@ -1,52 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { runStrategist, StrategistResult, TrailStep } from "@/lib/api";
-
-const PHASE: Record<string, string> = {
-  "quant-researcher": "Research",
-  "quant-scanner": "Scan",
-  "quant-synth": "Synthesis",
-};
-
-function fmtInput(v: unknown): string {
-  if (v == null) return "";
-  if (typeof v === "string") return v;
-  if (typeof v === "object") {
-    const vals = Object.values(v as Record<string, unknown>).map(String);
-    return vals.join("  ");
-  }
-  return String(v);
-}
-
-function Trail({ steps }: { steps: TrailStep[] }) {
-  if (!steps.length) return null;
-  return (
-    <div className="card mt-4">
-      <div className="text-sm font-medium mb-3">
-        Research trail <span style={{ color: "var(--text-muted)" }}>· {steps.length} tool calls</span>
-      </div>
-      <ol className="flex flex-col gap-2">
-        {steps.map((s, i) => (
-          <li key={i} className="text-xs" style={{ borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="badge badge-gray">{PHASE[s.role] ?? s.role}</span>
-              <span className="font-mono" style={{ color: "var(--text-primary)" }}>{s.tool}</span>
-              {!s.ok && <span className="badge badge-yellow">error</span>}
-              <span className="font-mono" style={{ color: "var(--text-muted)" }}>{fmtInput(s.tool_input).slice(0, 80)}</span>
-            </div>
-            <details className="mt-1">
-              <summary style={{ color: "var(--text-muted)", cursor: "pointer" }}>output</summary>
-              <pre className="mt-1 whitespace-pre-wrap" style={{ color: "var(--text-secondary)", fontSize: 11, lineHeight: 1.5 }}>
-                {s.output_preview}
-              </pre>
-            </details>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
+import { startStrategist, getStrategistJob, StrategistResult } from "@/lib/api";
+import { Trail, Digest, RunTrail } from "@/lib/trail";
 
 const EXAMPLES = [
   "Find non-obvious cointegrated equity pairs outside the same sector — shared commodity or supply-chain links.",
@@ -58,15 +14,29 @@ export default function Strategist() {
   const [objective, setObjective] = useState("");
   const [assetClass, setAssetClass] = useState("equity");
   const [research, setResearch] = useState(false);
+  const [maxAttempts, setMaxAttempts] = useState(2);
   const [result, setResult] = useState<StrategistResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const [err, setErr] = useState(false);
 
+  // Hunts run for minutes, so we dispatch a background job and poll it. The run
+  // keeps going (and lands in the Journal) even if this page is closed.
   const run = async () => {
     if (!objective.trim() || loading) return;
-    setLoading(true); setErr(false); setResult(null);
-    try { setResult(await runStrategist(objective, assetClass, research)); }
-    catch { setErr(true); }
+    setLoading(true); setErr(false); setResult(null); setElapsed(0);
+    const t0 = Date.now();
+    try {
+      const { job_id } = await startStrategist(objective, assetClass, research, maxAttempts);
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        setElapsed(Math.round((Date.now() - t0) / 1000));
+        const job = await getStrategistJob(job_id);
+        if (job.status === "done" && job.result) { setResult(job.result); break; }
+        if (job.status === "error") { setErr(true); break; }
+        if (Date.now() - t0 > 20 * 60 * 1000) { setErr(true); break; }  // safety cap
+      }
+    } catch { setErr(true); }
     finally { setLoading(false); }
   };
 
@@ -97,16 +67,27 @@ export default function Strategist() {
             <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} />
             spawn research (slow)
           </label>
+          <label className="text-sm flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
+            attempts
+            <select className="input" value={maxAttempts} onChange={(e) => setMaxAttempts(Number(e.target.value))} style={{ width: 52, padding: "2px 4px" }}>
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+              <option value={5}>5</option>
+            </select>
+          </label>
           <button className="btn btn-primary ml-auto" onClick={run} disabled={loading || !objective.trim()}>
-            {loading ? "Thinking…" : "Dispatch ▸"}
+            {loading ? "Running…" : "Dispatch ▸"}
           </button>
         </div>
       </div>
 
       {loading && (
         <div className="card text-sm" style={{ color: "var(--text-muted)" }}>
-          The strategist is reasoning, proposing universes, and scanning each one — this runs for a
-          minute or two (longer with research). It works autonomously; the result lands here when done.
+          Dispatched — the strategist is reasoning, proposing universes, and scanning each one.
+          This runs for several minutes{maxAttempts > 1 ? ` (×${maxAttempts} attempts, keeping the best)` : ""}.
+          <span style={{ color: "var(--text-secondary)" }}> {elapsed}s elapsed.</span> It runs in the
+          background — you can leave; the result also lands in the Journal.
         </div>
       )}
       {err && !loading && (
@@ -123,13 +104,47 @@ export default function Strategist() {
             {result.tokens != null && <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               {result.tokens.toLocaleString()} tokens</span>}
           </div>
-          <div className="text-sm whitespace-pre-wrap" style={{ color: "var(--text-primary)", lineHeight: 1.6 }}>
+          {result.rubric && (
+            <div className="flex items-center gap-2 mb-2 flex-wrap text-xs">
+              <span className={result.rubric.passed ? "badge badge-green" : "badge badge-yellow"}>
+                rubric {result.rubric.passed ? "✓ met" : "✗ not met"}
+              </span>
+              <span style={{ color: "var(--text-muted)" }}>strength {result.rubric.score.toFixed(4)}</span>
+              {result.attempts != null && (
+                <span style={{ color: "var(--text-muted)" }}>
+                  · {result.attempts} attempt{result.attempts === 1 ? "" : "s"}
+                </span>
+              )}
+              {result.rubric.notes && (
+                <span style={{ color: "var(--text-muted)" }}>· {result.rubric.notes}</span>
+              )}
+            </div>
+          )}
+          {result.trail && <Digest steps={result.trail} />}
+          <div className="text-sm whitespace-pre-wrap mt-2" style={{ color: "var(--text-primary)", lineHeight: 1.6 }}>
             {result.summary}
           </div>
           {result.notes && <div className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>{result.notes}</div>}
         </div>
       )}
-      {result && !loading && result.trail && <Trail steps={result.trail} />}
+      {result && !loading && result.trail && (
+        <div className="card mt-4">
+          <div className="text-sm font-medium mb-1">
+            Research trail <span style={{ color: "var(--text-muted)" }}>· kept run, {result.trail.length} tool calls</span>
+          </div>
+          <Trail steps={result.trail} />
+          {(result.attempt_run_ids ?? []).filter((id) => id !== result.run_id).length > 0 && (
+            <div className="mt-2">
+              <div className="text-xs mb-0.5" style={{ color: "var(--text-muted)" }}>
+                other attempts — the runs it tried before keeping the best
+              </div>
+              {(result.attempt_run_ids ?? [])
+                .filter((id) => id !== result.run_id)
+                .map((id, i) => <RunTrail key={id} runId={id} label={`attempt ${i + 1}`} />)}
+            </div>
+          )}
+        </div>
+      )}
       {!result && !loading && !err && (
         <div className="text-sm" style={{ color: "var(--text-muted)" }}>
           Pick an example or write your own thesis, then dispatch the agent.

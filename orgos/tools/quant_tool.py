@@ -61,7 +61,7 @@ def run_scan(
 
     sectors = {t: sector for t in tickers}
     survivors = scan(panel, factor=factor_series, sectors=sectors,
-                     max_half_life=max_half_life)
+                     max_half_life=max_half_life, backtest=True)
     return {
         "universe": universe,
         "sector": sector,

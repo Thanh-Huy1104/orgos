@@ -1,85 +1,131 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getScheduler, SchedulerJob, CalendarJob, getCalendar } from "@/lib/api";
+import { getCalendar, CalendarJob } from "@/lib/api";
 
-const API = "http://192.168.5.197:8420";
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const deptBg: Record<string, string> = {};
+const deptFg: Record<string, string> = {};
+function getDeptColor(name: string) {
+  if (deptFg[name]) return { bg: deptBg[name], fg: deptFg[name] };
+  const colors = ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444", "#EC4899", "#6366F1"];
+  const i = Object.keys(deptFg).length;
+  const c = colors[i % colors.length];
+  deptFg[name] = c;
+  deptBg[name] = c + "18";
+  return { bg: deptBg[name], fg: c };
+}
 
 export default function CalendarPage() {
   const [jobs, setJobs] = useState<CalendarJob[]>([]);
   const [viewDate, setViewDate] = useState(new Date());
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/api/calendar`).then(r => r.json()).then(d => { setJobs(d.jobs || []); setLoading(false); });
+    getCalendar().then(d => setJobs(d.jobs || []));
   }, []);
 
-  const month = viewDate.toLocaleString("default", { month: "long", year: "numeric" });
   const year = viewDate.getFullYear();
   const mon = viewDate.getMonth();
   const firstDay = new Date(year, mon, 1).getDay();
   const daysInMonth = new Date(year, mon + 1, 0).getDate();
+  const monthLabel = viewDate.toLocaleString("default", { month: "long", year: "numeric" });
+  const today = new Date();
 
   const prev = () => setViewDate(new Date(year, mon - 1, 1));
   const next = () => setViewDate(new Date(year, mon + 1, 1));
+  const goToday = () => setViewDate(new Date());
 
-  // Build job map: day → list of job names
-  const jobDays: Record<number, { dept: string; sop: string; cadence: string; lastRun: string | null }[]> = {};
+  // Build job map
+  const jobDays: Record<number, CalendarJob[]> = {};
   jobs.forEach(j => {
     if (j.cadence === "daily") {
-      for (let d = 1; d <= daysInMonth; d++) jobDays[d] = [...(jobDays[d] || []), { dept: j.department, sop: j.sop, cadence: j.cadence, lastRun: j.last_run }];
+      for (let d = 1; d <= daysInMonth; d++) {
+        jobDays[d] = [...(jobDays[d] || []), j];
+      }
     } else if (j.cadence === "weekly") {
       for (let d = 1; d <= daysInMonth; d++) {
-        const dow = new Date(year, mon, d).getDay();
-        if (dow === 1) jobDays[d] = [...(jobDays[d] || []), { dept: j.department, sop: j.sop, cadence: j.cadence, lastRun: j.last_run }];
+        if (new Date(year, mon, d).getDay() === 1) {
+          jobDays[d] = [...(jobDays[d] || []), j];
+        }
       }
     }
   });
 
-  const today = new Date();
-  const isToday = (d: number) => today.getFullYear() === year && today.getMonth() === mon && today.getDate() === d;
+  const isToday = (d: number) =>
+    today.getFullYear() === year && today.getMonth() === mon && today.getDate() === d;
+
+  // Count total events this month
+  const totalEvents = Object.values(jobDays).reduce((n, arr) => n + arr.length, 0);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Calendar</h1>
-        <div className="flex items-center gap-3">
-          <button className="btn btn-secondary text-xs" onClick={prev}>←</button>
-          <span className="text-sm font-medium" style={{ minWidth: 140, textAlign: "center" }}>{month}</span>
-          <button className="btn btn-secondary text-xs" onClick={next}>→</button>
-          <button className="btn btn-secondary text-xs" onClick={() => setViewDate(new Date())}>Today</button>
+    <div className="calendar-page">
+      {/* Header */}
+      <div className="calendar-header">
+        <div>
+          <h1 className="text-lg font-semibold">Calendar</h1>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+            {jobs.length} scheduled job{jobs.length === 1 ? "" : "s"} · {totalEvents} events this month
+          </p>
+        </div>
+        <div className="calendar-nav">
+          <button className="btn btn-secondary" onClick={prev} style={{ padding: "6px 12px", fontSize: 12 }}>
+            ← Prev
+          </button>
+          <span className="calendar-month-label">{monthLabel}</span>
+          <button className="btn btn-secondary" onClick={next} style={{ padding: "6px 12px", fontSize: 12 }}>
+            Next →
+          </button>
+          <button className="btn btn-secondary" onClick={goToday} style={{ padding: "6px 12px", fontSize: 12 }}>
+            Today
+          </button>
         </div>
       </div>
 
-      {/* Day headers */}
-      <div className="grid grid-cols-7 text-center text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => <div key={d} className="py-1">{d}</div>)}
-      </div>
-
       {/* Calendar grid */}
-      <div className="grid grid-cols-7 border-l border-t rounded-lg overflow-hidden" style={{ borderColor: "var(--border)" }}>
+      <div className="calendar-grid">
+        {/* Day headers */}
+        <div className="calendar-weekdays">
+          {WEEKDAYS.map(d => (
+            <div key={d} className="calendar-weekday">{d}</div>
+          ))}
+        </div>
+
         {/* Empty cells before first day */}
         {Array.from({ length: firstDay }).map((_, i) => (
-          <div key={`empty-${i}`} className="border-r border-b p-2 min-h-[80px]" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }} />
+          <div key={`empty-${i}`} className="calendar-cell calendar-cell-empty" />
         ))}
 
-        {/* Days */}
+        {/* Day cells */}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const day = i + 1;
           const dayJobs = jobDays[day] || [];
-          const todayClass = isToday(day) ? { background: "var(--accent-light)", fontWeight: 600 } : {};
+          const today_ = isToday(day);
 
           return (
-            <div key={day} className="border-r border-b p-1.5 min-h-[80px] text-xs" style={{ borderColor: "var(--border)", ...todayClass }}>
-              <div className="mb-1">{day}</div>
-              <div className="space-y-0.5">
-                {dayJobs.slice(0, 3).map((j, ji) => (
-                  <div key={ji} className="truncate rounded px-1 py-0.5 text-[10px]" style={{ background: deptBg(j.dept), color: deptFg(j.dept) }}>
-                    {j.sop}
-                  </div>
-                ))}
+            <div
+              key={day}
+              className={`calendar-cell ${today_ ? "calendar-cell-today" : ""}`}
+            >
+              <span className={`calendar-day-num ${today_ ? "calendar-day-today" : ""}`}>
+                {day}
+              </span>
+              <div className="calendar-events">
+                {dayJobs.slice(0, 3).map((j, ji) => {
+                  const { fg, bg } = getDeptColor(j.department);
+                  return (
+                    <div
+                      key={ji}
+                      className="calendar-event"
+                      style={{ background: bg, color: fg }}
+                      title={`${j.department} / ${j.sop}`}
+                    >
+                      {j.department}/{j.sop}
+                    </div>
+                  );
+                })}
                 {dayJobs.length > 3 && (
-                  <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>+{dayJobs.length - 3} more</div>
+                  <div className="calendar-event-more">+{dayJobs.length - 3} more</div>
                 )}
               </div>
             </div>
@@ -87,37 +133,46 @@ export default function CalendarPage() {
         })}
       </div>
 
-      {/* Job list below calendar */}
-      <div className="space-y-2">
-        <h2 className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Scheduled Jobs</h2>
-        {jobs.map(j => (
-          <div key={`${j.department}/${j.sop}`} className="card flex items-center justify-between" style={{ padding: "10px 14px" }}>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full" style={{ background: deptFg(j.department) }} />
-              <span className="text-sm font-medium">{j.department}</span>
-              <span className="text-sm" style={{ color: "var(--text-muted)" }}>/ {j.sop}</span>
-              <span className="badge badge-gray">{j.cadence}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Last: {j.last_run ? new Date(j.last_run).toLocaleDateString() : "never"}
+      {/* Job list */}
+      <div className="calendar-jobs">
+        <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-secondary)" }}>
+          Scheduled Jobs
+        </h2>
+        <div className="flex flex-col gap-2">
+          {jobs.map(j => {
+            const { bg, fg } = getDeptColor(j.department);
+            return (
+              <div key={`${j.department}/${j.sop}`} className="card calendar-job-card">
+                <div className="calendar-job-header">
+                  <span className="calendar-job-dot" style={{ background: fg }} />
+                  <span className="font-medium text-sm">{j.department}</span>
+                  <span className="text-sm" style={{ color: "var(--text-muted)" }}>/ {j.sop}</span>
+                  <span className="badge" style={{ background: bg, color: fg, fontSize: 10 }}>{j.cadence}</span>
+                </div>
+                <div className="calendar-job-footer">
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    Last run: {j.last_run ? new Date(j.last_run).toLocaleDateString() : "never"}
+                  </span>
+                  {j.recent_runs && j.recent_runs.length > 0 && (
+                    <div className="calendar-job-runs">
+                      {j.recent_runs.slice(0, 5).map((r, i) => (
+                        <span
+                          key={i}
+                          className={`badge ${r.status === "completed" ? "badge-green" : "badge-red"}`}
+                          style={{ fontSize: 10 }}
+                          title={`${r.status} · ${r.tokens.toLocaleString()} tokens · ${new Date(r.at).toLocaleDateString()}`}
+                        >
+                          {r.tokens >= 1000 ? `${(r.tokens / 1000).toFixed(0)}k` : r.tokens}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              {j.recent_runs?.slice(0, 3).map((r, i) => (
-                <span key={i} className={`badge ${r.status === "completed" ? "badge-green" : "badge-red"}`}>
-                  {r.tokens.toLocaleString()}t
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
-}
-
-function deptBg(name: string) {
-  return name === "assistant" ? "#EFF6FF" : name === "legal" ? "#FFFBEB" : "#ECFDF5";
-}
-function deptFg(name: string) {
-  return name === "assistant" ? "#3B82F6" : name === "legal" ? "#D97706" : "#059669";
 }

@@ -1,6 +1,7 @@
 # Core
 crewai>=1.0          # agent engine (uses litellm under the hood for model routing)
 pydantic>=2          # RoleSpec / TaskBrief / HandoffEnvelope schemas
+ruamel.yaml>=0.18    # comment-preserving org.yaml round-trip when evolve applies a proposal
 
 # examples/quant_pair_scanner.py
 numpy>=1.24          # price series + OLS in the cointegration tool

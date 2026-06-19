@@ -91,7 +91,9 @@ class TestScanUniverse:
         def fake_get_prices(ticker, lookback_days=504, **kw):
             if ticker == "BAD":
                 raise MarketDataError("no data")
-            rng = np.random.default_rng(hash(ticker) % 1000)
+            # Stable across processes (Python salts str hash per-process, which
+            # made this seed — and thus the synthetic data — flaky in the suite).
+            rng = np.random.default_rng(sum(ord(c) for c in ticker))
             return _series(100 + rng.normal(0, 1, 300).cumsum())
 
         monkeypatch.setattr(quant, "get_prices", fake_get_prices)

@@ -248,3 +248,46 @@ class TestToAgentOverrides:
         )
         agent = role.to_agent(tools=[])
         assert len(agent.tools) == 0
+
+
+# ── Brief vagueness gate ─────────────────────────────────────────────────────
+
+
+class TestBriefUnderspecified:
+    def test_empty_objective_rejected(self):
+        from orgos.spawn.contracts import TaskBrief
+        assert TaskBrief(objective="   ").underspecified() == "objective is empty"
+
+    def test_stub_objective_rejected(self):
+        from orgos.spawn.contracts import TaskBrief
+        for stub in ("research", "do it", "help me", "find X"):
+            assert TaskBrief(objective=stub).underspecified() is not None
+
+    def test_concise_real_objective_accepted(self):
+        from orgos.spawn.contracts import TaskBrief
+        # The README example — concise but actionable — must pass.
+        assert TaskBrief(
+            objective="Summarise X into a one-page brief"
+        ).underspecified() is None
+
+
+# ── Role TTL / expiry ────────────────────────────────────────────────────────
+
+
+class TestRoleExpiry:
+    def _role(self, expire_at):
+        return RoleSpec(name="temp", tier=PermissionTier.WORKER,
+                        system_prompt="x", expire_at=expire_at)
+
+    def test_no_expiry_never_expires(self):
+        assert self._role(None).is_expired() is False
+
+    def test_past_date_is_expired(self):
+        assert self._role("2000-01-01").is_expired() is True
+
+    def test_future_date_not_expired(self):
+        assert self._role("2999-01-01").is_expired() is False
+
+    def test_unparseable_date_treated_as_permanent(self):
+        # We don't silently drop a role over a typo'd date.
+        assert self._role("not-a-date").is_expired() is False

@@ -7,7 +7,7 @@ project-management capabilities.
 Usage:
     from orgos.pm import PMStore
     pm = PMStore("./_orgos_memory/pm.db")
-    pm.create_task("Fix the login bug", department="engineering")
+    pm.create_task("Vet the AEE/NI linkage thesis", department="research")
     pm.record_test_run("task-1", "pytest", 0, "15 passed", passed=True)
 """
 

@@ -39,31 +39,47 @@ def _ensure(db_path: str = DB_PATH) -> None:
             "objective TEXT NOT NULL, status TEXT, summary TEXT NOT NULL, "
             "tokens INTEGER)"
         )
+        # Migrate older DBs in place: the rubric loop added run_id (links to the
+        # research trail), score (the optimise strength), and attempts.
+        have = {r[1] for r in con.execute("PRAGMA table_info(research_journal)")}
+        for col, typ in (("run_id", "TEXT"), ("score", "REAL"), ("attempts", "INTEGER"),
+                         ("attempt_run_ids", "TEXT")):
+            if col not in have:
+                con.execute(f"ALTER TABLE research_journal ADD COLUMN {col} {typ}")
 
 
 def record(objective: str, summary: str, *, status: str = "", tokens: int | None = None,
+           run_id: str | None = None, score: float | None = None,
+           attempts: int | None = None, attempt_run_ids: list[str] | None = None,
            db_path: str = DB_PATH) -> int:
     """Append one research run to the journal. Returns the row id."""
+    import json
     _ensure(db_path)
     with _conn(db_path) as con:
         cur = con.execute(
-            "INSERT INTO research_journal (ts, objective, status, summary, tokens) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO research_journal "
+            "(ts, objective, status, summary, tokens, run_id, score, attempts, attempt_run_ids) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (dt.datetime.now(dt.timezone.utc).isoformat(), objective, status,
-             summary or "", tokens),
+             summary or "", tokens, run_id, score, attempts,
+             json.dumps(attempt_run_ids or [])),
         )
         return cur.lastrowid
 
 
 def recent(n: int = 5, db_path: str = DB_PATH) -> list[dict]:
     """The n most recent journal entries, newest first."""
+    import json
     _ensure(db_path)
     with _conn(db_path) as con:
         rows = con.execute(
-            "SELECT ts, objective, status, summary FROM research_journal "
-            "ORDER BY id DESC LIMIT ?", (n,)
+            "SELECT ts, objective, status, summary, tokens, run_id, score, attempts, attempt_run_ids "
+            "FROM research_journal ORDER BY id DESC LIMIT ?", (n,)
         ).fetchall()
-    return [{"ts": r[0], "objective": r[1], "status": r[2], "summary": r[3]} for r in rows]
+    return [{"ts": r[0], "objective": r[1], "status": r[2], "summary": r[3],
+             "tokens": r[4], "run_id": r[5], "score": r[6], "attempts": r[7],
+             "attempt_run_ids": json.loads(r[8]) if r[8] else []}
+            for r in rows]
 
 
 def prior_research_block(n: int = 5, *, max_chars: int = 1400, db_path: str = DB_PATH) -> str:

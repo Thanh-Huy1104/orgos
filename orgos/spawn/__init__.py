@@ -50,9 +50,19 @@ from .audit import (
     make_budget_callback,
     make_task_callback,
     read_trail,
+    recent_trails,
     trace_tool,
 )
 from .engine import SpawnResult, spawn, spawn_chain
+from .rubric import (
+    GRADERS,
+    GradeResult,
+    Rubric,
+    chain_until,
+    grade,
+    register_grader,
+    spawn_until,
+)
 
 __all__ = [
     # contracts
@@ -75,6 +85,14 @@ __all__ = [
     "spawn",
     "spawn_chain",
     "SpawnResult",
+    # rubric loop
+    "Rubric",
+    "GradeResult",
+    "grade",
+    "spawn_until",
+    "chain_until",
+    "register_grader",
+    "GRADERS",
     # observability & safety
     "make_audit_callback",
     "make_task_callback",
@@ -82,6 +100,7 @@ __all__ = [
     "cli_approval",
     "trace_tool",
     "read_trail",
+    "recent_trails",
     "RunBudget",
     "BudgetExceeded",
     "LoopDetected",

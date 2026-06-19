@@ -98,82 +98,6 @@ departments:
             per story is enough — do not over-fetch.
           tool_call_budget: 8
 
-  # ── Engineering: code, git, testing, project builds ───────────────────
-  - name: engineering
-    description: Code development, testing, git operations, project builds
-    supervisor:
-      name: eng-lead
-      tier: orchestrator
-      system_prompt: |
-        You lead an engineering team. Delegate development tasks to developer,
-        testing to tester. Review code changes before merging.
-      model: deepseek/deepseek-v4-pro
-      max_iter: 15
-    members:
-      - name: developer
-        tier: worker
-        system_prompt: |
-          You write and modify code. Use git tools to create branches and
-          check status. Use run_tests to verify changes. Write clean,
-          documented code. Always test before declaring done.
-        model: deepseek/deepseek-v4-pro
-        max_iter: 20
-      - name: tester
-        tier: validator
-        system_prompt: |
-          You test code changes. Run the test suite, verify edge cases,
-          check for regressions. Report pass/fail with specific failures.
-          Read-only — do not modify code.
-        model: deepseek/deepseek-v4-pro
-        max_iter: 15
-        success_criteria:
-          - Every changed file has passing tests
-          - Failures reported with specific error messages
-    shared_mcps:
-      - type: pm
-    sops:
-      - name: daily_build_check
-        cadence: daily
-        brief:
-          objective: |
-            Run the full test suite. Report any test failures.
-            Check git status for uncommitted changes.
-          expected_output: Build status report with test results and git status.
-
-  # ── Operations: calendar, scheduling, personal assistant ──────────────
-  - name: operations
-    description: Calendar management, scheduling, daily assistance
-    supervisor:
-      name: ops-lead
-      tier: orchestrator
-      system_prompt: |
-        You manage the owner's operations. Delegate calendar checks to
-        calendar-agent. Keep things organized and on schedule.
-      model: deepseek/deepseek-v4-pro
-      max_iter: 15
-    members:
-      - name: calendar-agent
-        tier: worker
-        system_prompt: |
-          Manage the owner's Google Calendar. Check schedules, find
-          availability, list upcoming events. Use list_calendar_events
-          to check the calendar. Report events clearly with times.
-        model: deepseek/deepseek-v4-pro
-        max_iter: 10
-    shared_mcps:
-      - type: internet
-      - type: gcal_tool
-    shared_skills:
-      - ./skills/operations
-    sops:
-      - name: daily_briefing
-        cadence: daily
-        brief:
-          objective: |
-            Check the owner's calendar for today and tomorrow. Summarize
-            upcoming events, flag any scheduling conflicts.
-          expected_output: Daily calendar briefing with event summary.
-
   # ── Quant: cointegration discovery, research-grounded, deterministic ───
   - name: quant
     description: Cointegration pair discovery — grounded research, deterministic validation, journal-compounding
@@ -245,11 +169,6 @@ departments:
           expected_output: Structured verdict with approved/denied/needs_changes.
 
 handoffs:
-  - from: engineering
-    artifact_type: daily_build_check
-    to: compliance
-    auto_trigger: true
-    note: "Build results reviewed for compliance before deployment."
   - from: research
     artifact_type: daily_briefing
     to: compliance

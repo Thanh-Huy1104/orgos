@@ -39,7 +39,8 @@ class TestArxiv:
             raise RuntimeError("arxiv down")
         monkeypatch.setattr(rs, "search_arxiv", boom)
         out = json.loads(rs.ArxivSearchTool()._run("x"))
-        assert "error" in out
+        assert out["arxiv"] == "unavailable"
+        assert "arxiv down" in out["reason"]
 
 
 class TestConstituents:

@@ -260,3 +260,33 @@ departments: []
             assert org.owner.name == "Owner"  # default
         finally:
             path.unlink(missing_ok=True)
+
+
+class TestRoleTTLPruning:
+    def test_expired_member_pruned_on_load(self):
+        ttl_yaml = """
+org:
+  name: TTLOrg
+  default_model: gpt-4o-mini
+departments:
+  - name: research
+    supervisor:
+      name: lead
+      tier: orchestrator
+      system_prompt: Lead.
+    members:
+      - name: permanent-analyst
+        tier: worker
+        system_prompt: Stay.
+      - name: temp-specialist
+        tier: worker
+        system_prompt: Leave.
+        expire_at: "2000-01-01"
+"""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "org.yaml"
+            path.write_text(ttl_yaml)
+            org = load_org(str(path))
+            members = [m.name for m in org.find_department("research").members]
+            assert "permanent-analyst" in members
+            assert "temp-specialist" not in members

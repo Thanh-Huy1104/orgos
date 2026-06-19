@@ -32,11 +32,12 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 
 from orgos.quant import journal as quant_journal
+from orgos.quant import grading as _grading  # noqa: F401 — registers cointegration_gates grader
 from orgos.spawn import PermissionTier, RoleSpec, TaskBrief
 from orgos.tools.crypto_tool import CryptoScannerTool
 from orgos.tools.quant_tool import CointegrationScannerTool
 from orgos.tools.research_sources import ArxivSearchTool, IndexConstituentsTool, NewsCatalystTool
-from orgos.spawn import spawn_chain
+from orgos.spawn import Rubric, chain_until, spawn_chain
 
 STRATEGIST_MODEL = os.environ.get("ORGOS_STRATEGIST_MODEL", "deepseek/deepseek-v4-pro")
 _FAST_MODEL = os.environ.get("ORGOS_STRATEGIST_FAST_MODEL", "deepseek/deepseek-v4-pro")
@@ -155,6 +156,9 @@ _SYNTH_PROMPT = (
     "- Pair tickers\n"
     "- Cointegration stats (adf_p, half-life, hurst, beta, factor_r2, "
     "sub-period p-values)\n"
+    "- OUT-OF-SAMPLE P&L (the bottom line): oos_sharpe, oos_return, n_trades, "
+    "win_rate, max_dd. A pair is only worth trading if it made money out-of-sample; "
+    "lead with the highest-Sharpe pair and say plainly if the best one still lost money.\n"
     "- The economic thesis that led there (from the researcher)\n"
     "- Whether research_linkage verified it\n"
     "- Whether it's a known-live pair from prior research or newly discovered\n\n"
@@ -170,12 +174,20 @@ _SYNTH_PROMPT = (
 def run_strategist(
     objective: str, *, asset_class: str = "equity", allow_research: bool = True,
     model: str | None = None, tool_call_budget: int = 12, verbose: bool = False,
+    max_attempts: int = 2,
 ) -> Any:
-    """Research → scan → synthesise — a hard 3-agent pipeline.
+    """Research → scan → synthesise — a hard 3-agent pipeline, under a rubric loop.
 
     Deterministic chain (like department runs with sequential=True): each agent
     owns one phase and sees prior outputs as context. No manager, no delegation
     failures — the order is enforced in code.
+
+    The chain runs under a deterministic rubric: a hunt "succeeds" only if the
+    scan surfaced at least one durable cointegrated pair. If a pass finds none,
+    the failure is fed back to the researcher to re-aim (different/wider
+    universes) and the chain re-runs, up to ``max_attempts`` (set 1 to disable
+    the loop). The grade is read from the scan trail, not the synth's prose — and
+    it costs no extra tokens to compute.
     """
     mdl = model or STRATEGIST_MODEL
     skills = [str(_SKILL_DIR)] if _SKILL_DIR.is_dir() else []
@@ -265,8 +277,21 @@ def run_strategist(
 
     # ── Run the deterministic chain ──────────────────────────────────────────
 
-    result = spawn_chain(
+    rubric = Rubric(
+        criteria=["At least one surviving pair trades PROFITABLY out-of-sample "
+                  "(positive OOS Sharpe after costs) — cointegration alone is not "
+                  "enough; the spread must actually have made money on held-out data"],
+        grader="tradeable_pnl",
+        max_attempts=max_attempts,
+        # Optimise for money: run the full attempt budget and keep the most
+        # *profitable* pair found (highest OOS Sharpe), not just the most significant.
+        optimize=max_attempts > 1,
+    )
+    result = chain_until(
         [(researcher, research_brief), (scanner, scan_brief), (synth, synth_brief)],
+        rubric,
+        runner=spawn_chain,   # module global — patchable in tests
+        feedback_into=0,      # push "no pair survived" back to the researcher to re-aim
         verbose=verbose,
         run_budget_tokens=400_000,
     )
@@ -274,10 +299,15 @@ def run_strategist(
     # ── Record to journal ────────────────────────────────────────────────────
 
     try:
+        g = getattr(result, "grade", None)
         quant_journal.record(
             objective, result.envelope.summary or "",
             status=result.envelope.status,
             tokens=(result.token_usage or {}).get("total_tokens"),
+            run_id=getattr(result, "run_id", None),
+            score=(g.score if g is not None else None),
+            attempts=getattr(result, "attempts", None),
+            attempt_run_ids=getattr(result, "attempt_run_ids", None),
         )
     except Exception:
         pass

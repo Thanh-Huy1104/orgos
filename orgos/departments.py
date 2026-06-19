@@ -427,6 +427,13 @@ def load_org(path: str | Path) -> Org:
     org_data["handoffs"] = data.get("handoffs", [])
     org = Org.model_validate(org_data)
 
+    # Prune members whose temporary contract has lapsed, so the constitution
+    # self-cleans rather than accreting dead roles (see RoleSpec.expire_at).
+    # Supervisors are never pruned — an expired supervisor would orphan a whole
+    # department, which is a misconfiguration, not a TTL the loader should honour.
+    for dept in org.departments:
+        dept.members = [m for m in dept.members if not m.is_expired()]
+
     # Propagate org-level defaults to roles that don't override them. Without
     # this, default_max_budget_tokens is dead config and tool-using members run
     # unbounded (a researcher web-fetch loop hit 406K tokens in testing).

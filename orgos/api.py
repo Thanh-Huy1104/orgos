@@ -1,18 +1,22 @@
 """orgos API server — REST backend for the Next.js dashboard.
-
+ 
 Serves OrgMemory + PMStore data as JSON. Run alongside the scheduler:
-
+ 
     pip install fastapi uvicorn
     python -m uvicorn orgos.api:app --host 0.0.0.0 --port 8420
-
+ 
 Endpoints:
     GET  /api/dashboard               — org overview
     GET  /api/departments             — department list with metrics
     GET  /api/departments/{name}/runs — run history
     GET  /api/projects                — all projects
     GET  /api/projects/{id}           — project detail + tasks
-    GET  /api/proposals               — pending proposals
-    POST /api/proposals/{id}/approve  — approve + apply
+    GET  /api/proposals               — legacy: pending credential/tool requests
+    POST /api/credentials/{i}/resolve — mark credential request resolved
+    GET  /api/evolve/proposals        — evolution proposals (pending/approved/denied)
+    POST /api/evolve/analyze          — trigger OrgAnalyzer (basic or deep)
+    POST /api/evolve/proposals/{id}/approve — approve + apply a proposal
+    POST /api/evolve/proposals/{id}/deny    — deny a proposal
     GET  /api/logs                    — recent run logs
     GET  /api/credentials             — pending credential requests
     GET  /api/tools                   — pending tool requests
@@ -41,6 +45,7 @@ from pydantic import BaseModel
 from orgos import OrgMemory, PMStore
 from orgos.memory import OwnerProfile
 from orgos.departments import Org, Department, NotificationConfig, run_department, spawn_project
+from orgos.evolve import OrgAnalyzer, ProposalStore
 from orgos.spawn import TaskBrief
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -52,6 +57,7 @@ PM_DB = os.environ.get("ORGOS_PM_DB", "./_orgos_memory/pm.db")
 memory: OrgMemory | None = None
 pm: PMStore | None = None
 org: Any = None
+proposal_store: ProposalStore | None = None
 
 
 def load_org():
@@ -64,17 +70,20 @@ def load_org():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global memory, pm, org
+    global memory, pm, org, proposal_store
     memory = OrgMemory(MEMORY_DB)
     pm = PMStore(PM_DB)
     org = load_org()
     if org:
         org.memory = memory
+    proposal_store = ProposalStore()
     yield
     if memory:
         memory.close()
     if pm:
         pm.close()
+    if proposal_store:
+        proposal_store.close()
 
 
 app = FastAPI(title="orgos API", version="1.0.0", lifespan=lifespan)
@@ -337,6 +346,7 @@ def delete_policy(policy_id: str):
         raise HTTPException(404, f"Policy {policy_id} not found")
     path.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120))
     return {"deleted": policy_id, "remaining": len(data["policies"])}
+@app.get("/api/research")
 def research_reports(limit: int = 20):
     """List recent research reports."""
     return pm.list_research_reports(limit=limit)
@@ -349,6 +359,7 @@ def research_report_detail(report_id: str):
     if not r:
         raise HTTPException(404, "Report not found")
     return r
+@app.get("/api/scheduler")
 def scheduler_status():
     jobs = []
     for d in org.departments if org else []:
@@ -459,24 +470,20 @@ def _route_simple(goal: str, org: Any) -> dict:
     from orgos.spawn import TaskBrief
     from orgos.spawn import spawn
 
-    # Pick the best department and role
+    # Pick the best department for the goal. The desk runs three on-mission
+    # departments — quant (discovery), compliance (review), research (the
+    # general-purpose investigator and default).
     goal_lower = goal.lower()
-    if any(kw in goal_lower for kw in ("calendar", "schedule", "event", "appointment", "meeting", "briefing")):
-        dept_name = "operations"
-    elif any(kw in goal_lower for kw in ("code", "git", "test", "build", "deploy", "bug", "fix", "feature", "develop")):
-        dept_name = "engineering"
-    elif any(kw in goal_lower for kw in ("scan", "pair", "cointegration", "trade", "stock", "etf", "quant", "finance", "research", "search", "analyze", "report")):
-        dept_name = "research"
+    if any(kw in goal_lower for kw in ("scan", "pair", "cointegration", "trade", "stock", "etf", "quant")):
+        dept_name = "quant"
     elif any(kw in goal_lower for kw in ("compliance", "policy", "legal", "review", "regulat")):
         dept_name = "compliance"
-    elif any(kw in goal_lower for kw in ("research", "search", "find", "look up", "what is", "how to", "explain")):
-        dept_name = "research"
     else:
-        dept_name = "operations" if not org.find_department(dept_name) else dept_name
+        dept_name = "research"
 
-    dept = org.find_department(dept_name)
+    dept = org.find_department(dept_name) or (org.departments[0] if org.departments else None)
     if not dept:
-        dept = org.departments[0]
+        raise HTTPException(503, "No departments configured")
 
     # Spawn the best-equipped member directly (skip orchestrator delegation)
     # For simple queries, a worker with tools is more efficient than an
@@ -634,6 +641,86 @@ def resolve_credential(index: int):
     data["resolved_credentials"] = resolved_list
     path.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120))
     return {"resolved": resolved.get("department", "unknown"), "remaining": len(creds)}
+
+
+# ── Evolve (self-improving org) ────────────────────────────────────────────
+
+
+class AnalyzeBody(BaseModel):
+    mode: str = "basic"  # "basic" or "deep"
+
+
+@app.post("/api/evolve/analyze")
+def trigger_analysis(body: AnalyzeBody | None = None):
+    """Trigger org analysis. mode=basic (deterministic, zero tokens) or mode=deep (LLM-powered)."""
+    if not proposal_store or not org:
+        raise HTTPException(503, "Org not loaded")
+    mode = body.mode if body else "basic"
+    analyzer = OrgAnalyzer(org)
+    if mode == "deep":
+        proposals = analyzer.deep_analysis(verbose=False)
+    else:
+        proposals = analyzer.basic_proposals()
+    count = proposal_store.add_all(proposals)
+    return {
+        "mode": mode,
+        "proposals_found": len(proposals),
+        "proposals_stored": count,
+        "proposal_ids": [p.id for p in proposals],
+    }
+
+
+@app.get("/api/evolve/proposals")
+def evolve_proposals():
+    """List all pending evolution proposals."""
+    if not proposal_store:
+        return {"proposals": []}
+    return {"proposals": proposal_store.list_pending()}
+
+
+@app.post("/api/evolve/proposals/{proposal_id}/approve")
+def approve_proposal(proposal_id: str):
+    """Approve a proposal and apply it to org.yaml."""
+    if not proposal_store:
+        raise HTTPException(503, "Proposal store not available")
+    entry = proposal_store.get(proposal_id)
+    if not entry:
+        raise HTTPException(404, f"Proposal {proposal_id} not found")
+    if entry["status"] != "pending":
+        raise HTTPException(400, f"Proposal {proposal_id} is already {entry['status']}")
+
+    from orgos.evolve import ProposalType, Proposal, apply_proposal
+    ptype = ProposalType(entry["type"])
+    proposal = Proposal(
+        id=entry["id"], type=ptype, target=entry["target"],
+        summary=entry["summary"], reasoning=entry["reasoning"],
+        risk=entry["risk"], evidence=entry["evidence"],
+        changes=entry["changes"],
+        recommended_tools=entry["recommended_tools"],
+        recommended_mcps=entry["recommended_mcps"],
+        credential_needs=entry["credential_needs"],
+        created_at=entry["created_at"],
+    )
+    result = apply_proposal(proposal, ORG_YAML)
+    if result.get("applied"):
+        proposal_store.approve(proposal_id)
+        global org
+        org = load_org()
+        if org:
+            org.memory = memory
+        return {"approved": True, "proposal_id": proposal_id, "message": result["message"]}
+    return {"approved": False, "proposal_id": proposal_id, "message": result["message"]}
+
+
+@app.post("/api/evolve/proposals/{proposal_id}/deny")
+def deny_proposal(proposal_id: str):
+    """Deny a proposal."""
+    if not proposal_store:
+        raise HTTPException(503, "Proposal store not available")
+    entry = proposal_store.deny(proposal_id)
+    if not entry:
+        raise HTTPException(404, f"Proposal {proposal_id} not found")
+    return {"denied": True, "proposal_id": proposal_id}
 
 
 @app.get("/api/calendar")

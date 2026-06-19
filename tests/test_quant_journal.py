@@ -60,4 +60,4 @@ class TestNewsCatalysts:
     def test_no_key_raises(self, monkeypatch):
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         out = json.loads(rs.NewsCatalystTool()._run("x"))
-        assert "error" in out                                # surfaced, not crashed
+        assert out["news"] == "unavailable"                    # surfaced, not crashed

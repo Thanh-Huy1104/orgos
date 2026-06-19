@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-const API = "http://192.168.5.197:8420";
 const ALL_CATS = ["privacy", "finance", "legal", "ethics", "security", "communications", "governance"];
 
 export default function PoliciesPage() {
@@ -14,7 +13,7 @@ export default function PoliciesPage() {
   const [msg, setMsg] = useState("");
 
   const load = () => {
-    fetch(`${API}/api/policies${filter ? `?category=${filter}` : ""}`)
+    fetch(`/api/policies${filter ? `?category=${filter}` : ""}`)
       .then(r => r.json()).then(d => { setPolicies(d.policies || []); setCats(d.categories || []); });
   };
   useEffect(() => { load(); }, [filter]);
@@ -22,7 +21,7 @@ export default function PoliciesPage() {
   const save = async () => {
     if (!pf.id || !pf.title || !pf.rule) return;
     try {
-      const r = await fetch(`${API}/api/policies`, {
+      const r = await fetch(`/api/policies`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...pf, categories: pf.cats, references: pf.refs.split("\n").filter(Boolean) }),
       });
@@ -33,7 +32,7 @@ export default function PoliciesPage() {
   };
 
   const del = async (id: string) => {
-    await fetch(`${API}/api/policies/${id}`, { method: "DELETE" }); load();
+    await fetch(`/api/policies/${id}`, { method: "DELETE" }); load();
   };
 
   const toggleCat = (c: string) => {
