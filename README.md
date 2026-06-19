@@ -127,6 +127,17 @@ hard caps, and a validated `HandoffEnvelope`.
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/dashboard-desk.png" width="400" alt="Desk" />
+  <img src="docs/dashboard-journal.png" width="400" alt="Journal" />
+  <img src="docs/dashboard-logs.png" width="400" alt="Logs" />
+  <img src="docs/dashboard-org.png" width="400" alt="Org" />
+</p>
+
+---
+
 ## Honest scope
 
 The desk **researches and recommends** — it does not place trades. The strategy
