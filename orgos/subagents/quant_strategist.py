@@ -33,6 +33,7 @@ from pathlib import Path
 
 from orgos.quant import journal as quant_journal
 from orgos.quant import grading as _grading  # noqa: F401 — registers cointegration_gates grader
+from orgos.reflect import Reflector
 from orgos.spawn import PermissionTier, RoleSpec, TaskBrief
 from orgos.tools.crypto_tool import CryptoScannerTool
 from orgos.tools.quant_tool import CointegrationScannerTool
@@ -232,6 +233,10 @@ def run_strategist(
 
     prior = quant_journal.prior_research_block(n=5)
 
+    _reflector = Reflector(domain="quant_pairs")
+    playbook_heuristics = _reflector.retrieve(objective, n=4)
+    playbook_block = _reflector.inject_block(playbook_heuristics)
+
     research_brief = TaskBrief(
         objective=(
             f"Objective: {objective}\n\nAsset class focus: {asset_class}. "
@@ -240,6 +245,7 @@ def run_strategist(
             "universes with economic theses grounded in evidence — never from "
             "memory."
             + (f"\n\n{prior}" if prior else "")
+            + (f"\n\n{playbook_block}" if playbook_block else "")
         ),
         tool_call_budget=max(tool_call_budget // 2, 4),
         success_criteria=[
@@ -311,4 +317,11 @@ def run_strategist(
         )
     except Exception:
         pass
+
+    # ── Reflect: extract heuristics from rubric diffs for future runs ────────
+    try:
+        _reflector.reflect(result)
+    except Exception:
+        pass
+
     return result

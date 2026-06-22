@@ -178,11 +178,24 @@ class OrgMemory:
                 updated_at      TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS heuristics (
+                id              TEXT PRIMARY KEY,
+                domain          TEXT NOT NULL,
+                tags            TEXT NOT NULL DEFAULT '[]',
+                rule            TEXT NOT NULL,
+                why             TEXT NOT NULL DEFAULT '',
+                source_run_id   TEXT,
+                score           REAL NOT NULL DEFAULT 0.0,
+                use_count       INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_runs_dept      ON runs(department, created_at);
             CREATE INDEX IF NOT EXISTS idx_runs_status     ON runs(status, created_at);
             CREATE INDEX IF NOT EXISTS idx_runs_created    ON runs(created_at);
             CREATE INDEX IF NOT EXISTS idx_decisions_run   ON decisions(run_id);
             CREATE INDEX IF NOT EXISTS idx_decisions_type  ON decisions(type, created_at);
+            CREATE INDEX IF NOT EXISTS idx_heuristics_domain ON heuristics(domain, score DESC);
         """)
 
     # ── Write ──────────────────────────────────────────────────────────────

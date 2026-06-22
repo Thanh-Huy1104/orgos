@@ -357,3 +357,91 @@ export const getTrails = (limit = 30) =>
 
 export const getTrail = (runId: string) =>
   fetchAPI<{ run_id: string; trail: TrailStep[] }>(`/api/quant/trail/${runId}`);
+
+// ── Volatility ────────────────────────────────────────────────────────────────
+
+export interface VolatilitySnapshot {
+  ticker: string;
+  current_vol: number;
+  vol_1m: number | null;
+  vol_3m: number | null;
+  regime: string;
+  spike: boolean;
+  suggested_position_size: number;
+  vix: { level: number; regime: string } | null;
+}
+
+export const getVolatility = (ticker: string) =>
+  fetchAPI<VolatilitySnapshot>(`/api/quant/volatility/${ticker}`);
+
+export interface IvRankEntry {
+  ticker: string;
+  iv_rank: number | null;
+  current_iv_pct: number | null;
+  low_52w: number | null;
+  high_52w: number | null;
+  signal: string | null;
+  error?: string;
+}
+
+export const scanIvRank = (tickers: string[]) =>
+  postJSON<{ results: IvRankEntry[]; count: number }>("/api/quant/volatility/iv-scan", { tickers });
+
+// ── Options strategist ────────────────────────────────────────────────────────
+
+export const startOptionsStrategist = (objective: string, view = "neutral", max_attempts = 2) =>
+  postJSON<{ job_id: string; status: string; type: string }>(
+    "/api/quant/options/strategist", { objective, view, max_attempts }
+  );
+
+export interface OptionsStrategistJob {
+  job_id: string;
+  status: "running" | "done" | "error";
+  elapsed_s?: number;
+  type?: string;
+  result?: StrategistResult;
+  error?: string;
+}
+
+export const getOptionsStrategistJob = (jobId: string) =>
+  fetchAPI<OptionsStrategistJob>(`/api/quant/options/strategist/${jobId}`);
+
+// ── Options tools (direct) ────────────────────────────────────────────────────
+
+export interface OptionsSurface {
+  ticker: string;
+  spot: number | null;
+  target_dte: number;
+  atm_iv: number | null;
+  skew: { call_25d: number | null; put_25d: number | null; risk_reversal: number | null; interpretation: string } | null;
+  term_structure: { expiry: string; dte: number; atm_iv: number | null; label: string }[];
+  edge_signal: string | null;
+  rv: number | null;
+  iv_vs_rv: { difference: number; signal: string; rationale: string } | null;
+}
+
+export const getOptionsSurface = (ticker: string, target_dte = 30, max_expiries = 8) =>
+  postJSON<OptionsSurface>("/api/quant/options/surface", { ticker, target_dte, max_expiries });
+
+export interface StrategySuggestion {
+  ticker: string;
+  iv_rank: number;
+  top_strategy: string;
+  candidates: { strategy: string; rationale: string; score: number }[];
+}
+
+export const getOptionsSuggest = (ticker: string, view = "neutral", target_dte = 30) =>
+  postJSON<StrategySuggestion>("/api/quant/options/suggest", { ticker, view, target_dte });
+
+export interface Greeks {
+  option_type: string;
+  price: number;
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+  rho: number;
+}
+
+export const computeGreeks = (S: number, K: number, T: number, r: number, sigma: number, option_type: string) =>
+  postJSON<Greeks>("/api/quant/options/greeks", { S, K, T, r, sigma, option_type });

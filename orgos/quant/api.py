@@ -138,6 +138,215 @@ def trail(run_id: str) -> dict:
     return {"run_id": run_id, "trail": read_trail(run_id)}
 
 
+class IvScanBody(BaseModel):
+    tickers: list[str]
+
+
+@router.get("/volatility/{ticker}")
+def volatility(ticker: str) -> dict:
+    """Realized vol snapshot + VIX context for one ticker.
+
+    Returns current vol, 1m/3m averages, vol regime, spike flag, suggested
+    position size (15% target vol), and live VIX level + regime.
+    503 if market data is unavailable.
+    """
+    from .marketdata import get_prices, MarketDataError
+    from .volatility import fetch_vix, vol_summary
+
+    try:
+        prices = get_prices(ticker.upper(), lookback_days=252)
+    except MarketDataError as exc:
+        raise HTTPException(status_code=503, detail=f"no price data: {exc}")
+
+    try:
+        vix = fetch_vix(lookback_days=252)
+    except Exception:  # noqa: BLE001 — VIX is optional, don't block the response
+        vix = None
+
+    result = vol_summary(prices, vol_window=20, vix=vix)
+    return {"ticker": ticker.upper(), **result}
+
+
+@router.post("/volatility/iv-scan")
+def iv_scan(body: IvScanBody) -> dict:
+    """IV rank scan across a list of equity tickers.
+
+    High IV rank (> 50) → options expensive vs trailing year → sell premium.
+    Low IV rank (< 20)  → options cheap → buy options for direction or protection.
+    Requires a liquid options market on each ticker; returns an error entry for
+    tickers with no options data.
+    """
+    from .volatility import scan_iv_rank
+
+    results = scan_iv_rank(body.tickers)
+    return {"results": results, "count": len(results)}
+
+
+class OptionsStrategistBody(BaseModel):
+    objective: str
+    view: str = "neutral"   # bullish | bearish | neutral | volatile
+    max_attempts: int = 2
+
+
+class OptionsSurfaceBody(BaseModel):
+    ticker: str
+    target_dte: int = 30
+    max_expiries: int = 8
+
+
+class StrategyBody(BaseModel):
+    ticker: str
+    view: str = "neutral"   # bullish | bearish | neutral | volatile
+    target_dte: int = 30
+
+
+class GreeksBody(BaseModel):
+    S: float          # current spot price
+    K: float          # strike
+    T: float          # time to expiry in years (e.g. 30/365)
+    r: float = 0.05   # risk-free rate
+    sigma: float      # implied volatility (annualised, e.g. 0.20)
+    option_type: str = "call"
+
+
+@router.post("/options/strategist")
+def options_strategist(body: OptionsStrategistBody) -> dict:
+    """Dispatch a full options research hunt. Returns a job id immediately; poll
+    GET /options/strategist/{job_id} for the result (takes 1-3 minutes).
+
+    The pipeline: researcher identifies liquid tickers from news → analyst runs
+    vol + surface scans → synth produces the final strategy recommendation.
+    Grades against the options_edge rubric (IV rank, vol signal, defined-risk structure).
+    Result is recorded to the quant journal.
+    """
+    from orgos.subagents.options_strategist import run_options_strategist
+
+    job_id = uuid.uuid4().hex[:12]
+    with _JOBS_LOCK:
+        _prune_jobs()
+        _JOBS[job_id] = {"status": "running", "started_at": time.time(), "type": "options"}
+
+    def _run() -> None:
+        try:
+            r = run_options_strategist(
+                body.objective, view=body.view, max_attempts=body.max_attempts, verbose=False
+            )
+            out = {"status": "done", "result": _result_dict(r)}
+        except Exception as exc:  # noqa: BLE001
+            out = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
+        out["ended_at"] = time.time()
+        with _JOBS_LOCK:
+            out["started_at"] = _JOBS.get(job_id, {}).get("started_at", out["ended_at"])
+            out["type"] = "options"
+            _JOBS[job_id] = out
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"job_id": job_id, "status": "running", "type": "options"}
+
+
+@router.get("/options/strategist/{job_id}")
+def options_strategist_job(job_id: str) -> dict:
+    """Poll an options research hunt: status running | done | error."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown or expired job")
+    elapsed = round(time.time() - job.get("started_at", time.time()))
+    return {"job_id": job_id, "elapsed_s": elapsed, **job}
+
+
+@router.post("/options/surface")
+def options_surface(body: OptionsSurfaceBody) -> dict:
+    """Full IV surface snapshot for one ticker: ATM IV, skew, term structure, edge signal.
+
+    Fetches the option chain via yfinance, computes realized vol for the IV vs RV
+    comparison, and returns a structured surface ready for display or agent injection.
+    503 if no options data is available.
+    """
+    from orgos.options.chain import get_chain, OptionDataError
+    from orgos.options.surface import surface_snapshot
+    from .marketdata import get_prices, MarketDataError
+    from .volatility import realized_vol as compute_rv
+
+    try:
+        chain = get_chain(body.ticker, max_expiries=body.max_expiries)
+    except OptionDataError as exc:
+        raise HTTPException(status_code=503, detail=f"no options data: {exc}")
+
+    rv: float | None = None
+    try:
+        prices = get_prices(body.ticker.upper(), lookback_days=63)
+        rv_series = compute_rv(prices, window=20)
+        rv = float(rv_series.dropna().iloc[-1]) if len(rv_series.dropna()) else None
+    except (MarketDataError, Exception):  # noqa: BLE001 — RV is optional
+        pass
+
+    return surface_snapshot(chain, rv, target_dte=body.target_dte)
+
+
+@router.post("/options/suggest")
+def options_suggest(body: StrategyBody) -> dict:
+    """Suggest an options strategy based on the current IV rank and directional view.
+
+    Fetches IV rank (from the option chain) and realized vol, then runs the
+    heuristic strategy selector. Returns ranked strategy candidates with rationale.
+    503 if no options data is available.
+    """
+    from orgos.options.chain import get_chain, OptionDataError
+    from orgos.options.surface import atm_iv as compute_atm_iv
+    from orgos.options.strategies import suggest_strategy
+    from orgos.quant.volatility import iv_rank as compute_iv_rank
+    from .marketdata import get_prices, MarketDataError
+    from .volatility import realized_vol as compute_rv
+
+    ticker = body.ticker.upper()
+
+    iv_rank_result = compute_iv_rank(ticker)
+    rank = iv_rank_result.get("iv_rank")
+    current_iv = (iv_rank_result.get("current_iv_pct") or 0) / 100
+
+    rv: float = 0.20  # fallback
+    try:
+        prices = get_prices(ticker, lookback_days=63)
+        rv_series = compute_rv(prices, window=20)
+        if len(rv_series.dropna()):
+            rv = float(rv_series.dropna().iloc[-1])
+    except (MarketDataError, Exception):  # noqa: BLE001
+        pass
+
+    if rank is None:
+        raise HTTPException(status_code=503, detail=iv_rank_result.get("error", "IV rank unavailable"))
+
+    suggestion = suggest_strategy(
+        iv_rank=rank,
+        rv=rv,
+        atm_iv=current_iv,
+        view=body.view,  # type: ignore[arg-type]
+    )
+    return {"ticker": ticker, **suggestion}
+
+
+@router.post("/options/greeks")
+def options_greeks(body: GreeksBody) -> dict:
+    """Compute Black-Scholes price and all Greeks for one options contract.
+
+    Inputs: spot (S), strike (K), time to expiry in years (T), risk-free rate (r),
+    implied vol (sigma), and option type (call/put). Returns price + delta/gamma/
+    theta/vega/rho with plain-English units.
+    """
+    from orgos.options.pricer import bs_greeks
+
+    try:
+        result = bs_greeks(
+            body.S, body.K, body.T, body.r, body.sigma,
+            "call" if body.option_type.lower() == "call" else "put",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return result
+
+
 @router.get("/risk")
 def risk() -> dict:
     """Read-only risk assessment of the live book + current kill-switch state."""

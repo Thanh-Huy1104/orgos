@@ -142,6 +142,7 @@ def spawn_until(
             result.attempt_run_ids = ran_ids
             return result
         result.grade = last_grade
+        result.attempt_grades.append(last_grade)
         if last_grade.passed:
             result.envelope.success_criteria_met = True
             if not rubric.optimize:
@@ -183,6 +184,7 @@ def chain_until(
             result.attempt_run_ids = ran_ids
             return result
         result.grade = last_grade
+        result.attempt_grades.append(last_grade)
         if last_grade.passed:
             result.envelope.success_criteria_met = True
             if not rubric.optimize:

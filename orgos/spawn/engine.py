@@ -61,6 +61,9 @@ class SpawnResult:
     attempts: int = 1
     grade: Any = None
     attempt_run_ids: list[str] = field(default_factory=list)
+    # Grades from every attempt — populated by the rubric loop so the Reflector
+    # can diff failed vs successful attempts and extract heuristics.
+    attempt_grades: list[Any] = field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
