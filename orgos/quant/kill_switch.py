@@ -24,6 +24,11 @@ ICARUS_PATH = Path(os.environ.get("ICARUS_PATH", "/home/th/quant-engine"))
 RISK_KEY_PREFIX = os.environ.get("RISK_KEY_PREFIX", "risk:structural_break")
 HALT_VALUE = "1"
 
+# Dedicated brake for the options paper desk — independent of the equity-pair halts
+# above. A structural break on a cointegration pair must NOT block options trading,
+# so the options executor reads this key alone.
+OPTIONS_HALT_KEY = os.environ.get("OPTIONS_HALT_KEY", "risk:options_halt")
+
 
 def _redis_config() -> dict:
     """Resolve Redis connection from env, falling back to Icarus's .env."""
@@ -75,6 +80,29 @@ def halt_state() -> dict[int, bool]:
     finally:
         client.close()
     return out
+
+
+def options_halt_state() -> bool:
+    """True if the dedicated options-desk halt is set. Read-only.
+
+    Independent of pair halts: an equity-pair structural break does not stop options.
+    """
+    client = _redis_client()
+    try:
+        return client.get(OPTIONS_HALT_KEY) == HALT_VALUE
+    finally:
+        client.close()
+
+
+def publish_options_halt(reason: str) -> dict:
+    """SET the dedicated options-desk halt (set-only, like publish_halt)."""
+    client = _redis_client()
+    try:
+        client.set(OPTIONS_HALT_KEY, HALT_VALUE)
+    finally:
+        client.close()
+    return {"halted": True, "key": OPTIONS_HALT_KEY, "reason": reason,
+            "note": "orgos sets halts only; clear the key manually to resume"}
 
 
 def publish_halt(pair_id: int, reason: str) -> dict:

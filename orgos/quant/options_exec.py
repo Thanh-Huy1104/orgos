@@ -114,18 +114,19 @@ def _ensure_loop() -> None:
 
 
 def _halted() -> bool:
-    """Respect the orgos kill-switch as a desk-wide pause.
+    """Respect the dedicated options-desk halt key only.
 
-    If a human has slammed the brake on any pair (structural break), treat it as a
-    conservative signal to stop opening *new* risk anywhere, options included.
+    Equity-pair structural-break halts do NOT block options — a broken cointegration
+    pair is unrelated to whether you can sell a put. Only an explicit options halt
+    (``risk:options_halt``) stands the desk down.
 
-    Unlike the pairs engine, we fail *open* on a Redis read error: those halt keys
-    govern Icarus's live equity book, a solo options user may not run that Redis at
-    all, and this path is paper-only — so an unreachable Redis is not an options halt.
+    We fail *open* on a Redis read error: that key governs nothing if Redis is absent,
+    a solo options user may not run it at all, and this path is paper-only — so an
+    unreachable Redis is not an options halt.
     """
     try:
-        from orgos.quant.kill_switch import halt_state
-        return any(halt_state().values())
+        from orgos.quant.kill_switch import options_halt_state
+        return options_halt_state()
     except Exception:  # noqa: BLE001 — Redis absent/unreachable ≠ an options halt
         return False
 

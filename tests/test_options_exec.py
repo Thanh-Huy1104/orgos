@@ -172,6 +172,25 @@ class TestPlacePipeline:
                               ledger=_ledger(tmp_path))
 
 
+# ── Dedicated options halt ────────────────────────────────────────────────────
+
+class TestOptionsHalt:
+    def test_reads_dedicated_options_key(self, monkeypatch):
+        import orgos.quant.kill_switch as ks
+        monkeypatch.setattr(ks, "options_halt_state", lambda: True)
+        assert ex._halted() is True
+        monkeypatch.setattr(ks, "options_halt_state", lambda: False)
+        assert ex._halted() is False
+
+    def test_fails_open_on_redis_error(self, monkeypatch):
+        import orgos.quant.kill_switch as ks
+
+        def boom():
+            raise RuntimeError("redis down")
+        monkeypatch.setattr(ks, "options_halt_state", boom)
+        assert ex._halted() is False  # unreachable Redis is not an options halt
+
+
 # ── Ledger ────────────────────────────────────────────────────────────────────
 
 class TestLedger:
