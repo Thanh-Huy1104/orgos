@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 const nav = [
   { href: "/", label: "Desk", icon: "◫" },
   { href: "/journal", label: "Journal", icon: "❖" },
+  { href: "/paper", label: "Paper", icon: "▤" },
   { href: "/logs", label: "Logs", icon: "☰" },
   { href: "/org", label: "Org", icon: "▦" },
   { href: "/calendar", label: "Calendar", icon: "◷" },

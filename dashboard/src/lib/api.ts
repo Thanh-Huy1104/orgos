@@ -445,3 +445,73 @@ export interface Greeks {
 
 export const computeGreeks = (S: number, K: number, T: number, r: number, sigma: number, option_type: string) =>
   postJSON<Greeks>("/api/quant/options/greeks", { S, K, T, r, sigma, option_type });
+
+// ── Options paper trading (human-in-the-loop) ─────────────────────────────────
+
+export interface PaperLeg {
+  right: "P" | "C";
+  action: "BUY" | "SELL";
+  strike: number;
+  expiry: string; // ISO YYYY-MM-DD
+  qty: number;
+}
+
+export interface PaperOrder {
+  ticker: string;
+  strategy: string;
+  legs: PaperLeg[];
+  max_loss_usd: number;
+  run_id?: string | null;
+}
+
+export interface LiquidityLeg {
+  type: string;
+  requested_strike: number;
+  bid: number;
+  ask: number;
+  mid: number;
+  spread_pct: number | null;
+  open_interest: number;
+  volume: number;
+  tradeable: boolean;
+  reasons: string[];
+}
+
+export interface LiquidityResult {
+  ticker: string;
+  liquid: boolean;
+  spot_sanity_ok: boolean;
+  reasons: string[];
+  spot: number | null;
+  reference_close: number | null;
+  legs: LiquidityLeg[];
+}
+
+export const previewPaperOrder = (order: PaperOrder) =>
+  postJSON<{ tradeable: boolean; liquidity?: LiquidityResult; reason?: string }>(
+    "/api/quant/options/paper/preview", order);
+
+export const placePaperOrder = (order: PaperOrder) =>
+  postJSON<{ ok: boolean; order_id: string; position_id: string; ib_order_ids: number[] }>(
+    "/api/quant/options/paper/place", order);
+
+export interface PaperPosition {
+  id: string;
+  ticker: string;
+  strategy: string;
+  status: "open" | "closed";
+  legs: PaperLeg[];
+  open_price: number | null;
+  close_price: number | null;
+  realized_pnl: number | null;
+  opened_at: string;
+  closed_at: string | null;
+}
+
+export const getPaperPositions = () =>
+  fetchAPI<{ positions: PaperPosition[]; open_count: number }>(
+    "/api/quant/options/paper/positions");
+
+export const closePaperPosition = (id: string, close_price: number | null, realized_pnl: number | null) =>
+  postJSON<{ ok: boolean; position_id: string }>(
+    `/api/quant/options/paper/close/${id}`, { close_price, realized_pnl });

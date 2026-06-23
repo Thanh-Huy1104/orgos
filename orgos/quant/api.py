@@ -347,6 +347,99 @@ def options_greeks(body: GreeksBody) -> dict:
     return result
 
 
+# ── Options paper trading (human-in-the-loop, paper-only) ─────────────────────
+
+class PaperLegBody(BaseModel):
+    right: str        # 'P' or 'C'
+    action: str       # 'BUY' or 'SELL'
+    strike: float
+    expiry: str       # ISO 'YYYY-MM-DD'
+    qty: int = 1
+
+
+class PaperOrderBody(BaseModel):
+    ticker: str
+    strategy: str = ""
+    legs: list[PaperLegBody]
+    max_loss_usd: float
+    run_id: str | None = None
+
+
+def _to_request(body: PaperOrderBody):
+    from orgos.quant.options_exec import OrderLeg, PaperOrderRequest
+
+    return PaperOrderRequest(
+        ticker=body.ticker.upper(),
+        strategy=body.strategy,
+        legs=[OrderLeg(l.right, l.action, l.strike, l.expiry, l.qty) for l in body.legs],
+        max_loss_usd=body.max_loss_usd,
+        run_id=body.run_id,
+    )
+
+
+@router.post("/options/paper/preview")
+def options_paper_preview(body: PaperOrderBody) -> dict:
+    """Dry-run: re-check liquidity + spot-sanity on the live chain for these legs.
+
+    Returns exactly what the place call would validate against — the per-leg live
+    bid/ask/mid/OI and whether the structure is currently tradeable — WITHOUT sending
+    anything. The dashboard uses this to enable/disable the Place button.
+    """
+    from orgos.quant.options_exec import check_liquidity, OrderRejected
+
+    try:
+        liq = check_liquidity(_to_request(body))
+        return {"tradeable": True, "liquidity": liq}
+    except OrderRejected as exc:
+        return {"tradeable": False, "reason": str(exc)}
+
+
+@router.post("/options/paper/place")
+def options_paper_place(body: PaperOrderBody) -> dict:
+    """Place the confirmed paper order on IBKR (paper-only, guarded).
+
+    Runs every pre-trade gate (risk caps → fresh liquidity recheck → PAPER_ONLY
+    connection guard → kill-switch). 409 if a gate rejects the order; 503 if the
+    paper gateway is unreachable or the safety guard refuses the session.
+    """
+    from orgos.quant.options_exec import place_paper_order, OrderRejected
+    from orgos.quant.options_exec_config import UnsafeExecutionError
+
+    try:
+        return place_paper_order(_to_request(body))
+    except OrderRejected as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except UnsafeExecutionError as exc:
+        raise HTTPException(status_code=503, detail=f"safety guard: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"paper order failed: {exc}")
+
+
+@router.get("/options/paper/positions")
+def options_paper_positions() -> dict:
+    """All paper options positions (open first) with realized P&L where closed."""
+    from orgos.quant.options_paper_ledger import OptionsPaperLedger
+
+    led = OptionsPaperLedger()
+    return {"positions": led.all_positions(), "open_count": led.count_open_positions()}
+
+
+class PaperCloseBody(BaseModel):
+    close_price: float | None = None
+    realized_pnl: float | None = None
+
+
+@router.post("/options/paper/close/{position_id}")
+def options_paper_close(position_id: str, body: PaperCloseBody) -> dict:
+    """Mark a paper position closed and record realized P&L (manual close for now)."""
+    from orgos.quant.options_paper_ledger import OptionsPaperLedger
+
+    led = OptionsPaperLedger()
+    led.close_position(position_id, close_price=body.close_price,
+                       realized_pnl=body.realized_pnl)
+    return {"ok": True, "position_id": position_id}
+
+
 @router.get("/risk")
 def risk() -> dict:
     """Read-only risk assessment of the live book + current kill-switch state."""

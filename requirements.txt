@@ -18,3 +18,4 @@ yfinance
 ccxt
 redis
 lxml
+ib_insync   # IBKR paper-trade execution for the options desk
