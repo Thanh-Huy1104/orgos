@@ -23,6 +23,12 @@ IB_GATEWAY_PORT = int(os.getenv("OPTIONS_IB_GATEWAY_PORT", os.getenv("IB_GATEWAY
 # Distinct from Icarus (IB_CLIENT_ID=1) so the two clients don't fight over one id.
 OPTIONS_IB_CLIENT_ID = int(os.getenv("OPTIONS_IB_CLIENT_ID", "2"))
 
+# IBKR market-data type used to price the limit order from the venue we trade on:
+#   1 = live, 2 = frozen, 3 = delayed, 4 = delayed-frozen.
+# Default 3 (delayed) so quotes work even without a live options market-data sub;
+# set to 1 once the paper account has the subscription for tightest pricing.
+IB_MARKET_DATA_TYPE = int(os.getenv("OPTIONS_IB_MARKET_DATA_TYPE", "3"))
+
 # PAPER_ONLY is the master safety. Flipping it off requires an explicit env opt-out
 # AND is still subject to the account-id check below.
 PAPER_ONLY = os.getenv("OPTIONS_PAPER_ONLY", "true").lower() not in ("0", "false", "no")

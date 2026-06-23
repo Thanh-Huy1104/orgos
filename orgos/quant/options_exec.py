@@ -162,6 +162,42 @@ def _build_contracts(ib: Any, ticker: str, legs: list[OrderLeg]) -> list[Any]:
     return contracts
 
 
+def _is_num(x: Any) -> bool:
+    import math
+    return isinstance(x, (int, float)) and not math.isnan(float(x)) and x > 0
+
+
+def _ibkr_mid(ib: Any, contract: Any) -> float | None:
+    """Live mid for one contract from IBKR — the venue we actually trade on.
+
+    Prices the limit order against the same book the order is sent to (yfinance
+    quotes are stale/inconsistent). Falls back through bid/ask mid → marketPrice →
+    last. Returns None if IBKR has no usable quote (e.g. no market-data permission).
+    """
+    try:
+        ib.reqMarketDataType(cfg.IB_MARKET_DATA_TYPE)
+    except Exception:  # noqa: BLE001 — type request is best-effort
+        pass
+    tickers = ib.reqTickers(contract)
+    if not tickers:
+        return None
+    t = tickers[0]
+    bid, ask = getattr(t, "bid", None), getattr(t, "ask", None)
+    if _is_num(bid) and _is_num(ask):
+        return round((bid + ask) / 2, 2)
+    for attr in ("marketPrice", "midpoint"):
+        fn = getattr(t, attr, None)
+        if callable(fn):
+            try:
+                v = fn()
+            except Exception:  # noqa: BLE001
+                v = None
+            if _is_num(v):
+                return round(float(v), 2)
+    last = getattr(t, "last", None) or getattr(t, "close", None)
+    return round(float(last), 2) if _is_num(last) else None
+
+
 # ── Place / close ─────────────────────────────────────────────────────────────
 
 def place_paper_order(req: PaperOrderRequest, *, ib: Any = None,
@@ -188,13 +224,23 @@ def place_paper_order(req: PaperOrderRequest, *, ib: Any = None,
         from ib_insync import LimitOrder
         contracts = _build_contracts(ib, req.ticker, req.legs)
         order_ids: list[Any] = []
+        legs_json: list[dict] = []
+        net = 0.0  # signed net debit (+ = you pay, − = you collect)
         for leg, contract in zip(req.legs, contracts):
-            price = req.limit_prices.get(f"{leg.right}/{leg.strike}") or _leg_mid(liq, leg)
+            # Price against IBKR (the venue we send to); fall back to the yfinance
+            # liquidity mid, then an explicit override.
+            price = (req.limit_prices.get(f"{leg.right}/{leg.strike}")
+                     or _ibkr_mid(ib, contract) or _leg_mid(liq, leg))
             if price is None or price <= 0:
                 raise OrderRejected(f"no usable limit price for leg {leg.right} {leg.strike}")
-            order = LimitOrder(leg.action, leg.qty, round(float(price), 2), tif="DAY")
+            price = round(float(price), 2)
+            order = LimitOrder(leg.action, leg.qty, price, tif="DAY")
             trade = ib.placeOrder(contract, order)
             order_ids.append(getattr(getattr(trade, "order", None), "orderId", None))
+            d = vars(leg).copy()
+            d["limit"] = price
+            legs_json.append(d)
+            net += price * leg.qty * (1 if leg.action == "BUY" else -1)
     finally:
         if own_connection:
             try:
@@ -202,13 +248,13 @@ def place_paper_order(req: PaperOrderRequest, *, ib: Any = None,
             except Exception:  # noqa: BLE001
                 pass
 
-    legs_json = [vars(l) for l in req.legs]
+    net = round(net, 2)
     order_id = ledger.record_order(
         ticker=req.ticker, strategy=req.strategy, legs=legs_json,
-        limit_price=None, run_id=req.run_id, ib_order_ids=order_ids, status="submitted")
+        limit_price=net, run_id=req.run_id, ib_order_ids=order_ids, status="submitted")
     position_id = ledger.open_position(
         order_id=order_id, ticker=req.ticker, strategy=req.strategy,
-        legs=legs_json, open_price=None, run_id=req.run_id)
+        legs=legs_json, open_price=net, run_id=req.run_id)
 
     return {
         "ok": True,
@@ -218,25 +264,49 @@ def place_paper_order(req: PaperOrderRequest, *, ib: Any = None,
         "ticker": req.ticker,
         "strategy": req.strategy,
         "legs": legs_json,
+        "net_price": net,  # − = net credit collected, + = net debit paid
         "liquidity": {"liquid": liq.get("liquid"), "spot": liq.get("spot")},
     }
 
 
 def reconcile(*, ib: Any = None, ledger: OptionsPaperLedger | None = None) -> dict:
-    """Poll IBKR paper for fills and update open orders' fill prices in the ledger.
+    """Poll IBKR for order status and write fill prices back to the ledger.
 
-    Lightweight v1: marks submitted orders 'filled' and records the average fill
-    price where IB reports one. Position-level P&L close-out is handled by close_position.
+    For each still-'submitted' ledger order, find the matching IBKR trade (by order
+    id under our client id) and, if filled, mark it 'filled' with the average fill
+    price. Same client id (2) means orders we placed in prior sessions are still ours.
     """
+    import json
+
     ledger = ledger or OptionsPaperLedger()
     own_connection = ib is None
     ib = connect(ib)
     try:
-        fills = list(ib.fills() or [])
+        try:
+            ib.reqAllOpenOrders()
+            ib.sleep(1.0)
+        except Exception:  # noqa: BLE001 — best-effort refresh
+            pass
+        trades = {getattr(getattr(t, "order", None), "orderId", None): t
+                  for t in (ib.trades() or [])}
+        rows = ledger.conn.execute(
+            "SELECT id, ib_order_ids FROM options_paper_orders WHERE status='submitted'"
+        ).fetchall()
+        updated = 0
+        for r in rows:
+            for oid in json.loads(r["ib_order_ids"] or "[]"):
+                t = trades.get(oid)
+                status = getattr(getattr(t, "orderStatus", None), "status", None)
+                if t and status == "Filled":
+                    ledger.update_order(
+                        r["id"], status="filled",
+                        fill_price=getattr(t.orderStatus, "avgFillPrice", None))
+                    updated += 1
+                    break
     finally:
         if own_connection:
             try:
                 ib.disconnect()
             except Exception:  # noqa: BLE001
                 pass
-    return {"fills_seen": len(fills)}
+    return {"orders_checked": len(rows), "filled_updated": updated}

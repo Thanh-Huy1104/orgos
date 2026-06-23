@@ -16,15 +16,29 @@ from orgos.quant.options_paper_ledger import OptionsPaperLedger
 
 # ── Fakes ─────────────────────────────────────────────────────────────────────
 
+class _FakeStatus:
+    def __init__(self, status, avg=None):
+        self.status = status
+        self.avgFillPrice = avg
+
+
 class _FakeTrade:
-    def __init__(self, oid):
+    def __init__(self, oid, status="Submitted", avg=None):
         self.order = type("O", (), {"orderId": oid})()
+        self.orderStatus = _FakeStatus(status, avg)
+
+
+class _FakeTicker:
+    def __init__(self, bid, ask):
+        self.bid, self.ask = bid, ask
 
 
 class _FakeIB:
-    def __init__(self, account="DU1234567"):
+    def __init__(self, account="DU1234567", bid=1.40, ask=1.60):
         self._account = account
+        self._bid, self._ask = bid, ask
         self.placed = []
+        self._trades: list[_FakeTrade] = []
 
     def managedAccounts(self):
         return [self._account] if self._account else []
@@ -32,9 +46,26 @@ class _FakeIB:
     def qualifyContracts(self, *contracts):
         return list(contracts)
 
+    def reqMarketDataType(self, t):
+        self.market_data_type = t
+
+    def reqTickers(self, *contracts):
+        return [_FakeTicker(self._bid, self._ask) for _ in contracts]
+
     def placeOrder(self, contract, order):
         self.placed.append((contract, order))
-        return _FakeTrade(oid=1000 + len(self.placed))
+        t = _FakeTrade(oid=1000 + len(self.placed))
+        self._trades.append(t)
+        return t
+
+    def reqAllOpenOrders(self):
+        pass
+
+    def sleep(self, _s):
+        pass
+
+    def trades(self):
+        return self._trades
 
     def fills(self):
         return []
@@ -149,15 +180,38 @@ class TestPlacePipeline:
         monkeypatch.setattr(ex, "run_liquidity_check", lambda *a, **k: _liq_ok())
         monkeypatch.setattr(ex, "_halted", lambda: False)
         ledger = _ledger(tmp_path)
-        ib = _FakeIB()
+        # IBKR quote (2.00/2.20 -> mid 2.10) differs from the yfinance liq mid (1.50),
+        # so this also proves the limit is priced from IBKR, not yfinance.
+        ib = _FakeIB(bid=2.00, ask=2.20)
         out = place_paper_order(_csp(), ib=ib, ledger=ledger)
         assert out["ok"]
         assert out["ib_order_ids"] == [1001]      # one leg placed
         assert len(ib.placed) == 1
-        # placed at the validated mid 1.50
-        assert ib.placed[0][1].lmtPrice == 1.50
-        # ledger reflects an open position
+        assert ib.placed[0][1].lmtPrice == 2.10   # priced from IBKR mid
+        assert out["net_price"] == -2.10          # SELL one leg -> net credit
         assert ledger.count_open_positions() == 1
+
+    def test_falls_back_to_yfinance_mid_when_ibkr_has_no_quote(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(ex, "run_liquidity_check", lambda *a, **k: _liq_ok())
+        monkeypatch.setattr(ex, "_halted", lambda: False)
+        ib = _FakeIB(bid=0, ask=0)  # IBKR returns no usable quote
+        out = place_paper_order(_csp(), ib=ib, ledger=_ledger(tmp_path))
+        assert ib.placed[0][1].lmtPrice == 1.50   # fell back to the liquidity mid
+
+    def test_reconcile_marks_filled(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(ex, "run_liquidity_check", lambda *a, **k: _liq_ok())
+        monkeypatch.setattr(ex, "_halted", lambda: False)
+        ledger = _ledger(tmp_path)
+        ib = _FakeIB()
+        place_paper_order(_csp(), ib=ib, ledger=ledger)
+        # simulate the broker filling the resting order
+        ib._trades[0].orderStatus.status = "Filled"
+        ib._trades[0].orderStatus.avgFillPrice = 1.55
+        res = ex.reconcile(ib=ib, ledger=ledger)
+        assert res["filled_updated"] == 1
+        row = ledger.conn.execute(
+            "SELECT status, fill_price FROM options_paper_orders").fetchone()
+        assert row["status"] == "filled" and row["fill_price"] == 1.55
 
     def test_blocked_when_halted(self, tmp_path, monkeypatch):
         monkeypatch.setattr(ex, "_halted", lambda: True)

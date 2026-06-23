@@ -19,3 +19,4 @@ ccxt
 redis
 lxml
 ib_insync   # IBKR paper-trade execution for the options desk
+tzdata      # IANA tz db for ib_insync execution timestamps (US/Eastern)
