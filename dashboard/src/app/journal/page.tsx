@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { JournalEntry, getJournal, TrailStep, getTrail, startStrategist } from "@/lib/api";
+import { JournalEntry, getJournal, TrailStep, getTrail, startStrategist, startOptionsStrategist } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { Digest, Trail } from "@/lib/trail";
 
@@ -26,8 +26,13 @@ function fmtFull(ts: string): string {
 
 // ── Dispatch modal ────────────────────────────────────────────────────────
 
+type DispatchMode = "pairs" | "options";
+type OptionsView = "neutral" | "bullish" | "bearish" | "volatile";
+
 function DispatchModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const [objective, setObjective] = useState("");
+  const [mode, setMode] = useState<DispatchMode>("pairs");
+  const [view, setView] = useState<OptionsView>("neutral");
   const [sending, setSending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -50,7 +55,11 @@ function DispatchModal({ open, onClose, onDone }: { open: boolean; onClose: () =
     if (!objective.trim() || sending) return;
     setSending(true);
     try {
-      await startStrategist(objective, "equity", false, 2);
+      if (mode === "options") {
+        await startOptionsStrategist(objective, view, 2);
+      } else {
+        await startStrategist(objective, "equity", false, 2);
+      }
     } catch { /* hunt runs in background regardless */ }
     finally {
       setSending(false);
@@ -82,16 +91,48 @@ function DispatchModal({ open, onClose, onDone }: { open: boolean; onClose: () =
           </div>
         ) : (
           <>
+            {/* Mode toggle */}
+            <div className="flex gap-1 mb-4" style={{ borderBottom: "1px solid var(--border)" }}>
+              {(["pairs", "options"] as DispatchMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className="text-sm px-3 py-1.5"
+                  style={{
+                    borderBottom: mode === m ? "2px solid var(--accent)" : "2px solid transparent",
+                    color: mode === m ? "var(--text-primary)" : "var(--text-muted)",
+                    background: "none",
+                    cursor: "pointer",
+                    fontWeight: mode === m ? 600 : 400,
+                  }}
+                >
+                  {m === "pairs" ? "Pair Hunting" : "Options Edge"}
+                </button>
+              ))}
+            </div>
+
             <p className="text-sm mb-4" style={{ color: "var(--text-muted)", lineHeight: 1.6 }}>
-              Describe what you want the strategist to hunt for. It reasons about where
-              non-obvious cointegration might live, proposes its own ticker universes,
-              tests each with the scanner, and reports back — no hardcoded universe.
+              {mode === "pairs" ? (
+                <>
+                  Describe what you want the strategist to hunt for. It reasons about where
+                  non-obvious cointegration might live, proposes its own ticker universes,
+                  tests each with the scanner, and reports back — no hardcoded universe.
+                </>
+              ) : (
+                <>
+                  Describe an options edge to hunt. The agent scans news catalysts for candidate
+                  tickers, runs IV-surface and vol scans on each, and recommends a defined-risk
+                  options structure only when a structural edge exists.
+                </>
+              )}
             </p>
             <textarea
               ref={inputRef}
               className="input w-full"
               rows={5}
-              placeholder="e.g. Within US regulated electric & gas utilities, find the single most tradeable cointegrated pair…"
+              placeholder={mode === "pairs"
+                ? "e.g. Within US regulated electric & gas utilities, find the single most tradeable cointegrated pair…"
+                : "e.g. Find a defined-risk options strategy on a liquid large-cap with high IV rank…"}
               value={objective}
               onChange={(e) => setObjective(e.target.value)}
               style={{ resize: "vertical", fontSize: 14, lineHeight: 1.6 }}
@@ -100,9 +141,26 @@ function DispatchModal({ open, onClose, onDone }: { open: boolean; onClose: () =
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) dispatch();
               }}
             />
+            {mode === "options" && (
+              <div className="flex items-center gap-2 mt-3">
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>Directional view</span>
+                <select
+                  className="input"
+                  value={view}
+                  onChange={(e) => setView(e.target.value as OptionsView)}
+                  style={{ fontSize: 13, padding: "4px 8px", width: "auto" }}
+                  disabled={sending}
+                >
+                  <option value="neutral">neutral</option>
+                  <option value="bullish">bullish</option>
+                  <option value="bearish">bearish</option>
+                  <option value="volatile">volatile</option>
+                </select>
+              </div>
+            )}
             <div className="flex items-center justify-between mt-4">
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                equity only · up to 2 attempts · {sending ? "running…" : "⌘+Enter to dispatch"}
+                {mode === "pairs" ? "equity only" : `options · ${view}`} · up to 2 attempts · {sending ? "running…" : "⌘+Enter to dispatch"}
               </span>
               <button
                 className="btn btn-primary"

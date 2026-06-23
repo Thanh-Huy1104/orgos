@@ -21,7 +21,11 @@ _OPTIONS_TOOLS = {
     "scan_options_surface",
     "suggest_options_strategy",
     "compute_options_greeks",
+    "check_options_liquidity",
 }
+
+_LIQUID = re.compile(r'"liquid":\s*(true|false)')
+_SPOT_SANITY = re.compile(r'"spot_sanity_ok":\s*(true|false)')
 
 _IV_RANK = re.compile(r'"iv_rank":\s*([0-9.]+)')
 _SIGNAL = re.compile(r'"signal":\s*"([^"]+)"')
@@ -131,9 +135,24 @@ def grade_options_edge(result: Any, org: Any = None) -> GradeResult:
         )
 
     # Gate 3: defined-risk strategy recommended
+    # "none"/"n/a" are the engine's no-recommendation sentinels — not a naked strategy.
+    _NO_STRATEGY = {"none", "n/a", "na", "no_edge", "no_strategy", ""}
     suggestions = _TOP_SUGGESTION.findall(all_output)
-    undefined_risk = [s for s in suggestions if s not in _DEFINED_RISK_STRATEGIES]
-    if suggestions and undefined_risk:
+    real_suggestions = [s for s in suggestions if s.strip().lower() not in _NO_STRATEGY]
+
+    if suggestions and not real_suggestions:
+        # the engine explicitly declined to recommend a structure → no tradeable edge
+        return GradeResult(
+            passed=False, grader="options_edge", score=0.2,
+            failures=[
+                "the strategy engine returned no recommendation (top_suggestion='none') — "
+                "IV/surface did not support a concrete defined-risk structure. No tradeable "
+                "edge; try a different ticker or wait for a better vol setup.",
+            ],
+        )
+
+    undefined_risk = [s for s in real_suggestions if s not in _DEFINED_RISK_STRATEGIES]
+    if undefined_risk:
         return GradeResult(
             passed=False, grader="options_edge", score=0.3,
             failures=[
@@ -142,6 +161,35 @@ def grade_options_edge(result: Any, org: Any = None) -> GradeResult:
                 "bear_put_spread, iron_condor, or long_straddle.",
             ],
         )
+
+    # Gate 4: recommended structure is actually executable (live liquidity + sane spot)
+    liquidity_calls = [r for r in trail if r.get("tool") == "check_options_liquidity"]
+    liquidity_ran = bool(liquidity_calls)
+    liquidity_ok = False
+    if liquidity_ran:
+        liq_output = " ".join(r.get("output_preview", "") or "" for r in liquidity_calls)
+        liquid_flags = _LIQUID.findall(liq_output)
+        sanity_flags = _SPOT_SANITY.findall(liq_output)
+
+        if "false" in sanity_flags:
+            return GradeResult(
+                passed=False, grader="options_edge", score=0.35,
+                failures=[
+                    "spot-sanity check FAILED — the chain's underlying price diverges from "
+                    "the recent close (stale or bad data). Every strike built on that spot is "
+                    "untrustworthy. Re-fetch a clean quote or pick a different ticker.",
+                ],
+            )
+        if liquid_flags and "true" not in liquid_flags:
+            return GradeResult(
+                passed=False, grader="options_edge", score=0.4,
+                failures=[
+                    "liquidity check FAILED — one or more legs of the recommended structure "
+                    "have no two-sided market, too little open interest, or a bid/ask spread "
+                    "too wide to trade. Re-strike to liquid contracts or drop the ticker.",
+                ],
+            )
+        liquidity_ok = "true" in liquid_flags
 
     # ── Passed: compute score ─────────────────────────────────────────────────
     score = 0.5
@@ -155,12 +203,19 @@ def grade_options_edge(result: Any, org: Any = None) -> GradeResult:
     if atm_ivs:
         score += 0.2  # surface data confirmed
 
+    if liquidity_ok:
+        score += 0.15  # recommendation is verified executable (liquid legs + sane spot)
+
     score = round(min(score, 1.0), 3)
 
     note = f"edge={edge_signals[0]}, IV {iv_zone}"
-    if suggestions:
-        note += f", strategy={suggestions[0]}"
+    if real_suggestions:
+        note += f", strategy={real_suggestions[0]}"
     if atm_ivs:
         note += f", ATM IV={atm_ivs[0]}%"
+    if liquidity_ok:
+        note += ", liquidity=verified"
+    elif not liquidity_ran:
+        note += ", liquidity=UNCHECKED (call check_options_liquidity on final strikes)"
 
     return GradeResult(passed=True, grader="options_edge", score=score, notes=note)

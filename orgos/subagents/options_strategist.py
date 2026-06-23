@@ -34,6 +34,7 @@ from orgos.spawn import PermissionTier, RoleSpec, TaskBrief
 from orgos.spawn import Rubric, chain_until, spawn_chain
 from orgos.tools.options_tools import (
     OptionsGreeksTool,
+    OptionsLiquidityTool,
     OptionsSurfaceTool,
     StrategySuggestTool,
     VolatilityScanTool,
@@ -76,6 +77,11 @@ Pipeline (for each candidate ticker):
    call suggest_options_strategy with the ticker and the researcher's directional view.
 4. Optionally call compute_options_greeks for the specific strike/expiry of interest
    to confirm the daily theta decay and delta exposure are acceptable.
+5. Once you have settled on concrete strikes and an expiry, call check_options_liquidity
+   with those put/call strikes. A recommendation is only valid if every leg is tradeable
+   AND the spot-sanity check passes — an illiquid leg or a stale/garbled spot price means
+   the strikes are meaningless. If liquidity fails, re-strike to liquid contracts or drop
+   the ticker. Report the live bid/ask, spread, and open interest you found per leg.
 
 What to report for each ticker:
 - IV rank (0-100) and what it means: ≥50 = expensive, ≤25 = cheap
@@ -101,6 +107,8 @@ For each ticker where a structural edge was found, report:
 - Target expiry (DTE range) and approximate strikes to target
 - Max profit / max loss profile
 - Key Greeks to watch: delta exposure per $1 move, daily theta decay
+- Liquidity: the live bid/ask, spread, and open interest the analyst verified per leg,
+  and confirmation that the spot-sanity check passed (strikes built on a trusted price)
 - Specific risk to monitor: what breaks this trade?
 
 If no ticker had a structural edge, say so plainly — 'no tradeable options edge
@@ -161,6 +169,7 @@ def run_options_strategist(
             OptionsSurfaceTool(),
             StrategySuggestTool(),
             OptionsGreeksTool(),
+            OptionsLiquidityTool(),
         ],
         model=_FAST_MODEL,
         max_iter=12,
@@ -202,14 +211,18 @@ def run_options_strategist(
             "For each ticker from the researcher (see context), run scan_volatility "
             "then scan_options_surface. If an edge exists (sell_premium or buy_options "
             "signal), also call suggest_options_strategy with the researcher's view. "
-            "Report the IV rank, surface shape, and top strategy recommendation for "
-            "each ticker. If no edge, say so plainly."
+            "For any ticker you recommend a structure on, call check_options_liquidity "
+            "with the concrete strikes and expiry to confirm the legs are tradeable and "
+            "the spot is sane. Report the IV rank, surface shape, top strategy, and "
+            "liquidity verdict for each ticker. If no edge, say so plainly."
         ),
         tool_call_budget=tool_call_budget,
         success_criteria=[
             "Vol scan and surface scan run for each proposed ticker",
             "IV rank and edge signal reported for each ticker",
             "Strategy recommendation provided where edge exists",
+            "Liquidity + spot-sanity verified (check_options_liquidity) for any "
+            "recommended structure's strikes",
         ],
     )
     synth_brief = TaskBrief(
@@ -233,7 +246,8 @@ def run_options_strategist(
         criteria=[
             "IV rank is in a tradeable zone (≥40 for premium selling, ≤35 for buying) "
             "AND the vol surface confirms a non-neutral edge signal AND the recommended "
-            "strategy is defined-risk",
+            "strategy is defined-risk AND, if liquidity was checked, every leg is "
+            "tradeable with a sane spot price",
         ],
         grader="options_edge",
         max_attempts=max_attempts,
