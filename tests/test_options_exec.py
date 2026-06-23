@@ -67,11 +67,25 @@ class _FakeIB:
     def trades(self):
         return self._trades
 
+    def positions(self):
+        return getattr(self, "_positions", [])
+
     def fills(self):
         return []
 
     def disconnect(self):
         pass
+
+
+class _FakeContract:
+    def __init__(self, symbol, right, strike, expiry, secType="OPT"):
+        self.symbol, self.right, self.strike = symbol, right, strike
+        self.lastTradeDateOrContractMonth, self.secType = expiry, secType
+
+
+class _FakePosition:
+    def __init__(self, contract, position, avgCost):
+        self.contract, self.position, self.avgCost = contract, position, avgCost
 
 
 def _ledger(tmp_path):
@@ -198,20 +212,38 @@ class TestPlacePipeline:
         out = place_paper_order(_csp(), ib=ib, ledger=_ledger(tmp_path))
         assert ib.placed[0][1].lmtPrice == 1.50   # fell back to the liquidity mid
 
-    def test_reconcile_marks_filled(self, tmp_path, monkeypatch):
+    def test_reconcile_syncs_from_positions(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(ex, "run_liquidity_check", lambda *a, **k: _liq_ok())
+        monkeypatch.setattr(ex, "_halted", lambda: False)
+        monkeypatch.setattr(ex, "_ibkr_mid", lambda ib, c: 1.20)  # current price
+        ledger = _ledger(tmp_path)
+        ib = _FakeIB()
+        place_paper_order(_csp(strike=735.0), ib=ib, ledger=ledger)  # SELL P735
+        # broker now shows a real short position at premium 1.50 (avgCost = ×100)
+        ib._positions = [_FakePosition(
+            _FakeContract("SPY", "P", 735.0, "20260717"), position=-1, avgCost=150.0)]
+        res = ex.reconcile(ib=ib, ledger=ledger)
+        assert res["orders_marked_filled"] == 1
+        pos = res["ibkr_option_positions"][0]
+        assert pos["qty"] == -1 and pos["premium"] == 1.5
+        # short put: collected 1.50, now worth 1.20 -> +0.30 ×100 = +$30
+        assert pos["unrealized_pnl"] == 30.0
+        row = ledger.conn.execute(
+            "SELECT status FROM options_paper_orders").fetchone()
+        assert row["status"] == "filled"
+
+    def test_flatten_closes_positions(self, tmp_path, monkeypatch):
         monkeypatch.setattr(ex, "run_liquidity_check", lambda *a, **k: _liq_ok())
         monkeypatch.setattr(ex, "_halted", lambda: False)
         ledger = _ledger(tmp_path)
         ib = _FakeIB()
-        place_paper_order(_csp(), ib=ib, ledger=ledger)
-        # simulate the broker filling the resting order
-        ib._trades[0].orderStatus.status = "Filled"
-        ib._trades[0].orderStatus.avgFillPrice = 1.55
-        res = ex.reconcile(ib=ib, ledger=ledger)
-        assert res["filled_updated"] == 1
-        row = ledger.conn.execute(
-            "SELECT status, fill_price FROM options_paper_orders").fetchone()
-        assert row["status"] == "filled" and row["fill_price"] == 1.55
+        place_paper_order(_csp(strike=735.0), ib=ib, ledger=ledger)
+        ib._positions = [_FakePosition(
+            _FakeContract("SPY", "P", 735.0, "20260717"), position=-1, avgCost=150.0)]
+        res = ex.flatten_options(ib=ib, ledger=ledger)
+        assert len(res["closed"]) == 1
+        assert res["closed"][0]["action"] == "BUY"  # buy to cover the short
+        assert ledger.count_open_positions() == 0
 
     def test_blocked_when_halted(self, tmp_path, monkeypatch):
         monkeypatch.setattr(ex, "_halted", lambda: True)

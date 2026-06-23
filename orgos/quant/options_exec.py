@@ -269,15 +269,37 @@ def place_paper_order(req: PaperOrderRequest, *, ib: Any = None,
     }
 
 
-def reconcile(*, ib: Any = None, ledger: OptionsPaperLedger | None = None) -> dict:
-    """Poll IBKR for order status and write fill prices back to the ledger.
+def ibkr_option_positions(ib: Any) -> list[dict]:
+    """Live option positions from IBKR — the source of truth for what actually filled.
 
-    For each still-'submitted' ledger order, find the matching IBKR trade (by order
-    id under our client id) and, if filled, mark it 'filled' with the average fill
-    price. Same client id (2) means orders we placed in prior sessions are still ours.
+    Matching by transient order id is unreliable on an account shared with Icarus
+    (IBKR reports orderId 0 for cross-session/cross-client orders). Positions are the
+    durable record: one row per net option position with signed qty and avg cost.
     """
-    import json
+    out: list[dict] = []
+    for p in (ib.positions() or []):
+        c = p.contract
+        if getattr(c, "secType", None) != "OPT":
+            continue
+        out.append({
+            "symbol": c.symbol,
+            "right": getattr(c, "right", None),
+            "strike": float(getattr(c, "strike", 0) or 0),
+            "expiry": getattr(c, "lastTradeDateOrContractMonth", None),
+            "qty": float(p.position),
+            "avg_cost": round(float(p.avgCost), 4),  # premium × multiplier
+            "_contract": c,
+        })
+    return out
 
+
+def reconcile(*, ib: Any = None, ledger: OptionsPaperLedger | None = None) -> dict:
+    """Sync the ledger to IBKR's actual option positions and report unrealized P&L.
+
+    Reads live positions (the truth), marks any matching 'submitted' ledger order as
+    'filled' (by contract, not order id), and prices each position against the live
+    book to compute unrealized P&L. Per-contract premium = avg_cost / 100.
+    """
     ledger = ledger or OptionsPaperLedger()
     own_connection = ib is None
     ib = connect(ib)
@@ -287,26 +309,86 @@ def reconcile(*, ib: Any = None, ledger: OptionsPaperLedger | None = None) -> di
             ib.sleep(1.0)
         except Exception:  # noqa: BLE001 — best-effort refresh
             pass
-        trades = {getattr(getattr(t, "order", None), "orderId", None): t
-                  for t in (ib.trades() or [])}
+        positions = ibkr_option_positions(ib)
+
+        marked = 0
         rows = ledger.conn.execute(
-            "SELECT id, ib_order_ids FROM options_paper_orders WHERE status='submitted'"
+            "SELECT id, legs FROM options_paper_orders WHERE status='submitted'"
         ).fetchall()
-        updated = 0
         for r in rows:
-            for oid in json.loads(r["ib_order_ids"] or "[]"):
-                t = trades.get(oid)
-                status = getattr(getattr(t, "orderStatus", None), "status", None)
-                if t and status == "Filled":
-                    ledger.update_order(
-                        r["id"], status="filled",
-                        fill_price=getattr(t.orderStatus, "avgFillPrice", None))
-                    updated += 1
-                    break
+            if _order_matches_a_position(r["legs"], positions):
+                ledger.update_order(r["id"], status="filled")
+                marked += 1
+
+        view: list[dict] = []
+        for p in positions:
+            premium = round(p["avg_cost"] / 100.0, 4)
+            mid = _ibkr_mid(ib, p["_contract"])
+            # Mark-to-market for a signed position: gain when the contract moves in the
+            # direction of your sign. Long (qty>0) profits as price rises; short (qty<0)
+            # profits as it falls. Both: (current − entry) × 100 × qty.
+            unreal = round((mid - premium) * 100 * p["qty"], 2) if mid is not None else None
+            view.append({k: v for k, v in p.items() if k != "_contract"}
+                        | {"premium": premium, "current_mid": mid, "unrealized_pnl": unreal})
     finally:
         if own_connection:
             try:
                 ib.disconnect()
             except Exception:  # noqa: BLE001
                 pass
-    return {"orders_checked": len(rows), "filled_updated": updated}
+    return {"ibkr_option_positions": view, "orders_marked_filled": marked}
+
+
+def _order_matches_a_position(legs_json: str | None, positions: list[dict]) -> bool:
+    """True if every leg of a ledger order maps to a live IBKR option position."""
+    import json
+    try:
+        legs = json.loads(legs_json or "[]")
+    except (TypeError, ValueError):
+        return False
+    if not legs:
+        return False
+    for leg in legs:
+        if not any(
+            p["right"] == leg.get("right")
+            and abs(p["strike"] - float(leg.get("strike", -1))) < 1e-6
+            and p["expiry"] == leg.get("expiry", "").replace("-", "")
+            for p in positions
+        ):
+            return False
+    return True
+
+
+def flatten_options(*, ib: Any = None, ledger: OptionsPaperLedger | None = None) -> dict:
+    """Close every live IBKR option position with a market order, flat the ledger.
+
+    Closing action is the opposite of the position sign: BUY to cover a short, SELL
+    to close a long. Marks all open ledger positions closed. Use to clean up test
+    fills or flatten the desk.
+    """
+    _ensure_loop()
+    ledger = ledger or OptionsPaperLedger()
+    own_connection = ib is None
+    ib = connect(ib)
+    closed: list[dict] = []
+    try:
+        from ib_insync import MarketOrder
+        for p in ibkr_option_positions(ib):
+            qty = p["qty"]
+            if qty == 0:
+                continue
+            action = "BUY" if qty < 0 else "SELL"
+            trade = ib.placeOrder(p["_contract"], MarketOrder(action, abs(qty), tif="DAY"))
+            closed.append({"symbol": p["symbol"], "right": p["right"], "strike": p["strike"],
+                           "action": action, "qty": abs(qty),
+                           "order_id": getattr(getattr(trade, "order", None), "orderId", None)})
+        ib.sleep(2)
+        for pos in ledger.open_positions():
+            ledger.close_position(pos["id"], close_price=None, realized_pnl=None)
+    finally:
+        if own_connection:
+            try:
+                ib.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+    return {"closed": closed}

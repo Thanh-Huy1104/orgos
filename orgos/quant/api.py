@@ -440,6 +440,28 @@ def options_paper_close(position_id: str, body: PaperCloseBody) -> dict:
     return {"ok": True, "position_id": position_id}
 
 
+@router.post("/options/paper/reconcile")
+def options_paper_reconcile() -> dict:
+    """Sync the ledger to IBKR's actual filled option positions + unrealized P&L."""
+    from orgos.quant.options_exec import reconcile
+
+    try:
+        return reconcile()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"reconcile failed: {exc}")
+
+
+@router.post("/options/paper/flatten")
+def options_paper_flatten() -> dict:
+    """Close every live IBKR option position with a market order (clean-up/flatten)."""
+    from orgos.quant.options_exec import flatten_options
+
+    try:
+        return flatten_options()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"flatten failed: {exc}")
+
+
 @router.get("/risk")
 def risk() -> dict:
     """Read-only risk assessment of the live book + current kill-switch state."""
