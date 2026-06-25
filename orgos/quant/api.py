@@ -462,6 +462,34 @@ def options_paper_flatten() -> dict:
         raise HTTPException(status_code=503, detail=f"flatten failed: {exc}")
 
 
+class OptionsBacktestBody(BaseModel):
+    ticker: str
+    structure: str = "put_spread"   # put_spread | cash_secured_put
+    dte: int = 30
+    target_delta: float = 0.30
+    width: float = 5.0
+    iv_scale: float = 1.0           # bump VIX for single names richer than the index
+    lookback_days: int = 1200
+
+
+@router.post("/options/backtest")
+def options_backtest(body: OptionsBacktestBody) -> dict:
+    """Backtest systematically selling the structure (VRP), priced at VIX as the
+    implied vol and settled against the realized underlying path. The money metric:
+    win rate, total/avg P&L after costs, return-on-risk, Sharpe, max drawdown.
+
+    VIX is SPX/SPY's implied vol, so SPY/QQQ/IWM are faithful; single names use VIX
+    as a proxy (set iv_scale > 1 since their IV usually runs richer than the index).
+    """
+    from orgos.quant.options_backtest import run_backtest
+
+    return run_backtest(
+        body.ticker, lookback_days=body.lookback_days, structure=body.structure,
+        dte=body.dte, target_delta=body.target_delta, width=body.width,
+        iv_scale=body.iv_scale,
+    )
+
+
 @router.get("/risk")
 def risk() -> dict:
     """Read-only risk assessment of the live book + current kill-switch state."""
