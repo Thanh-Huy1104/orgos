@@ -9,6 +9,7 @@ import pandas as pd
 
 from orgos.quant.options_backtest import (
     _select_short_put_strike, _trade_pnl, backtest_short_premium, _summarize,
+    _generate_trades, pooled_backtest,
 )
 
 
@@ -95,6 +96,21 @@ class TestBacktest:
         vix = _series(np.full(10, 20.0))
         r = backtest_short_premium(prices, vix, dte=30)
         assert r["n_trades"] == 0 and "insufficient" in r["note"]
+
+    def test_pooled_combines_trades_across_tickers(self, monkeypatch):
+        import orgos.quant.options_backtest as bt
+        rng = np.random.default_rng(2)
+        prices = _series(100 + np.cumsum(rng.normal(0, 0.1, 300)))
+        vix = _series(np.full(300, 25.0))
+        monkeypatch.setattr(bt, "get_prices", lambda t, **k: prices, raising=False)
+        # patch the late imports inside pooled_backtest
+        monkeypatch.setattr("orgos.quant.marketdata.get_prices", lambda t, **k: prices)
+        monkeypatch.setattr("orgos.quant.volatility.fetch_vix", lambda **k: vix)
+        res = pooled_backtest({"AAA": 1.0, "BBB": 1.0}, dte=30)
+        # pooled trade count == sum of per-ticker counts
+        per = sum(v["n_trades"] for v in res["per_ticker"].values())
+        assert res["pooled"]["n_trades"] == per > 0
+        assert set(res["per_ticker"]) == {"AAA", "BBB"}
 
     def test_summary_keys_and_drawdown_sign(self):
         trades = [{"pnl": 100, "credit": 1.0, "max_loss": 4.0, "expired_otm": True},

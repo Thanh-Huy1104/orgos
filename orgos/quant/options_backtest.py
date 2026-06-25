@@ -131,9 +131,26 @@ def backtest_short_premium(
     iv_scale bumps VIX for single names whose IV runs richer than the index (e.g.
     1.3); keep 1.0 for SPY/QQQ/IWM where VIX is the right implied vol.
     """
+    trades = _generate_trades(
+        prices, vix, structure=structure, dte=dte, target_delta=target_delta,
+        width=width, r=r, cost_per_contract=cost_per_contract,
+        slippage_frac=slippage_frac, iv_scale=iv_scale, min_vix_rank=min_vix_rank,
+        rank_window=rank_window)
+    if trades is None:
+        return dict(_EMPTY, note="insufficient overlapping price/VIX history")
+    return _summarize(trades)
+
+
+def _generate_trades(
+    prices: pd.Series, vix: pd.Series, *, structure: str, dte: int,
+    target_delta: float, width: float, r: float, cost_per_contract: float,
+    slippage_frac: float, iv_scale: float, min_vix_rank: float, rank_window: int,
+) -> list[dict] | None:
+    """The non-overlapping entry loop — returns the raw per-trade list (or None if
+    there isn't enough overlapping history). Split out so trades can be pooled."""
     df = pd.concat([prices.rename("px"), vix.rename("vix")], axis=1).dropna()
     if len(df) < dte + 20:
-        return dict(_EMPTY, note="insufficient overlapping price/VIX history")
+        return None
 
     px = df["px"].to_numpy(float)
     iv = (df["vix"].to_numpy(float) / 100.0) * iv_scale
@@ -155,8 +172,7 @@ def backtest_short_premium(
             t["entry_vix_rank"] = None if np.isnan(rank[i]) else round(float(rank[i]), 1)
             trades.append(t)
             next_free = i + dte
-
-    return _summarize(trades)
+    return trades
 
 
 def _summarize(trades: list[dict]) -> dict:
@@ -218,4 +234,58 @@ def run_backtest(ticker: str, *, lookback_days: int = 1000, **kw) -> dict:
         "min_vix_rank": kw.get("min_vix_rank", 0.0),
         "iv_source": "VIX" + (f"×{kw['iv_scale']}" if kw.get("iv_scale", 1.0) != 1.0 else ""),
         **result,
+    }
+
+
+# Default index universe with per-name IV scaling. VIX is SPX's implied vol, so the
+# broad-index ETFs sit near 1.0; QQQ (tech-heavy) realizes more, so its IV runs richer.
+DEFAULT_UNIVERSE = {"SPY": 1.0, "IWM": 1.1, "DIA": 1.0, "QQQ": 1.2}
+
+
+def pooled_backtest(universe: dict[str, float] | None = None, *,
+                    lookback_days: int = 1500, **kw) -> dict:
+    """Run the backtest across several underlyings and pool every trade.
+
+    Breadth is how you tell edge from luck: 9 SPY trades can't, but the same rule
+    pooled across SPY/IWM/DIA/QQQ over multiple regimes can. Each name uses its own
+    IV scale (``universe`` maps ticker → iv_scale). Returns the pooled summary plus a
+    per-ticker breakdown.
+    """
+    from orgos.quant.marketdata import get_prices, MarketDataError
+    from orgos.quant.volatility import fetch_vix
+
+    universe = universe or DEFAULT_UNIVERSE
+    vix = fetch_vix(lookback_days=lookback_days)
+    if vix.empty:
+        return {"error": "no VIX data"}
+
+    pooled: list[dict] = []
+    per_ticker: dict[str, dict] = {}
+    for ticker, scale in universe.items():
+        try:
+            prices = get_prices(ticker.upper(), lookback_days=lookback_days)
+        except MarketDataError as exc:
+            per_ticker[ticker] = {"error": f"no price data: {exc}"}
+            continue
+        trades = _generate_trades(
+            prices, vix,
+            structure=kw.get("structure", "put_spread"), dte=kw.get("dte", 30),
+            target_delta=kw.get("target_delta", 0.30), width=kw.get("width", 5.0),
+            r=kw.get("r", 0.04), cost_per_contract=kw.get("cost_per_contract", 0.65),
+            slippage_frac=kw.get("slippage_frac", 0.02), iv_scale=scale,
+            min_vix_rank=kw.get("min_vix_rank", 0.0), rank_window=kw.get("rank_window", 252))
+        if not trades:
+            per_ticker[ticker] = {"n_trades": 0, "note": "insufficient data"}
+            continue
+        for t in trades:
+            t["ticker"] = ticker
+        pooled.extend(trades)
+        per_ticker[ticker] = _summarize(trades)
+
+    return {
+        "universe": universe,
+        "structure": kw.get("structure", "put_spread"),
+        "min_vix_rank": kw.get("min_vix_rank", 0.0),
+        "pooled": _summarize(pooled) if pooled else dict(_EMPTY, note="no trades"),
+        "per_ticker": per_ticker,
     }

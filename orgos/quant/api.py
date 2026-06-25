@@ -491,6 +491,29 @@ def options_backtest(body: OptionsBacktestBody) -> dict:
     )
 
 
+class PooledBacktestBody(BaseModel):
+    structure: str = "put_spread"
+    dte: int = 30
+    target_delta: float = 0.30
+    width: float = 5.0
+    min_vix_rank: float = 0.0
+    lookback_days: int = 1500
+    universe: dict[str, float] | None = None  # ticker -> iv_scale; None = index default
+
+
+@router.post("/options/backtest/pooled")
+def options_backtest_pooled(body: PooledBacktestBody) -> dict:
+    """Pool the VRP backtest across several underlyings — breadth to tell edge from
+    luck. Returns the pooled track record plus a per-ticker breakdown."""
+    from orgos.quant.options_backtest import pooled_backtest
+
+    return pooled_backtest(
+        body.universe, lookback_days=body.lookback_days, structure=body.structure,
+        dte=body.dte, target_delta=body.target_delta, width=body.width,
+        min_vix_rank=body.min_vix_rank,
+    )
+
+
 @router.get("/risk")
 def risk() -> dict:
     """Read-only risk assessment of the live book + current kill-switch state."""
