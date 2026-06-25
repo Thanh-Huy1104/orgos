@@ -469,6 +469,7 @@ class OptionsBacktestBody(BaseModel):
     target_delta: float = 0.30
     width: float = 5.0
     iv_scale: float = 1.0           # bump VIX for single names richer than the index
+    min_vix_rank: float = 0.0       # only sell when VIX IV-rank ≥ this (0 = always)
     lookback_days: int = 1200
 
 
@@ -486,7 +487,7 @@ def options_backtest(body: OptionsBacktestBody) -> dict:
     return run_backtest(
         body.ticker, lookback_days=body.lookback_days, structure=body.structure,
         dte=body.dte, target_delta=body.target_delta, width=body.width,
-        iv_scale=body.iv_scale,
+        iv_scale=body.iv_scale, min_vix_rank=body.min_vix_rank,
     )
 
 

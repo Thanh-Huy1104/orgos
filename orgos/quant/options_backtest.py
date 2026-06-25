@@ -100,20 +100,36 @@ def _trade_pnl(S0: float, S_exp: float, sigma: float, *, structure: str,
     }
 
 
+def _vix_rank(vix: pd.Series, window: int) -> np.ndarray:
+    """Trailing IV-rank of VIX over ``window`` sessions, 0–100 (no lookahead).
+
+    Same shape as the strategist's 52-week IV rank: where VIX sits in its own recent
+    high/low range. Uses only the trailing window, so it's known at entry time.
+    """
+    roll_min = vix.rolling(window, min_periods=window).min()
+    roll_max = vix.rolling(window, min_periods=window).max()
+    rng = (roll_max - roll_min).replace(0, np.nan)
+    return ((vix - roll_min) / rng * 100).to_numpy(float)
+
+
 def backtest_short_premium(
     prices: pd.Series, vix: pd.Series, *, structure: str = "put_spread",
     dte: int = 30, target_delta: float = 0.30, width: float = 5.0,
     r: float = 0.04, cost_per_contract: float = 0.65, slippage_frac: float = 0.02,
-    iv_scale: float = 1.0,
+    iv_scale: float = 1.0, min_vix_rank: float = 0.0, rank_window: int = 252,
 ) -> dict:
     """Walk a short-premium strategy across history; report after-cost economics.
 
-    On a rolling schedule (every ``dte`` trading days, non-overlapping) sell the
-    structure at ``target_delta``, priced at that day's VIX (× ``iv_scale``) as
-    implied vol, and settle against the underlying ``dte`` calendar days later.
+    Sells the structure at ``target_delta``, priced at that day's VIX (× ``iv_scale``)
+    as implied vol, and settles against the underlying ``dte`` calendar days later.
+    Positions are non-overlapping (one at a time).
 
-    iv_scale lets you bump VIX for single names whose IV runs richer than the index
-    (e.g. 1.3); keep 1.0 for SPY/QQQ/IWM where VIX is the right implied vol.
+    ``min_vix_rank`` gates entries on the strategist's actual logic: only sell when
+    VIX's trailing IV-rank (over ``rank_window`` sessions) is at least this rich
+    (e.g. 67 = top tercile). 0 = sell on every free day (the unconditional baseline).
+
+    iv_scale bumps VIX for single names whose IV runs richer than the index (e.g.
+    1.3); keep 1.0 for SPY/QQQ/IWM where VIX is the right implied vol.
     """
     df = pd.concat([prices.rename("px"), vix.rename("vix")], axis=1).dropna()
     if len(df) < dte + 20:
@@ -121,22 +137,24 @@ def backtest_short_premium(
 
     px = df["px"].to_numpy(float)
     iv = (df["vix"].to_numpy(float) / 100.0) * iv_scale
+    rank = _vix_rank(df["vix"], rank_window)
     n = len(df)
 
     trades: list[dict] = []
-    i = 0
-    step = max(dte, 1)
-    while i + dte < n:
-        S0, S_exp, sigma = px[i], px[i + dte], iv[i]
-        if sigma > 0:
-            t = _trade_pnl(S0, S_exp, sigma, structure=structure, dte=dte, r=r,
-                           target_delta=target_delta, width=width,
-                           cost_per_contract=cost_per_contract,
-                           slippage_frac=slippage_frac)
-            if t is not None:
-                t["entry_date"] = str(df.index[i].date()) if hasattr(df.index[i], "date") else str(df.index[i])
-                trades.append(t)
-        i += step
+    next_free = 0  # index of the first day we're flat again (non-overlapping)
+    for i in range(n - dte):
+        if i < next_free or iv[i] <= 0:
+            continue
+        if min_vix_rank > 0 and (np.isnan(rank[i]) or rank[i] < min_vix_rank):
+            continue
+        t = _trade_pnl(px[i], px[i + dte], iv[i], structure=structure, dte=dte, r=r,
+                       target_delta=target_delta, width=width,
+                       cost_per_contract=cost_per_contract, slippage_frac=slippage_frac)
+        if t is not None:
+            t["entry_date"] = str(df.index[i].date()) if hasattr(df.index[i], "date") else str(df.index[i])
+            t["entry_vix_rank"] = None if np.isnan(rank[i]) else round(float(rank[i]), 1)
+            trades.append(t)
+            next_free = i + dte
 
     return _summarize(trades)
 
@@ -152,7 +170,7 @@ def _summarize(trades: list[dict]) -> dict:
     dd = float((cum - np.maximum.accumulate(cum)).min())
     # annualize the Sharpe from per-trade P&L using trades/year implied by ~21d/mo
     sharpe = float(pnls.mean() / pnls.std() * np.sqrt(len(pnls))) if pnls.std() > 0 else None
-    return {
+    out = {
         "n_trades": int(len(trades)),
         "win_rate": round(float(wins.mean()), 3),
         "total_pnl": round(float(pnls.sum()), 2),
@@ -164,6 +182,14 @@ def _summarize(trades: list[dict]) -> dict:
         "max_dd": round(dd, 2),
         "pct_expired_otm": round(float(np.mean([t["expired_otm"] for t in trades])), 3),
     }
+    # A handful of winning trades produces a gorgeous-but-meaningless Sharpe (tiny
+    # std, small n). Flag it the way the pairs backtest leans on n_trades: under ~20
+    # trades the metrics are noise, not evidence — selectivity that trades 6 times in
+    # 6 years can't be distinguished from luck.
+    if len(trades) < 20:
+        out["note"] = (f"LOW SAMPLE ({len(trades)} trades) — metrics unreliable; "
+                       "Sharpe/win-rate likely overstated, treat as indicative only")
+    return out
 
 
 def run_backtest(ticker: str, *, lookback_days: int = 1000, **kw) -> dict:
@@ -189,6 +215,7 @@ def run_backtest(ticker: str, *, lookback_days: int = 1000, **kw) -> dict:
         "structure": kw.get("structure", "put_spread"),
         "dte": kw.get("dte", 30),
         "target_delta": kw.get("target_delta", 0.30),
+        "min_vix_rank": kw.get("min_vix_rank", 0.0),
         "iv_source": "VIX" + (f"×{kw['iv_scale']}" if kw.get("iv_scale", 1.0) != 1.0 else ""),
         **result,
     }

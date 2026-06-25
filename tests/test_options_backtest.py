@@ -76,6 +76,20 @@ class TestBacktest:
         assert r["total_pnl"] > 0
         assert 0 <= r["win_rate"] <= 1
 
+    def test_vix_rank_filter_reduces_trade_count(self):
+        # VIX spends most of the window low and spikes only briefly; a high IV-rank
+        # gate should take far fewer trades than selling unconditionally.
+        rng = np.random.default_rng(1)
+        px = 100 + np.cumsum(rng.normal(0, 0.1, 600))
+        prices = _series(px)
+        v = np.full(600, 14.0)
+        v[400:430] = 35.0                      # one brief vol spike
+        vix = _series(v)
+        blind = backtest_short_premium(prices, vix, dte=30, min_vix_rank=0)
+        timed = backtest_short_premium(prices, vix, dte=30, min_vix_rank=80,
+                                       rank_window=252)
+        assert timed["n_trades"] < blind["n_trades"]
+
     def test_insufficient_history_is_flagged(self):
         prices = _series(np.full(10, 100.0))
         vix = _series(np.full(10, 20.0))
