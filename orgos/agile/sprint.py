@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from orgos.spawn import RoleSpec, TaskBrief, spawn
+from orgos.spawn import TaskBrief, spawn
 from orgos.spawn.engine import SpawnResult
 from orgos.subagents import (
     engineer_role, product_manager_role, qa_validator_role,
@@ -93,6 +93,7 @@ def run_sprint(
     run_budget_tokens: int = 400_000,
 ) -> Sprint:
     sprint_id = _new_sprint_id()
+    started_at = datetime.now(timezone.utc).isoformat()
     branch = f"agile/{sprint_id}"
     worktree = _make_worktree(repo_path, sprint_id, branch)
 
@@ -134,7 +135,7 @@ def run_sprint(
 
     return Sprint(
         id=sprint_id,
-        started_at=datetime.now(timezone.utc).isoformat(),
+        started_at=started_at,
         repo_path=repo_path,
         worktree_path=worktree,
         branch=branch,

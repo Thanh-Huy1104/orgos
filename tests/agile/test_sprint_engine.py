@@ -1,7 +1,6 @@
 """Skeleton-sprint smoke test. Uses ollama/llama3.2 if available, else
 mocks the spawn layer to keep the test offline+fast in CI."""
 
-import json
 import os
 from pathlib import Path
 
