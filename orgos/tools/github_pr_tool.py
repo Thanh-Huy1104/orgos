@@ -48,15 +48,9 @@ class GitHubOpenPRTool(GatedToolBase):
 
     def _run(self, branch: str, base: str = "main", title: str = "", body: str = "") -> str:
         tool_input = {"branch": branch, "base": base, "title": title, "body": body}
-        # Gate check: if gating is active, consult approval_fn.
-        if self._gate_required:
-            approved = (
-                self.approval_fn(tool_input)
-                if self.approval_fn is not None
-                else False
-            )
-            if not approved:
-                return f"DENIED: approval refused for github_open_pr with {tool_input}"
+        # Gate check via _check_gate() — properly routes to approval_fn(role, name, tool_input).
+        if self._gate_required and not self._check_gate(tool_input):
+            return f"DENIED: approval refused for github_open_pr with {tool_input}"
         repo = os.environ.get("GITHUB_REPO", "")
         resp = _gh_post(
             f"/repos/{repo}/pulls",
