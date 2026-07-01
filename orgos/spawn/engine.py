@@ -34,6 +34,7 @@ from .contracts import (
 )
 from .audit import (
     BudgetExceeded,
+    DelegationDepthExceeded,
     LoopDetected,
     RunBudget,
     ToolBudgetExceeded,
@@ -374,7 +375,7 @@ def _kickoff_with_fallback(build_crew: Any, probe_structured: bool = True) -> An
         return build_crew(False).kickoff()
     try:
         return build_crew(True).kickoff()
-    except (BudgetExceeded, LoopDetected, ToolBudgetExceeded):
+    except (BudgetExceeded, DelegationDepthExceeded, LoopDetected, ToolBudgetExceeded):
         raise
     except Exception as exc:  # noqa: BLE001 — provider errors are opaque
         if _is_structured_unsupported(exc):
@@ -478,7 +479,7 @@ def spawn(
 
     try:
         result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
-    except (BudgetExceeded, LoopDetected, ToolBudgetExceeded) as exc:
+    except (BudgetExceeded, DelegationDepthExceeded, LoopDetected, ToolBudgetExceeded) as exc:
         return SpawnResult(
             envelope=HandoffEnvelope.failed(role.name, str(exc)),
             run_id=run_id,
@@ -578,7 +579,7 @@ def spawn_chain(
 
     try:
         result = _kickoff_with_fallback(build_crew, probe_structured=use_structured)
-    except (BudgetExceeded, LoopDetected, ToolBudgetExceeded) as exc:
+    except (BudgetExceeded, DelegationDepthExceeded, LoopDetected, ToolBudgetExceeded) as exc:
         return SpawnResult(
             envelope=HandoffEnvelope.failed(last_role, str(exc)),
             run_id=run_id,
