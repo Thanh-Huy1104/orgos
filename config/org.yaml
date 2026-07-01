@@ -1,176 +1,24 @@
-# orgos org constitution — a general-purpose company of AI agents.
-# Departments, roles, SOPs, and policies. The orchestrator reads this at startup.
-#
-# Tools are Python objects — declare them in code. Skills paths, MCP configs,
-# and model strings are declarative and safe to store here.
+# orgos org constitution — agile-pivot worked example
+# The engineering department is populated in Task 1.7.
+name: orgos
+description: A self-organizing agile engineering team that ships on its own repo.
 
-org:
-  name: My Company
-  description: A general-purpose AI agent company
-  default_model: deepseek/deepseek-v4-pro
-  # Per-agent token cap — a RUNAWAY SAFETY NET, not a tight cost lever. In a
-  # ReAct loop most counted tokens are cache-hit re-feeds (~$0.0036/M on V4-Pro,
-  # near-free), so a 150K-token research run still costs ~$0.01–0.03. The cap
-  # exists to abort a genuine runaway (an unbounded web-fetch loop hit 406K in
-  # testing) while letting legitimate multi-source research finish.
-  default_max_budget_tokens: 150000
-  # Ceiling on the WHOLE department run (all roles combined). The per-role cap
-  # above is per-LLM, so a 3-role chain could legitimately reach ~450K; this
-  # caps the aggregate so a chain can't bleed tokens role-by-role. A real
-  # multi-source research run lands ~60–120K, so 250K leaves headroom while
-  # still aborting a genuine runaway.
-  default_max_run_tokens: 250000
-  default_max_iter: 20
-  owner:
-    name: Thanh-Huy
-    preferences: >
-      Prefer clear, actionable output. Flag anything uncertain.
-      Default to asking for approval on irreversible actions.
-    notification_thresholds:
-      token_spend_daily: 200000
-      budget_exceeded_pct: 80
-      consecutive_failures: 3
-    communication:
-      style: concise
-      channels: [terminal]
-    approval_rules:
-      - pattern: "publish*"
-        require_approval: true
-      - pattern: "deploy*"
-        require_approval: true
-      - pattern: "bash rm*"
-        require_approval: true
-    feedback: []
-  notification:
-    type: terminal
+default_model: anthropic/claude-sonnet-4-6
+default_max_budget_tokens: 80000
+default_max_run_tokens: 400000
+default_max_iter: 12
 
-departments:
-  # ── Research: web search, analysis, report generation ──────────────────
-  - name: research
-    description: Web research, data analysis, report generation
-    # P2 citation gate: every URL in the final handoff is re-fetched; a
-    # dead/fabricated one fails the run closed. Research output is claims people
-    # rely on, so its citations must be ground-truth verified, not self-reported.
-    verify_citations: true
-    supervisor:
-      name: research-lead
-      tier: orchestrator
-      system_prompt: |
-        You lead a research team. Delegate web searches to researcher,
-        then analysis to analyst. Synthesize findings into clear reports.
-      model: deepseek/deepseek-v4-pro
-      max_iter: 15
-    members:
-      - name: researcher
-        tier: worker
-        system_prompt: |
-          Search the web and gather information. Use web_search to find
-          sources, then web_fetch at most 2-3 of the most relevant. Be
-          efficient — do not fetch every result; each fetch is costly. Cite
-          your sources, then conclude.
-        model: deepseek/deepseek-v4-pro
-        max_iter: 6
-      - name: analyst
-        tier: validator
-        system_prompt: |
-          You analyze gathered information. Verify claims against sources.
-          Identify patterns, contradictions, and gaps. Produce structured
-          analysis with clear conclusions. Read-only.
-        model: deepseek/deepseek-v4-pro
-        max_iter: 5
-        success_criteria:
-          - Every claim verified against at least one source
-          - Analysis includes patterns, gaps, and conclusions
-    shared_mcps:
-      - type: internet
-    sops:
-      - name: daily_briefing
-        cadence: daily
-        brief:
-          objective: |
-            Search for top technology and AI news from the past 24 hours.
-            Summarize the 3 most important stories with sources.
-          expected_output: Daily briefing with 3 top stories and sources.
-          # Bounded delegation (P1): tell the worker where to look and cap its
-          # tool calls. Surfaced in the prompt AND enforced in code.
-          source_guidance: |
-            Prefer reputable tech press and primary sources. One good source
-            per story is enough — do not over-fetch.
-          tool_call_budget: 8
+owner:
+  name: Thanh
+  preferences:
+    communication: concise
+  notification_thresholds:
+    approval_needed: always
+    sprint_failed: always
+    adr_proposed: always
+  approval_rules:
+    - publish: human_required
+    - merge_to_main: human_required
 
-  # ── Quant: cointegration discovery, research-grounded, deterministic ───
-  - name: quant
-    description: Cointegration pair discovery — grounded research, deterministic validation, journal-compounding
-    supervisor:
-      name: quant-strategist
-      tier: orchestrator
-      system_prompt: |
-        You are the quant discovery desk. When invoked, you research live
-        catalysts + literature + real index constituents, hypothesise
-        non-obvious cointegration universes, validate with deterministic
-        FDR/durability scans, optionally vet a survivor with the research
-        department, and produce a handoff with stats, rationale, and a
-        lesson for the journal.
-      model: deepseek/deepseek-v4-pro
-      max_iter: 15
-    members: []
-    shared_skills:
-      - ./skills/quant
-    shared_mcps:
-      - type: internet
-    sops:
-      - name: nightly_hunt
-        cadence: daily
-        brief:
-          objective: |
-            Hunt for non-obvious cointegrated equity pairs. Research current
-            catalysts (news), relevant literature (arXiv q-fin), and live
-            S&P 500 sector constituents. Propose candidate universes, scan
-            each with the deterministic FDR + durability pipeline, and
-            report durable survivors with stats and economic rationale.
-            Record findings to the journal so the desk compounds.
-          expected_output: Ranked survivors with cointegration stats and economic thesis, or an honest 'no durable pairs'.
-
-  # ── Compliance: policy review, legal checks ───────────────────────────
-  - name: compliance
-    description: Policy enforcement, legal review, risk assessment
-    supervisor:
-      name: compliance-lead
-      tier: orchestrator
-      system_prompt: |
-        You lead compliance review. Delegate policy checks to reviewer.
-        You have veto power on publish-class and deploy actions.
-      model: deepseek/deepseek-v4-pro
-      max_iter: 15
-    members:
-      - name: reviewer
-        tier: validator
-        system_prompt: |
-          Review actions against compliance policy. Check every applicable
-          rule. Cite specific policy IDs in your reasoning. Be precise —
-          denials must reference which rule is violated.
-        model: deepseek/deepseek-v4-pro
-        max_iter: 12
-        success_criteria:
-          - Every applicable policy rule checked and cited by ID
-          - Denials cite specific rule violations
-    shared_skills:
-      - ./skills/compliance
-    shared_mcps:
-      - type: internet
-      - type: policy_bank
-    sops:
-      - name: review_proposal
-        cadence: null
-        brief:
-          objective: |
-            Review the provided action for policy compliance. Check all
-            rules, return structured verdict with policy references.
-          expected_output: Structured verdict with approved/denied/needs_changes.
-
-handoffs:
-  - from: research
-    artifact_type: daily_briefing
-    to: compliance
-    auto_trigger: true
-    note: "Research outputs reviewed for policy compliance."
+departments: []
+handoffs: []
