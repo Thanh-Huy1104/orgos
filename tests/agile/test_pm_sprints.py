@@ -32,3 +32,13 @@ def test_list_sprints_orders_by_started_at_desc(tmp_path: Path):
     pm.create_sprint("b", "agile/b", {}, "completed")
     rows = pm.list_sprints(limit=10)
     assert [r["id"] for r in rows][:2] == ["b", "a"]
+
+
+def test_create_sprint_accepts_explicit_started_at(tmp_path: Path):
+    pm = PMStore(tmp_path / "pm.db")
+    pm.create_sprint(
+        "s3", "agile/s3", {}, "in_progress",
+        started_at="2026-06-30T02:00:00+00:00",
+    )
+    s = pm.get_sprint("s3")
+    assert s["started_at"] == "2026-06-30T02:00:00+00:00"

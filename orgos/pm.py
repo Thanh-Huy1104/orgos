@@ -269,12 +269,14 @@ class PMStore:
     def create_sprint(
         self, sprint_id: str, branch: str, picked_issue: dict,
         status: str = "in_progress",
+        started_at: str | None = None,
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
+        started = started_at or now
         self.conn.execute(
             "INSERT INTO sprints (id, branch, picked_issue, envelopes_json, "
             "status, started_at, updated_at) VALUES (?, ?, ?, '{}', ?, ?, ?)",
-            (sprint_id, branch, json.dumps(picked_issue), status, now, now),
+            (sprint_id, branch, json.dumps(picked_issue), status, started, now),
         )
         self.conn.commit()
 

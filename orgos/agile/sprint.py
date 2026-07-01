@@ -135,7 +135,7 @@ def run_sprint(
     ) else "needs_revision"
 
     pm_store = PMStore()
-    pm_store.create_sprint(sprint_id, branch, issue, status="in_progress")
+    pm_store.create_sprint(sprint_id, branch, issue, status="in_progress", started_at=started_at)
     for phase, env in envelopes.items():
         pm_store.record_sprint_envelope(sprint_id, phase, env.model_dump_json())
     pm_store.update_sprint_status(sprint_id, status)
