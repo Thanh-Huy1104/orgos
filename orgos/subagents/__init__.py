@@ -1,5 +1,19 @@
-"""Pre-built subagent role specs.
+"""Pre-built subagent role specs."""
 
-Currently empty after the quant-pivot deletion. New roles for the
-agile-pivot worked example will land in Task 1.4.
-"""
+from .engineering_team import (
+    engineer_role,
+    product_manager_role,
+    qa_validator_role,
+    release_manager_role,
+    retro_agent_role,
+    sprint_lead_role,
+)
+
+__all__ = [
+    "sprint_lead_role",
+    "product_manager_role",
+    "engineer_role",
+    "qa_validator_role",
+    "release_manager_role",
+    "retro_agent_role",
+]
