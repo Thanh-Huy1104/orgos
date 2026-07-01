@@ -210,7 +210,7 @@ def _make_logged_agent(
 
     return role.to_agent(
         tools=tools,
-        step_callback=make_audit_callback(role.name, run_id, max_actions=max_actions),
+        step_callback=make_audit_callback(role.name, run_id, max_actions=max_actions, max_depth=2),
         verbose=verbose,
         run_budget=run_budget,
     )

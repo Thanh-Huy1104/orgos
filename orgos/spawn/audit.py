@@ -48,6 +48,19 @@ class ToolBudgetExceeded(Exception):
     """
 
 
+# Delegation depth registry: run_id -> {role_name: ordinal}.
+# Process-wide; entries are not cleared automatically — tests clear it.
+_depth_registry: dict[str, dict[str, int]] = {}
+
+
+class DelegationDepthExceeded(RuntimeError):
+    """Raised when a spawn would push delegation past the configured depth cap.
+
+    The cap exists to prevent runaway recursive sub-spawning, which is MAST's
+    inter-agent misalignment failure mode (Cemri et al., arXiv:2503.13657).
+    """
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Chain-level token budget
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -86,6 +99,7 @@ def make_audit_callback(
     *,
     max_repeats: int = 4,
     max_actions: int | None = None,
+    max_depth: int = 2,
 ):
     """Create a step_callback that logs every agent step and bounds its actions.
 
@@ -95,7 +109,18 @@ def make_audit_callback(
       - call budget: if total tool calls exceed ``max_actions`` (the brief's
         ``tool_call_budget``, when set), raise ``ToolBudgetExceeded`` — this
         trips even on *varied* calls (the cure for unbounded fan-out).
+    Also enforces a delegation-depth cap: each new role within the same run
+    increments the depth counter; if the counter exceeds ``max_depth``,
+    raises ``DelegationDepthExceeded`` before any agent runs.
     """
+    by_run = _depth_registry.setdefault(run_id, {})
+    if role_name not in by_run:
+        by_run[role_name] = len(by_run) + 1
+        if by_run[role_name] > max_depth:
+            raise DelegationDepthExceeded(
+                f"Depth {by_run[role_name]} > max_depth={max_depth} for "
+                f"run_id={run_id!r} role={role_name!r}"
+            )
     audit_log = AUDIT_DIR / f"{run_id}.jsonl"
     audit_log.parent.mkdir(parents=True, exist_ok=True)
     action_counts: dict[str, int] = {}
