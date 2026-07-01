@@ -146,6 +146,18 @@ class PMStore:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS sprints (
+                id TEXT PRIMARY KEY,
+                branch TEXT NOT NULL,
+                picked_issue TEXT NOT NULL DEFAULT '{}',
+                envelopes_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'in_progress',
+                started_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
+            CREATE INDEX IF NOT EXISTS idx_sprints_started_at ON sprints(started_at DESC);
         """)
 
     # ── Projects ───────────────────────────────────────────────────────────
@@ -251,6 +263,57 @@ class PMStore:
             "tags": json.loads(row["tags"]), "tokens_used": row["tokens_used"],
             "created_at": row["created_at"],
         }
+
+    # ── Sprints ────────────────────────────────────────────────────────────
+
+    def create_sprint(
+        self, sprint_id: str, branch: str, picked_issue: dict,
+        status: str = "in_progress",
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "INSERT INTO sprints (id, branch, picked_issue, envelopes_json, "
+            "status, started_at, updated_at) VALUES (?, ?, ?, '{}', ?, ?, ?)",
+            (sprint_id, branch, json.dumps(picked_issue), status, now, now),
+        )
+        self.conn.commit()
+
+    def record_sprint_envelope(
+        self, sprint_id: str, phase: str, envelope_json: str,
+    ) -> None:
+        row = self.conn.execute(
+            "SELECT envelopes_json FROM sprints WHERE id = ?", (sprint_id,)
+        ).fetchone()
+        if row is None:
+            return
+        envs = json.loads(row["envelopes_json"] or "{}")
+        envs[phase] = json.loads(envelope_json) if envelope_json else None
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE sprints SET envelopes_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(envs), now, sprint_id),
+        )
+        self.conn.commit()
+
+    def update_sprint_status(self, sprint_id: str, status: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE sprints SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now, sprint_id),
+        )
+        self.conn.commit()
+
+    def get_sprint(self, sprint_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM sprints WHERE id = ?", (sprint_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_sprints(self, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM sprints ORDER BY started_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_project_progress(self, project_id: str) -> dict[str, Any]:
         project = self.get_project(project_id)

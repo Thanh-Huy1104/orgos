@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from orgos.pm import PMStore
 from orgos.spawn import TaskBrief, spawn
 from orgos.spawn.engine import SpawnResult
 from orgos.subagents import (
@@ -132,6 +133,12 @@ def run_sprint(
         and envelopes["grade"].success_criteria_met
         and "release" in envelopes
     ) else "needs_revision"
+
+    pm_store = PMStore()
+    pm_store.create_sprint(sprint_id, branch, issue, status="in_progress")
+    for phase, env in envelopes.items():
+        pm_store.record_sprint_envelope(sprint_id, phase, env.model_dump_json())
+    pm_store.update_sprint_status(sprint_id, status)
 
     return Sprint(
         id=sprint_id,
