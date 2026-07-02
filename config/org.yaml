@@ -20,5 +20,40 @@ owner:
     - publish: human_required
     - merge_to_main: human_required
 
-departments: []
+departments:
+  - name: engineering
+    description: Ships features on the orgos repo, one issue per sprint.
+    verify_citations: false
+    supervisor:
+      name: sprint-lead
+      tier: orchestrator
+      system_prompt: ""  # filled from sprint_lead_role()
+      success_criteria: []
+    members:
+      - name: product-manager
+        tier: worker
+        system_prompt: ""
+      - name: engineer
+        tier: worker
+        system_prompt: ""
+      - name: qa-validator
+        tier: validator
+        system_prompt: ""
+      - name: release-manager
+        tier: publisher
+        system_prompt: ""
+      - name: retro-agent
+        tier: validator
+        system_prompt: ""
+    shared_skills:
+      - skills/engineering/sprint-planning
+      - skills/engineering/code-review
+    shared_mcps: []
+    sops:
+      - name: nightly-sprint
+        description: One sprint per night against the agent-eligible backlog.
+        cadence: daily
+        brief:
+          objective: Ship one agent-eligible issue end-to-end.
+          expected_output: A merged PR or a graded retro on why not.
 handoffs: []

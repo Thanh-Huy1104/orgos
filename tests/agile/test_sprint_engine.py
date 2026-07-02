@@ -60,3 +60,22 @@ def test_sprint_dataclass_shape():
         envelopes={}, status="in_progress",
     )
     assert s.status == "in_progress"
+
+
+from unittest.mock import patch
+
+
+@patch("orgos.agile.sprint._fetch_open_issues")
+def test_run_nightly_sprint_picks_top_candidate(mock_fetch, fixture_repo):
+    from orgos.agile.sprint import run_nightly_sprint, _fetch_open_issues  # noqa
+    mock_fetch.return_value = [
+        {"issue_id": "1", "number": 1, "title": "small",
+         "body": "x", "labels": ["agent-eligible"], "url": "https://x/1"},
+        {"issue_id": "2", "number": 2, "title": "big",
+         "body": "x" * 5000, "labels": ["agent-eligible"], "url": "https://x/2"},
+    ]
+    sprint = run_nightly_sprint(fixture_repo, mock_pr=True, _offline=True)
+    assert sprint.picked_issue["issue_id"] == "1"
+    assert "backlog" in sprint.envelopes
+    backlog_payload = sprint.envelopes["backlog"].parsed_payload()
+    assert len(backlog_payload["candidates"]) >= 1

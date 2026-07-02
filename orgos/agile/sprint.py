@@ -36,8 +36,10 @@ from orgos.tools.bash import BashTool
 from orgos.tools.mock_pr_tool import MockPRTool
 
 from .envelopes import (
-    BriefEnvelope, EngineeringEnvelope, GradeEnvelope, ReleaseEnvelope,
+    BacklogEnvelope, BriefEnvelope, EngineeringEnvelope, GradeEnvelope,
+    ReleaseEnvelope,
 )
+from .intake import rank_backlog
 from .rubric import grade as run_rubric
 
 
@@ -151,3 +153,67 @@ def run_sprint(
         status=status,
         spawn_result=result,
     )
+
+
+def _fetch_open_issues() -> list[dict]:
+    """Live fetch via GitHubListIssuesTool. Patchable in tests."""
+    from orgos.tools.github_issue_tool import GitHubListIssuesTool
+    raw = GitHubListIssuesTool()._run(labels=["agent-eligible"], state="open", limit=30)
+    return json.loads(raw)
+
+
+def _make_backlog_envelope(candidates: list[dict]) -> BacklogEnvelope:
+    return BacklogEnvelope(
+        role="intake",
+        status="completed",
+        summary=f"ranked {len(candidates)} candidates",
+        success_criteria_met=True,
+        requires_human_approval=False,
+        payload=json.dumps({"candidates": candidates}),
+    )
+
+
+def run_nightly_sprint(
+    repo_path: Path,
+    *,
+    model: str | None = None,
+    mock_pr: bool = False,
+    _offline: bool = False,
+) -> Sprint:
+    """Production entrypoint: pull issues, rank, pick, run sprint, persist."""
+    issues = _fetch_open_issues()
+    candidates = rank_backlog(issues, max_candidates=10)
+    if not candidates:
+        # No eligible work; record an empty sprint and exit.
+        sprint_id = _new_sprint_id()
+        return Sprint(
+            id=sprint_id,
+            started_at=datetime.now(timezone.utc).isoformat(),
+            repo_path=repo_path,
+            worktree_path=repo_path,
+            branch="",
+            picked_issue={},
+            envelopes={"backlog": _make_backlog_envelope([])},
+            status="needs_revision",
+        )
+    picked = candidates[0]
+    if _offline:
+        sprint_id = _new_sprint_id()
+        return Sprint(
+            id=sprint_id,
+            started_at=datetime.now(timezone.utc).isoformat(),
+            repo_path=repo_path,
+            worktree_path=repo_path,
+            branch=f"agile/{sprint_id}",
+            picked_issue=picked,
+            envelopes={"backlog": _make_backlog_envelope(candidates)},
+            status="completed",
+        )
+    sprint = run_sprint(repo_path, picked, model=model, mock_pr=mock_pr)
+    sprint.envelopes["backlog"] = _make_backlog_envelope(candidates)
+    # Re-persist the backlog envelope (run_sprint already wrote the rest).
+    from orgos.pm import PMStore
+    PMStore().record_sprint_envelope(
+        sprint.id, "backlog", sprint.envelopes["backlog"].model_dump_json()
+    )
+    return sprint
