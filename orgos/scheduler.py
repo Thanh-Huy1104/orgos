@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from .departments import Department, Org
+
+_log = logging.getLogger(__name__)
 
 
 # ── Notification ──────────────────────────────────────────────────────────────
@@ -207,18 +210,39 @@ class Scheduler:
     def _cron_due(
         self, expr: str, last_ts: str | None, now: datetime
     ) -> bool:
-        """Minimal cron support: minute hour day month weekday."""
-        try:
-            parts = expr.strip().split()
-            if len(parts) != 5:
-                return False
-            # Very simple: just check if it's been more than 1 minute since last run
-            if last_ts is None:
-                return True
-            last_dt = datetime.fromisoformat(last_ts)
-            return (now - last_dt).total_seconds() >= 60
-        except Exception:
+        """Return True if the cron string matches the current UTC minute.
+
+        Supports ``"<minute> <hour> * * *"`` format only.  DoM/month/DoW
+        must be ``*``; minute and hour may be ``*`` or a literal integer.
+        """
+        parts = expr.strip().split()
+        if len(parts) != 5:
             return False
+        minute_s, hour_s, dom_s, month_s, dow_s = parts
+        if any(p != "*" for p in (dom_s, month_s, dow_s)):
+            return False  # only minute+hour cadence supported
+
+        def _match(field: str, current: int) -> bool:
+            if field == "*":
+                return True
+            try:
+                return int(field) == current
+            except ValueError:
+                return False
+
+        if not _match(minute_s, now.minute):
+            return False
+        if not _match(hour_s, now.hour):
+            return False
+        # Prevent double-firing within the same minute
+        if last_ts:
+            try:
+                last_dt = datetime.fromisoformat(last_ts)
+                if (now - last_dt).total_seconds() < 55:
+                    return False
+            except (ValueError, TypeError):
+                pass
+        return True
 
     def _execute_job(self, entry: ScheduleEntry) -> dict[str, Any]:
         """Execute one scheduled job via run_department()."""
@@ -373,9 +397,9 @@ class Scheduler:
 def nightly_agile_sprint(repo_path: str = ".") -> None:
     """Run one sprint against the agile backlog. Logs to PMStore."""
     from orgos.agile.sprint import run_nightly_sprint
-    print(f"[{datetime.now().isoformat()}] starting nightly agile sprint")
+    _log.info("starting nightly agile sprint")
     sprint = run_nightly_sprint(Path(repo_path), mock_pr=False)
-    print(f"  done: sprint_id={sprint.id} status={sprint.status}")
+    _log.info("nightly agile sprint done: sprint_id=%s status=%s", sprint.id, sprint.status)
 
 
 def register_nightly_jobs(scheduler: "Scheduler") -> None:
