@@ -39,6 +39,7 @@ class Heuristic:
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    source: str = "rubric"
 
 
 class Reflector:
@@ -227,11 +228,18 @@ class Reflector:
                 source_run_id TEXT,
                 score         REAL NOT NULL DEFAULT 0.0,
                 use_count     INTEGER NOT NULL DEFAULT 0,
-                created_at    TEXT NOT NULL
+                created_at    TEXT NOT NULL,
+                source        TEXT NOT NULL DEFAULT 'rubric'
             );
             CREATE INDEX IF NOT EXISTS idx_heuristics_domain
                 ON heuristics(domain, score DESC);
         """)
+        # Migrate existing databases that pre-date the source column
+        try:
+            conn.execute("ALTER TABLE heuristics ADD COLUMN source TEXT NOT NULL DEFAULT 'rubric'")
+            conn.commit()
+        except Exception:
+            pass  # Column already exists — ignore
         return conn
 
     def _store(self, h: Heuristic) -> None:
@@ -239,11 +247,12 @@ class Reflector:
         try:
             conn.execute(
                 """INSERT OR REPLACE INTO heuristics
-                   (id, domain, tags, rule, why, source_run_id, score, use_count, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, domain, tags, rule, why, source_run_id, score, use_count, created_at, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     h.id, h.domain, json.dumps(h.tags), h.rule, h.why,
                     h.source_run_id, h.score, h.use_count, h.created_at,
+                    h.source,
                 ),
             )
             conn.commit()
@@ -307,4 +316,5 @@ def _row_to_heuristic(row: Any) -> Heuristic:
         score=float(row["score"]),
         use_count=int(row["use_count"]),
         created_at=row["created_at"],
+        source=row["source"] if "source" in row.keys() else "rubric",
     )
