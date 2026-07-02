@@ -158,6 +158,18 @@ class PMStore:
             );
             CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
             CREATE INDEX IF NOT EXISTS idx_sprints_started_at ON sprints(started_at DESC);
+
+            CREATE TABLE IF NOT EXISTS dora_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                window_days INTEGER NOT NULL,
+                deploy_freq REAL NOT NULL,
+                lead_time_p50 REAL NOT NULL,
+                cfr REAL NOT NULL,
+                mttr_p50 REAL NOT NULL,
+                tier TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dora_created ON dora_snapshots(created_at DESC);
         """)
 
     # ── Projects ───────────────────────────────────────────────────────────
@@ -316,6 +328,33 @@ class PMStore:
             "SELECT * FROM sprints ORDER BY started_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── DORA snapshots ─────────────────────────────────────────────────────
+
+    def record_dora_snapshot(self, snapshot: dict) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "INSERT INTO dora_snapshots (window_days, deploy_freq, "
+            "lead_time_p50, cfr, mttr_p50, tier, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (snapshot["window_days"], snapshot["deploy_freq"],
+             snapshot["lead_time_p50"], snapshot["cfr"],
+             snapshot["mttr_p50"], snapshot["tier"], now),
+        )
+        self.conn.commit()
+
+    def list_dora_snapshots(self, limit: int = 90) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM dora_snapshots ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def latest_dora_snapshot(self) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM dora_snapshots ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
 
     def get_project_progress(self, project_id: str) -> dict[str, Any]:
         project = self.get_project(project_id)
