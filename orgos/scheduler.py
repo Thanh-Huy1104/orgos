@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from .departments import Department, Org
 
@@ -74,12 +75,42 @@ class Scheduler:
         self.org = org
         self.memory = org.use_memory()
         self._approval_fn: Any = None
+        # Extra callable jobs registered via add_job(); each entry is a dict:
+        # {"fn": callable, "cadence": str, "id": str, "misfire_grace_time": int}
+        self._callable_jobs: list[dict[str, Any]] = []
 
     # ── Public API ────────────────────────────────────────────────────────
 
     def set_approval(self, fn: Any) -> None:
         """Set the approval function used for gated actions."""
         self._approval_fn = fn
+
+    def add_job(
+        self,
+        fn: Callable[[], Any],
+        *,
+        trigger: str = "cron",
+        hour: int = 0,
+        minute: int = 0,
+        id: str | None = None,
+        misfire_grace_time: int = 600,
+    ) -> None:
+        """Register a plain callable as a scheduled job.
+
+        Only ``trigger="cron"`` is supported; hour/minute map to a cron
+        expression ``"cron: <minute> <hour> * * *"``.
+        """
+        if trigger != "cron":
+            raise ValueError(f"Unsupported trigger type: {trigger!r}")
+        cadence = f"cron: {minute} {hour} * * *"
+        self._callable_jobs.append(
+            {
+                "fn": fn,
+                "cadence": cadence,
+                "id": id or fn.__name__,
+                "misfire_grace_time": misfire_grace_time,
+            }
+        )
 
     def jobs(self) -> list[ScheduleEntry]:
         """Return all scheduled jobs from the org constitution."""
@@ -101,6 +132,13 @@ class Scheduler:
         for entry in self.jobs():
             if self._is_due(entry, now):
                 result = self._execute_job(entry)
+                results.append(result)
+
+        for job in self._callable_jobs:
+            last_key = f"sched_last:callable:{job['id']}"
+            last_ts = self.memory.get_preference(last_key)
+            if self._cron_due(job["cadence"][len("cron:"):].strip(), last_ts, now):
+                result = self._execute_callable_job(job)
                 results.append(result)
 
         return results
@@ -252,6 +290,30 @@ class Scheduler:
             "summary": result.envelope.summary[:200],
         }
 
+    def _execute_callable_job(self, job: dict[str, Any]) -> dict[str, Any]:
+        """Execute a plain callable registered via add_job()."""
+        job_id = job["id"]
+        notify_owner(
+            self.org,
+            "job_started",
+            f"callable/{job_id} (cadence={job['cadence']})",
+        )
+        try:
+            job["fn"]()
+        except Exception as exc:
+            notify_owner(
+                self.org,
+                "job_failed",
+                f"callable/{job_id}: {exc}",
+                level="critical",
+            )
+            return {"job_id": job_id, "status": "error", "error": str(exc)}
+
+        last_key = f"sched_last:callable:{job_id}"
+        self.memory.set_preference(last_key, datetime.now(timezone.utc).isoformat())
+        notify_owner(self.org, "job_completed", f"callable/{job_id}: ok")
+        return {"job_id": job_id, "status": "completed"}
+
     def _check_alerts(self, result: dict[str, Any]) -> None:
         """Check notification thresholds after a job completes."""
         owner = self.org.owner
@@ -303,3 +365,34 @@ class Scheduler:
                         f"{self.org.default_max_budget_tokens:,})",
                         level="warning",
                     )
+
+
+# ── Nightly agile sprint ─────────────────────────────────────────────────────
+
+
+def nightly_agile_sprint(repo_path: str = ".") -> None:
+    """Run one sprint against the agile backlog. Logs to PMStore."""
+    from orgos.agile.sprint import run_nightly_sprint
+    print(f"[{datetime.now().isoformat()}] starting nightly agile sprint")
+    sprint = run_nightly_sprint(Path(repo_path), mock_pr=False)
+    print(f"  done: sprint_id={sprint.id} status={sprint.status}")
+
+
+def register_nightly_jobs(scheduler: "Scheduler") -> None:
+    """Wire the 02:00 nightly sprint into *scheduler*.
+
+    Call this after constructing a Scheduler to activate the agile cron job::
+
+        org = load_org("config/org.yaml")
+        s = Scheduler(org)
+        register_nightly_jobs(s)
+        s.run_loop()
+    """
+    scheduler.add_job(
+        nightly_agile_sprint,
+        trigger="cron",
+        hour=2,
+        minute=0,
+        id="nightly-agile-sprint",
+        misfire_grace_time=600,
+    )
