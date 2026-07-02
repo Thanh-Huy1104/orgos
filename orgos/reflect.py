@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 _DB_PATH = "./_orgos_memory/memory.db"
+_migrated_dbs: set[str] = set()
 
 
 @dataclass
@@ -234,12 +235,14 @@ class Reflector:
             CREATE INDEX IF NOT EXISTS idx_heuristics_domain
                 ON heuristics(domain, score DESC);
         """)
-        # Migrate existing databases that pre-date the source column
-        try:
-            conn.execute("ALTER TABLE heuristics ADD COLUMN source TEXT NOT NULL DEFAULT 'rubric'")
-            conn.commit()
-        except Exception:
-            pass  # Column already exists — ignore
+        # Migrate existing databases that pre-date the source column (run once per db)
+        if self._db_path not in _migrated_dbs:
+            try:
+                conn.execute("ALTER TABLE heuristics ADD COLUMN source TEXT NOT NULL DEFAULT 'rubric'")
+                conn.commit()
+            except Exception:
+                pass  # Column already exists — ignore
+            _migrated_dbs.add(self._db_path)
         return conn
 
     def _store(self, h: Heuristic) -> None:

@@ -35,14 +35,19 @@ def dora_to_heuristic_candidates(
     out: list[Heuristic] = []
     # CFR rising 3 snapshots in a row -> canary + rollback
     hist = list(prior or [])
-    if len(hist) >= 2 and snapshot.get("cfr", 0.0) > 0.15 and all(
-        hist[i]["cfr"] < hist[i + 1]["cfr"] if i + 1 < len(hist) else True
-        for i in range(len(hist))
+    if (
+        len(hist) >= 2
+        and snapshot.get("cfr", 0.0) > 0.15
+        and snapshot.get("cfr", 0.0) > hist[-1]["cfr"]
+        and all(
+            hist[i]["cfr"] < hist[i + 1]["cfr"] if i + 1 < len(hist) else True
+            for i in range(len(hist))
+        )
     ):
         out.append(_mk(
             "DoD must include canary + rollback step",
             f"CFR rising ({[h['cfr'] for h in hist]} -> {snapshot['cfr']:.2f})",
-            ["dor", "cfr", "canary"],
+            ["dora", "cfr", "canary"],
         ))
     # Lead Time > 7d median
     if snapshot.get("lead_time_p50", 0.0) > 7 * 86400.0:

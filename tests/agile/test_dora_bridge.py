@@ -2,7 +2,7 @@ from orgos.agile.dora_bridge import dora_to_heuristic_candidates
 
 
 def test_high_cfr_emits_canary_heuristic():
-    snap = {"deploy_freq": 1.0, "lead_time_p50": 1000.0, "cfr": 0.3,
+    snap = {"deploy_freq": 1.0, "lead_time_p50": 1000.0, "cfr": 0.32,
             "mttr_p50": 1000.0, "tier": "Medium"}
     h = dora_to_heuristic_candidates(None, snap, prior=[
         {"cfr": 0.25}, {"cfr": 0.27}, {"cfr": 0.30}
@@ -30,3 +30,13 @@ def test_high_mttr_emits_hotfix_heuristic():
             "mttr_p50": 10 * 3600.0, "tier": "Medium"}
     h = dora_to_heuristic_candidates(None, snap)
     assert any("hotfix" in x.rule.lower() for x in h)
+
+
+def test_falling_cfr_does_not_emit_canary():
+    snap = {"deploy_freq": 1.0, "lead_time_p50": 1000.0, "cfr": 0.20,
+            "mttr_p50": 1000.0, "tier": "Medium"}
+    h = dora_to_heuristic_candidates(None, snap, prior=[
+        {"cfr": 0.25}, {"cfr": 0.27}, {"cfr": 0.30}
+    ])
+    rules = [x.rule for x in h]
+    assert not any("canary" in r.lower() for r in rules)
