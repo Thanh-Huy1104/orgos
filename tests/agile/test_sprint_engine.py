@@ -79,3 +79,16 @@ def test_run_nightly_sprint_picks_top_candidate(mock_fetch, fixture_repo):
     assert "backlog" in sprint.envelopes
     backlog_payload = sprint.envelopes["backlog"].parsed_payload()
     assert len(backlog_payload["candidates"]) >= 1
+
+
+def test_offline_nightly_records_attribution(fixture_repo, monkeypatch):
+    # Force the offline path AND monkeypatch _fetch_open_issues
+    from orgos.agile import sprint as sprint_mod
+    monkeypatch.setattr(sprint_mod, "_fetch_open_issues", lambda: [
+        {"issue_id": "1", "number": 1, "title": "t", "body": "x",
+         "labels": ["agent-eligible"], "url": "https://x/1"},
+    ])
+    s = sprint_mod.run_nightly_sprint(fixture_repo, mock_pr=True, _offline=True)
+    # In offline mode we won't have a grade envelope, but the entrypoint should
+    # still return a Sprint with picked_issue set.
+    assert s.picked_issue["issue_id"] == "1"

@@ -240,4 +240,26 @@ def run_nightly_sprint(
     sprint.envelopes["dora"] = dora_env
     _pm.record_sprint_envelope(sprint.id, "dora", dora_env.model_dump_json())
 
+    # Role attribution (every sprint)
+    from orgos.agile.attribution import compute_attribution
+    from orgos.agile.topology import propose_topology_mutations
+    scores = compute_attribution(sprint)
+    baseline = sprint.envelopes.get("grade")
+    baseline_score = baseline.parsed_payload().get("rubric_score", 0.0) if baseline else 0.0
+    for role, score in scores.items():
+        _pm.record_role_attribution(
+            sprint_id=sprint.id, role_name=role,
+            score=score,
+            rubric_baseline=baseline_score,
+            rubric_ablated=max(baseline_score - score, 0.0),
+        )
+
+    # Topology check every 5 sprints
+    all_sprints = _pm.list_sprints(limit=6)
+    if len(all_sprints) % 5 == 0:
+        from pathlib import Path as _P
+        props = propose_topology_mutations(_pm, _P("config/org.yaml"), window_sprints=5)
+        for p in props:
+            _pm.create_adr(sprint.id, p.kind, p.before_yaml, p.after_yaml, p.rationale)
+
     return sprint
