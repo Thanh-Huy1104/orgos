@@ -210,6 +210,13 @@ class Reflector:
 
     # ── Persistence ────────────────────────────────────────────────────────
 
+    def store_candidate(self, h: "Heuristic") -> None:
+        """Public entry point for external callers (e.g., DORA bridge) to add a
+        candidate heuristic. Delegates to `_store` to keep internal storage semantics
+        unified.
+        """
+        self._store(h)
+
     def _conn(self):  # type: ignore[return]
         import sqlite3
         from pathlib import Path

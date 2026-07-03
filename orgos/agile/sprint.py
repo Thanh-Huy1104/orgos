@@ -228,7 +228,7 @@ def run_nightly_sprint(
     candidates_h = dora_to_heuristic_candidates(_pm, snapshot, prior=prior)
     _reflector = Reflector(domain="agile")
     for h in candidates_h:
-        _reflector._store(h)
+        _reflector.store_candidate(h)
     dora_env = DoraEnvelope(
         role="dora",
         status="completed",
