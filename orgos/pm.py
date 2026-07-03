@@ -628,6 +628,33 @@ class PMStore:
         )
         self.conn.commit()
 
+    def list_qa_failure_tags(self, since_sprints: int = 5) -> list[tuple[str, int]]:
+        """Return (tag, count) tuples from QA failure_mode tags in recent sprints."""
+        sprints = self.list_sprints(limit=since_sprints)
+        counter: dict[str, int] = {}
+        for s in sprints:
+            envs = json.loads(s.get("envelopes_json") or "{}")
+            grade = envs.get("grade") or {}
+            for c in json.loads(grade.get("payload", "{}")).get("criteria", []):
+                if not c.get("passed"):
+                    tag = c.get("name") or "unknown"
+                    counter[tag] = counter.get(tag, 0) + 1
+        return sorted(counter.items(), key=lambda x: -x[1])
+
+    def list_blocker_tags(self, since_sprints: int = 5) -> list[tuple[str, int]]:
+        """Return (tag, count) tuples from blocked task descriptions."""
+        rows = self.conn.execute(
+            "SELECT description FROM tasks WHERE status = 'blocked' "
+            "ORDER BY created_at DESC LIMIT ?", (since_sprints * 5,)
+        ).fetchall()
+        counter: dict[str, int] = {}
+        for r in rows:
+            desc = (r["description"] or "").lower()
+            for tag in ("db-migration", "auth", "flaky-test", "network"):
+                if tag in desc:
+                    counter[tag] = counter.get(tag, 0) + 1
+        return sorted(counter.items(), key=lambda x: -x[1])
+
     # ── Row converters ─────────────────────────────────────────────────────
 
     @staticmethod
