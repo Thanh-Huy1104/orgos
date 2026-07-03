@@ -18,7 +18,7 @@ import sqlite3
 import subprocess
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -170,6 +170,30 @@ class PMStore:
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_dora_created ON dora_snapshots(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS role_attribution (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sprint_id TEXT NOT NULL,
+                role_name TEXT NOT NULL,
+                score REAL NOT NULL,
+                rubric_baseline REAL NOT NULL,
+                rubric_ablated REAL NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_attribution_role ON role_attribution(role_name, created_at);
+
+            CREATE TABLE IF NOT EXISTS adrs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sprint_id TEXT,
+                kind TEXT NOT NULL,
+                before_yaml TEXT NOT NULL DEFAULT '',
+                after_yaml TEXT NOT NULL DEFAULT '',
+                rationale TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_adrs_status ON adrs(status, created_at DESC);
         """)
 
     # ── Projects ───────────────────────────────────────────────────────────
@@ -542,6 +566,67 @@ class PMStore:
             }
         except Exception as e:
             return {"error": str(e)}
+
+    # ── Role attribution ───────────────────────────────────────────────────────
+
+    def record_role_attribution(
+        self, sprint_id: str, role_name: str, score: float,
+        rubric_baseline: float, rubric_ablated: float,
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "INSERT INTO role_attribution (sprint_id, role_name, score, "
+            "rubric_baseline, rubric_ablated, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (sprint_id, role_name, score, rubric_baseline, rubric_ablated, now),
+        )
+        self.conn.commit()
+
+    def list_role_attribution(
+        self, role_name: str, since_days: int = 30,
+    ) -> list[dict]:
+        since = (datetime.now(timezone.utc) - timedelta(days=since_days)).isoformat()
+        rows = self.conn.execute(
+            "SELECT * FROM role_attribution WHERE role_name = ? AND created_at >= ? "
+            "ORDER BY created_at DESC",
+            (role_name, since),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── ADRs ───────────────────────────────────────────────────────────────
+
+    def create_adr(
+        self, sprint_id: str | None, kind: str,
+        before_yaml: str, after_yaml: str, rationale: str,
+    ) -> int:
+        now = datetime.now(timezone.utc).isoformat()
+        cur = self.conn.execute(
+            "INSERT INTO adrs (sprint_id, kind, before_yaml, after_yaml, "
+            "rationale, status, created_at, updated_at) VALUES "
+            "(?, ?, ?, ?, ?, 'pending', ?, ?)",
+            (sprint_id, kind, before_yaml, after_yaml, rationale, now, now),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid or 0)
+
+    def list_adrs(self, status: str | None = None) -> list[dict]:
+        if status:
+            rows = self.conn.execute(
+                "SELECT * FROM adrs WHERE status = ? ORDER BY created_at DESC",
+                (status,),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM adrs ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_adr_status(self, adr_id: int, status: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE adrs SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now, adr_id),
+        )
+        self.conn.commit()
 
     # ── Row converters ─────────────────────────────────────────────────────
 
