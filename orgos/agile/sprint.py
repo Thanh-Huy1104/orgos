@@ -36,8 +36,8 @@ from orgos.tools.bash import BashTool
 from orgos.tools.mock_pr_tool import MockPRTool
 
 from .envelopes import (
-    BacklogEnvelope, BriefEnvelope, EngineeringEnvelope, GradeEnvelope,
-    ReleaseEnvelope,
+    BacklogEnvelope, BriefEnvelope, DoraEnvelope, EngineeringEnvelope,
+    GradeEnvelope, ReleaseEnvelope,
 )
 from .intake import rank_backlog
 from .rubric import grade as run_rubric
@@ -213,7 +213,31 @@ def run_nightly_sprint(
     sprint.envelopes["backlog"] = _make_backlog_envelope(candidates)
     # Re-persist the backlog envelope (run_sprint already wrote the rest).
     from orgos.pm import PMStore
-    PMStore().record_sprint_envelope(
+    _pm = PMStore()
+    _pm.record_sprint_envelope(
         sprint.id, "backlog", sprint.envelopes["backlog"].model_dump_json()
     )
+
+    # DORA snapshot + candidate heuristics
+    from orgos.agile.dora import compute_dora
+    from orgos.agile.dora_bridge import dora_to_heuristic_candidates
+    from orgos.reflect import Reflector
+    snapshot = compute_dora(_pm, window_days=14)
+    _pm.record_dora_snapshot(snapshot)
+    prior = _pm.list_dora_snapshots(limit=3)
+    candidates_h = dora_to_heuristic_candidates(_pm, snapshot, prior=prior)
+    _reflector = Reflector(domain="agile")
+    for h in candidates_h:
+        _reflector._store(h)
+    dora_env = DoraEnvelope(
+        role="dora",
+        status="completed",
+        summary=f"tier={snapshot['tier']}",
+        success_criteria_met=True,
+        requires_human_approval=False,
+        payload=json.dumps(snapshot),
+    )
+    sprint.envelopes["dora"] = dora_env
+    _pm.record_sprint_envelope(sprint.id, "dora", dora_env.model_dump_json())
+
     return sprint

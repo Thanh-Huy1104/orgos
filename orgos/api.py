@@ -741,6 +741,44 @@ def calendar():
     return {"jobs": jobs}
 
 
+@app.get("/api/dora")
+def dora_endpoint(window: int = 14, limit: int = 90) -> dict:
+    """Return latest DORA snapshot and history.
+
+    Query params:
+      window  — rolling window in days used when computing a live snapshot
+                if no stored snapshot exists (default 14)
+      limit   — max history rows to return (default 90)
+    """
+    from orgos.agile.dora import compute_dora as _compute_dora
+
+    # Re-use the lifespan PMStore when available (populated in tests via env var).
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    latest = _pm.latest_dora_snapshot()
+    if latest is None:
+        latest = _compute_dora(_pm, window_days=window)
+    history = _pm.list_dora_snapshots(limit=limit)
+    return {"latest": latest, "history": history}
+
+
+@app.get("/api/heuristics")
+def heuristics_endpoint() -> dict:
+    """Return active and candidate heuristics from Reflector storage.
+
+    active     — heuristics with use_count > 0 (have been retrieved before)
+    candidates — heuristics with use_count = 0 (never retrieved yet)
+    """
+    from orgos.reflect import Reflector
+
+    r = Reflector(domain="agile")
+    active = r.list_active()
+    candidates = r.list_candidates()
+    return {
+        "active": [h.__dict__ for h in active],
+        "candidates": [h.__dict__ for h in candidates],
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8420)

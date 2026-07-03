@@ -284,6 +284,30 @@ class Reflector:
         finally:
             conn.close()
 
+    def list_active(self) -> list[Heuristic]:
+        """Return heuristics that have been used at least once (use_count > 0)."""
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM heuristics WHERE domain = ? AND use_count > 0 ORDER BY use_count DESC, score DESC LIMIT 100",
+                (self.domain,),
+            ).fetchall()
+            return [_row_to_heuristic(r) for r in rows]
+        finally:
+            conn.close()
+
+    def list_candidates(self) -> list[Heuristic]:
+        """Return heuristics that have never been retrieved (use_count = 0)."""
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM heuristics WHERE domain = ? AND use_count = 0 ORDER BY score DESC, created_at DESC LIMIT 100",
+                (self.domain,),
+            ).fetchall()
+            return [_row_to_heuristic(r) for r in rows]
+        finally:
+            conn.close()
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
