@@ -61,6 +61,34 @@ def _new_sprint_id() -> str:
     return f"{stamp}-{uuid.uuid4().hex[:6]}"
 
 
+def _snapshot_path(sprint_id: str, base_dir: Path | None = None) -> Path:
+    base = base_dir or Path(".")
+    return base / ".sprints" / sprint_id / "snapshot.json"
+
+
+def write_snapshot(
+    sprint: Sprint,
+    *,
+    backlog: list[dict] | None = None,
+    heuristics: list[dict] | None = None,
+) -> Path:
+    p = _snapshot_path(sprint.id, base_dir=sprint.repo_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({
+        "sprint_id": sprint.id,
+        "started_at": sprint.started_at,
+        "branch": sprint.branch,
+        "picked_issue": sprint.picked_issue,
+        "backlog": backlog or [],
+        "heuristics": heuristics or [],
+    }, indent=2))
+    return p
+
+
+def read_snapshot(sprint_id: str, *, base_dir: Path | None = None) -> dict:
+    return json.loads(_snapshot_path(sprint_id, base_dir=base_dir).read_text())
+
+
 def _make_worktree(repo: Path, sprint_id: str, branch: str) -> Path:
     worktree_root = repo / ".sprints" / sprint_id
     worktree_root.parent.mkdir(parents=True, exist_ok=True)
@@ -99,6 +127,20 @@ def run_sprint(
     started_at = datetime.now(timezone.utc).isoformat()
     branch = f"agile/{sprint_id}"
     worktree = _make_worktree(repo_path, sprint_id, branch)
+    write_snapshot(
+        Sprint(
+            id=sprint_id,
+            started_at=started_at,
+            repo_path=repo_path,
+            worktree_path=worktree,
+            branch=branch,
+            picked_issue=issue,
+            envelopes={},
+            status="in_progress",
+        ),
+        backlog=[],
+        heuristics=[],
+    )
 
     pm = product_manager_role(model=model)
     engineer = engineer_role(model=model, extra_tools=[BashTool(cwd=str(worktree))])
