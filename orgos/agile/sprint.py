@@ -282,6 +282,12 @@ def run_nightly_sprint(
     sprint.envelopes["dora"] = dora_env
     _pm.record_sprint_envelope(sprint.id, "dora", dora_env.model_dump_json())
 
+    # Retro envelope (deterministic, no LLM)
+    from .retro import build_retro_from_sprint
+    retro_env = build_retro_from_sprint(sprint)
+    sprint.envelopes["retro"] = retro_env
+    _pm.record_sprint_envelope(sprint.id, "retro", retro_env.model_dump_json())
+
     # Role attribution (every sprint)
     from orgos.agile.attribution import compute_attribution
     from orgos.agile.topology import propose_topology_mutations
