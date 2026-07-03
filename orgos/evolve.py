@@ -17,6 +17,7 @@ Flow:
 from __future__ import annotations
 
 import json
+import subprocess
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -816,3 +817,34 @@ def apply_proposal(
 
     except Exception as exc:
         return {"applied": False, "message": f"Error: {exc}"}
+
+
+# ── ADR apply ─────────────────────────────────────────────────────────────────
+
+
+def apply_adr(pm, adr_id: int, *, config_path: Path = Path("config/org.yaml"),
+              commit: bool = True) -> None:
+    """Apply an approved ADR: write after_yaml, commit under orgos-evolve.
+
+    Rejects if the ADR is not in 'pending' or 'approved' state (defensive).
+    """
+    adr = next((a for a in pm.list_adrs() if a["id"] == adr_id), None)
+    if adr is None:
+        raise ValueError(f"ADR {adr_id} not found")
+    if adr["status"] not in ("pending", "approved"):
+        raise ValueError(f"ADR {adr_id} status={adr['status']}, cannot apply")
+    config_path.write_text(adr["after_yaml"])
+    if commit:
+        subprocess.run(
+            ["git", "-c", "user.name=orgos-evolve",
+             "-c", "user.email=evolve@orgos", "add", str(config_path)],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-c", "user.name=orgos-evolve",
+             "-c", "user.email=evolve@orgos",
+             "commit", "-m",
+             f"evolve: apply ADR-{adr_id:03d} {adr['kind']}\n\n{adr['rationale']}"],
+            check=True,
+        )
+    pm.set_adr_status(adr_id, "applied")
