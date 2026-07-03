@@ -779,6 +779,77 @@ def heuristics_endpoint() -> dict:
     }
 
 
+# ── Team topology + ADR endpoints ─────────────────────────────────────────────
+
+_ruamel_yaml = None
+
+
+def _get_ruamel():
+    global _ruamel_yaml
+    if _ruamel_yaml is None:
+        from ruamel.yaml import YAML
+        _ruamel_yaml = YAML()
+    return _ruamel_yaml
+
+
+@app.get("/api/team/topology")
+def team_topology() -> dict:
+    """Return org topology (roles + edges) from config/org.yaml + latest attribution."""
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    cfg_path = Path(ORG_YAML)
+    if not cfg_path.exists():
+        return {"roles": [], "edges": []}
+    cfg = _get_ruamel().load(cfg_path.read_text())
+    depts = cfg.get("departments") or []
+    if not depts:
+        return {"roles": [], "edges": []}
+    sup = depts[0].get("supervisor") or {}
+    members = depts[0].get("members") or []
+    roles = [{"name": sup.get("name", "supervisor"), "tier": "orchestrator", "contribution": 0.0}]
+    for m in members:
+        rows = _pm.list_role_attribution(m.get("name", ""), since_days=7)
+        latest = rows[0]["score"] if rows else 0.0
+        roles.append({
+            "name": m.get("name", ""),
+            "tier": m.get("tier", "worker"),
+            "contribution": latest,
+        })
+    edges = [
+        {"from": sup.get("name", "supervisor"), "to": r["name"], "weight": r["contribution"]}
+        for r in roles[1:]
+    ]
+    return {"roles": roles, "edges": edges}
+
+
+@app.get("/api/team/adrs")
+def list_adrs() -> dict:
+    """Return ADRs grouped by status: {pending, approved, applied, rejected}."""
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    all_adrs = _pm.list_adrs()
+    grouped: dict[str, list] = {"pending": [], "approved": [], "applied": [], "rejected": []}
+    for a in all_adrs:
+        grouped.setdefault(a["status"], []).append(a)
+    return grouped
+
+
+@app.post("/api/team/adrs/{adr_id}/approve")
+def approve_adr(adr_id: int) -> dict:
+    """Approve an ADR: set status=approved then apply it (writes config + marks applied)."""
+    from orgos.evolve import apply_adr
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    _pm.set_adr_status(adr_id, "approved")
+    apply_adr(_pm, adr_id)
+    return {"ok": True, "id": adr_id, "status": "applied"}
+
+
+@app.post("/api/team/adrs/{adr_id}/reject")
+def reject_adr(adr_id: int) -> dict:
+    """Reject an ADR: set status=rejected."""
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    _pm.set_adr_status(adr_id, "rejected")
+    return {"ok": True, "id": adr_id, "status": "rejected"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8420)
