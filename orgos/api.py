@@ -850,6 +850,46 @@ def reject_adr(adr_id: int) -> dict:
     return {"ok": True, "id": adr_id, "status": "rejected"}
 
 
+class ReplayReq(BaseModel):
+    parent_sprint_id: str
+    mutation_kind: str  # swap_backlog_pick | inject_heuristic | swap_role
+    mutation_args: dict
+
+
+@app.post("/api/lab/replay")
+def lab_replay(req: ReplayReq) -> dict:
+    from orgos.agile.mutations import (
+        InjectHeuristic, SwapBacklogPick, SwapRole,
+    )
+    from orgos.agile.replay import replay_sprint
+
+    if req.mutation_kind == "swap_backlog_pick":
+        m = SwapBacklogPick(**req.mutation_args)
+    elif req.mutation_kind == "inject_heuristic":
+        m = InjectHeuristic(**req.mutation_args)
+    elif req.mutation_kind == "swap_role":
+        m = SwapRole(**req.mutation_args)
+    else:
+        return {"error": f"unknown mutation_kind: {req.mutation_kind}"}
+    try:
+        s = replay_sprint(req.parent_sprint_id, m)
+    except Exception as exc:
+        return {"error": str(exc)}
+    return {"replay_sprint_id": s.id, "status": s.status,
+            "picked_issue": s.picked_issue}
+
+
+@app.get("/api/sprints/{sprint_id}")
+def get_sprint(sprint_id: str) -> dict:
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    row = _pm.get_sprint(sprint_id)
+    if not row:
+        return {"error": "not_found"}
+    envs = json.loads(row.get("envelopes_json") or "{}")
+    replay = envs.get("_replay")
+    return {"sprint": row, "envelopes": envs, "replay": replay}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8420)
