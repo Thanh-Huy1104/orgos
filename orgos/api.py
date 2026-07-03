@@ -890,6 +890,38 @@ def get_sprint(sprint_id: str) -> dict:
     return {"sprint": row, "envelopes": envs, "replay": replay}
 
 
+@app.get("/agent-card.json")
+def agent_card() -> dict:
+    return {
+        "name": "orgos-engineering",
+        "description": "A self-organizing agile engineering team that ships one issue per sprint.",
+        "version": "0.1.0",
+        "url": None,
+        "capabilities": {"streaming": False, "pushNotifications": False},
+        "skills": [
+            {"id": "sprint-lead", "name": "Sprint Lead",
+             "description": "Orchestrates a sprint: picks the issue, routes the team, synthesises the final handoff.",
+             "inputModes": ["application/json"],
+             "outputModes": ["application/json"]},
+            {"id": "product-manager", "name": "Product Manager",
+             "description": "Turns a GitHub issue into a TaskBrief with acceptance tests.",
+             "inputModes": ["application/json"], "outputModes": ["application/json"]},
+            {"id": "engineer", "name": "Engineer",
+             "description": "Implements the change in a git worktree and runs the tests.",
+             "inputModes": ["application/json"], "outputModes": ["application/json"]},
+            {"id": "qa-validator", "name": "QA Validator",
+             "description": "Grades the engineering handoff against the brief's acceptance tests.",
+             "inputModes": ["application/json"], "outputModes": ["application/json"]},
+            {"id": "release-manager", "name": "Release Manager",
+             "description": "Opens the PR (or records a mock PR in replay mode).",
+             "inputModes": ["application/json"], "outputModes": ["application/json"]},
+            {"id": "retro-agent", "name": "Retro Agent",
+             "description": "Reads the audit log and produces a graded retrospective.",
+             "inputModes": ["application/json"], "outputModes": ["application/json"]},
+        ],
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8420)
