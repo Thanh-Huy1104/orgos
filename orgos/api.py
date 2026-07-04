@@ -886,6 +886,23 @@ def lab_replay(req: ReplayReq) -> dict:
             "picked_issue": s.picked_issue}
 
 
+@app.get("/api/sprints")
+def list_sprints(limit: int = 50) -> list[dict]:
+    """List sprints, most recent first. Consumed by the dashboard /sprints board
+    and the /lab picker (which filters for completed sprints)."""
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    rows = _pm.list_sprints(limit=limit)
+    # Return the picked_issue as parsed JSON so the frontend renders the issue
+    # id/title without another decode step.
+    for r in rows:
+        raw = r.get("picked_issue") or "{}"
+        try:
+            r["picked_issue"] = json.loads(raw) if isinstance(raw, str) else raw
+        except json.JSONDecodeError:
+            r["picked_issue"] = {}
+    return rows
+
+
 @app.get("/api/sprints/{sprint_id}")
 def get_sprint(sprint_id: str) -> dict:
     _pm = pm if pm is not None else PMStore(PM_DB)
