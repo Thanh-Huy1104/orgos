@@ -4,17 +4,15 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Orgos",
-  description: "A company of agents — research desk, strategy engine, self-improving org",
+  description: "A self-organizing agile engineering team",
 };
 
 const nav = [
-  { href: "/", label: "Desk", icon: "◫" },
-  { href: "/journal", label: "Journal", icon: "❖" },
-  { href: "/paper", label: "Paper", icon: "▤" },
-  { href: "/logs", label: "Logs", icon: "☰" },
-  { href: "/org", label: "Org", icon: "▦" },
-  { href: "/calendar", label: "Calendar", icon: "◷" },
-  { href: "/policies", label: "Policies", icon: "⚖" },
+  { href: "/", label: "Scoreboard", icon: "◫" },
+  { href: "/sprints", label: "Sprints", icon: "❖" },
+  { href: "/team", label: "Topology", icon: "◈" },
+  { href: "/dora", label: "DORA", icon: "▤" },
+  { href: "/lab", label: "Lab", icon: "⚗" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -36,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             ))}
           </nav>
           <div className="p-3 border-t text-xs" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-            Orgos · v1.0
+            agile-pivot
           </div>
         </aside>
         <main className="flex-1 p-6 min-w-0 overflow-y-auto" style={{ height: "calc(100vh - 0px)" }}>{children}</main>
