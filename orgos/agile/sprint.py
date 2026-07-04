@@ -99,19 +99,22 @@ def _make_worktree(repo: Path, sprint_id: str, branch: str) -> Path:
     return worktree_root
 
 
-def _brief_for_team(issue: dict) -> TaskBrief:
+def _brief_for_team(issue: dict, worktree: Path) -> TaskBrief:
     return TaskBrief(
         objective=(
             f"Ship issue {issue.get('issue_id', '?')}: {issue.get('title', '')}. "
             f"Coordinate PM -> Engineer -> QA -> Release. Each subordinate "
-            f"emits its typed envelope; you synthesise the final HandoffEnvelope."
+            f"emits its typed envelope; you synthesise the final HandoffEnvelope.\n\n"
+            f"The Engineer's git worktree is at {worktree}. All shell commands "
+            f"run there automatically — do NOT try to cd or search elsewhere. "
+            f"The initial files are src.py, test_src.py, README.md."
         ),
         expected_output="A synthesised final envelope describing the sprint outcome.",
         success_criteria=[
             "Each subordinate produced a typed envelope.",
             "The Release envelope contains a pr_url (or mock://pr/...).",
         ],
-        inputs={"issue": json.dumps(issue)},
+        inputs={"issue": json.dumps(issue), "worktree_path": str(worktree)},
     )
 
 
@@ -143,7 +146,13 @@ def run_sprint(
     )
 
     pm = product_manager_role(model=model)
-    engineer = engineer_role(model=model, extra_tools=[BashTool(cwd=str(worktree))])
+    # Lock BashTool to the worktree so the Engineer can't wander the disk.
+    engineer = engineer_role(
+        model=model,
+        extra_tools=[BashTool(default_working_dir=str(worktree))],
+    )
+    # QA is validator-tier (read-only) — it can't run Bash. It reads the
+    # EngineeringEnvelope's test_output + test_passed and applies the rubric.
     qa = qa_validator_role(model=model)
     release = release_manager_role(
         model=model,
@@ -151,7 +160,7 @@ def run_sprint(
     )
     lead = sprint_lead_role(model=model)
 
-    brief = _brief_for_team(issue)
+    brief = _brief_for_team(issue, worktree)
     # In mock mode there is no human review loop, so we auto-approve the
     # MockPRTool gate. Real runs (mock_pr=False) still require the caller to
     # supply an approval_fn through the higher-level nightly loop.
@@ -177,10 +186,16 @@ def run_sprint(
     if "brief" in envelopes and "engineering" in envelopes:
         envelopes["grade"] = run_rubric(envelopes["brief"], envelopes["engineering"])
 
+    # CrewAI's hierarchical spawn returns raw strings from delegated tasks —
+    # only the synthesis task carries a typed HandoffEnvelope. Keep it as the
+    # authoritative "summary" envelope so the dashboard always has something
+    # to show and status is driven by what the sprint lead actually reported.
+    envelopes["summary"] = result.envelope
+
     status = "completed" if (
-        envelopes.get("grade")
-        and envelopes["grade"].success_criteria_met
-        and "release" in envelopes
+        result.envelope.status == "completed"
+        or (envelopes.get("grade") and envelopes["grade"].success_criteria_met
+            and "release" in envelopes)
     ) else "needs_revision"
 
     pm_store = PMStore()

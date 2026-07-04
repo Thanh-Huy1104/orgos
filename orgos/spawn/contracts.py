@@ -514,11 +514,25 @@ class HandoffEnvelope(BaseModel):
     @field_validator("artifacts", mode="before")
     @classmethod
     def _coerce_artifacts(cls, v: Any) -> Any:
-        """A single artifact string → one-element list; None → []."""
+        """A single artifact string → one-element list; None → [];
+        list of dicts (LLMs love returning `{stage, file, note}` per artifact)
+        → list of JSON strings so the strict-string schema still validates."""
         if v is None:
             return []
         if isinstance(v, str):
             return [v]
+        if isinstance(v, list):
+            import json as _json
+            out: list[str] = []
+            for item in v:
+                if isinstance(item, str):
+                    out.append(item)
+                else:
+                    try:
+                        out.append(_json.dumps(item, ensure_ascii=False))
+                    except (TypeError, ValueError):
+                        out.append(str(item))
+            return out
         return v
 
     @classmethod

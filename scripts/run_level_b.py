@@ -63,12 +63,22 @@ def main() -> None:
     repo = make_fixture_repo()
     print(f"Fixture repo: {repo}")
 
+    # NB: `deepseek/deepseek-chat` routes to the small flash variant which
+    # doesn't tool-call reliably. `deepseek-v4-pro` is the beefier one with
+    # real function-calling support. Override with LEVEL_B_MODEL if litellm's
+    # model string for your DeepSeek tier is different (e.g. deepseek/deepseek-v4-pro,
+    # deepseek/deepseek-reasoner, anthropic/claude-haiku-4-5).
+    import os
+    model = os.environ.get("LEVEL_B_MODEL", "deepseek/deepseek-v4-pro")
+    print(f"Model         : {model}")
+    # Budget: v4-pro burns ~250-500k tokens on a small sprint with real tool
+    # calls. 800k gives headroom for retries; still ~$0.10-0.20 total.
     sprint = run_sprint(
         repo,
         issue,
-        model="deepseek/deepseek-chat",  # cheap
+        model=model,
         mock_pr=True,                    # no GitHub
-        run_budget_tokens=200_000,
+        run_budget_tokens=800_000,
     )
 
     print()
