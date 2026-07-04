@@ -25,10 +25,6 @@ def _parse_iso(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def _within(dt: datetime, window_start: datetime) -> bool:
-    return dt >= window_start
-
-
 def compute_dora(pm: Any, window_days: int = 14) -> dict:
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=window_days)
