@@ -1,24 +1,13 @@
-# orgos org constitution — agile-pivot worked example
-# The engineering department is populated in Task 1.7.
-name: orgos
-description: A self-organizing agile engineering team that ships on its own repo.
+org:
+  # orgos org constitution — agile-pivot worked example
+  # The engineering department is populated in Task 1.7.
+  name: orgos
+  description: A self-organizing agile engineering team that ships on its own repo.
 
-default_model: anthropic/claude-sonnet-4-6
-default_max_budget_tokens: 80000
-default_max_run_tokens: 400000
-default_max_iter: 12
-
-owner:
-  name: Thanh
-  preferences:
-    communication: concise
-  notification_thresholds:
-    approval_needed: always
-    sprint_failed: always
-    adr_proposed: always
-  approval_rules:
-    - publish: human_required
-    - merge_to_main: human_required
+  default_model: anthropic/claude-sonnet-4-6
+  default_max_budget_tokens: 80000
+  default_max_run_tokens: 400000
+  default_max_iter: 12
 
 departments:
   - name: engineering

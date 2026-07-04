@@ -50,8 +50,20 @@ def replay_sprint(
         replayed = run_sprint(
             base, mutated["picked_issue"], model=model, mock_pr=True,
         )
+        # run_sprint already created the sprint row — only attach replay metadata.
+        pm = PMStore()  # default path matches run_sprint
+        pm.record_sprint_envelope(
+            replayed.id, "_replay",
+            json.dumps({
+                "parent_sprint_id": parent_sprint_id,
+                "mutation_kind": getattr(mutation, "kind", "unknown"),
+                "mutation": mutation.__dict__,
+            }),
+        )
+        replayed.envelopes["_replay"] = None  # marker
+        return replayed
 
-    # Persist parent linkage + mutation kind under the reserved "_replay" phase.
+    # Offline branch: run_sprint was skipped so we must persist manually.
     pm = PMStore(base / "_orgos_memory" / "pm.db")
     pm.create_sprint(replayed.id, replayed.branch, replayed.picked_issue,
                      status=replayed.status)

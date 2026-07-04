@@ -50,9 +50,16 @@ from orgos.spawn import TaskBrief
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-ORG_YAML = os.environ.get("ORGOS_ORG_YAML", "./config/org.yaml")
+# NOTE: ORG_YAML is intentionally NOT captured at module import time so that
+# tests can override ORGOS_ORG_YAML via monkeypatch/setenv before the first call.
+# Use _org_yaml_path() wherever you need the path — never a module-level constant.
 MEMORY_DB = os.environ.get("ORGOS_MEMORY_DB", "./_orgos_memory/memory.db")
 PM_DB = os.environ.get("ORGOS_PM_DB", "./_orgos_memory/pm.db")
+
+
+def _org_yaml_path() -> str:
+    """Return the org.yaml path, resolved fresh from the environment each call."""
+    return os.environ.get("ORGOS_ORG_YAML", "./config/org.yaml")
 
 memory: OrgMemory | None = None
 pm: PMStore | None = None
@@ -61,7 +68,7 @@ proposal_store: ProposalStore | None = None
 
 
 def load_org():
-    data = yaml.safe_load(Path(ORG_YAML).read_text())
+    data = yaml.safe_load(Path(_org_yaml_path()).read_text())
     org_data = data.get("org", {})
     org_data["departments"] = data.get("departments", [])
     org_data["handoffs"] = data.get("handoffs", [])
@@ -238,7 +245,7 @@ def project_detail(project_id: str):
 
 @app.get("/api/proposals")
 def proposals():
-    path = Path(ORG_YAML)
+    path = Path(_org_yaml_path())
     if not path.exists():
         return {"proposals": [], "credential_requests": [], "tool_requests": []}
 
@@ -252,7 +259,7 @@ def proposals():
 
 @app.get("/api/credentials")
 def credentials():
-    path = Path(ORG_YAML)
+    path = Path(_org_yaml_path())
     if not path.exists():
         return []
     data = yaml.safe_load(path.read_text())
@@ -261,7 +268,7 @@ def credentials():
 
 @app.get("/api/tools")
 def tools():
-    path = Path(ORG_YAML)
+    path = Path(_org_yaml_path())
     if not path.exists():
         return []
     data = yaml.safe_load(path.read_text())
@@ -621,7 +628,7 @@ def _synthesize_report(project_id: str, progress: dict, results: list) -> None:
 @app.post("/api/credentials/{index}/resolve")
 def resolve_credential(index: int):
     """Mark a credential request as resolved (owner provided the key)."""
-    path = Path(ORG_YAML)
+    path = Path(_org_yaml_path())
     if not path.exists():
         raise HTTPException(404, "org.yaml not found")
     data = yaml.safe_load(path.read_text())
@@ -695,7 +702,7 @@ def approve_proposal(proposal_id: str):
         credential_needs=entry["credential_needs"],
         created_at=entry["created_at"],
     )
-    result = apply_proposal(proposal, ORG_YAML)
+    result = apply_proposal(proposal, _org_yaml_path())
     if result.get("applied"):
         proposal_store.approve(proposal_id)
         global org
@@ -796,7 +803,7 @@ def _get_ruamel():
 def team_topology() -> dict:
     """Return org topology (roles + edges) from config/org.yaml + latest attribution."""
     _pm = pm if pm is not None else PMStore(PM_DB)
-    cfg_path = Path(ORG_YAML)
+    cfg_path = Path(_org_yaml_path())
     if not cfg_path.exists():
         return {"roles": [], "edges": []}
     cfg = _get_ruamel().load(cfg_path.read_text())

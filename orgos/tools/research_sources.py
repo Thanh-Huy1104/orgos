@@ -24,7 +24,7 @@ from io import StringIO
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-_UA = {"User-Agent": "orgos-quant-desk/1.0 (research; contact@orgos.local)"}
+_UA = {"User-Agent": "orgos-agile/1.0 (contact@orgos.local)"}
 _SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
 _CONSTITUENTS_CACHE = None  # the S&P 500 table, fetched once per process

@@ -302,9 +302,8 @@ def run_nightly_sprint(
             rubric_ablated=max(baseline_score - score, 0.0),
         )
 
-    # Topology check every 5 sprints
-    all_sprints = _pm.list_sprints(limit=6)
-    if len(all_sprints) % 5 == 0:
+    # Topology check every 5 sprints (use real count, not a capped list)
+    if _pm.count_sprints() % 5 == 0:
         from pathlib import Path as _P
         props = propose_topology_mutations(_pm, _P("config/org.yaml"), window_sprints=5)
         for p in props:

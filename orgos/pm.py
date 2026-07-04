@@ -353,6 +353,11 @@ class PMStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def count_sprints(self) -> int:
+        """Return total number of sprints in the store."""
+        row = self.conn.execute("SELECT COUNT(*) FROM sprints").fetchone()
+        return int(row[0]) if row else 0
+
     # ── DORA snapshots ─────────────────────────────────────────────────────
 
     def record_dora_snapshot(self, snapshot: dict) -> None:
