@@ -17,3 +17,6 @@ _orgos_memory/
 config/.org-backups/
 client_secret_*.json
 google-*.json
+
+# subagent-driven-development workflow scratch (task briefs, reports, ledger)
+.superpowers/
