@@ -152,9 +152,14 @@ def run_sprint(
     lead = sprint_lead_role(model=model)
 
     brief = _brief_for_team(issue)
+    # In mock mode there is no human review loop, so we auto-approve the
+    # MockPRTool gate. Real runs (mock_pr=False) still require the caller to
+    # supply an approval_fn through the higher-level nightly loop.
+    approval_fn = (lambda role, name, args: True) if mock_pr else None
     result = spawn(
         lead, brief,
         subordinates=[pm, engineer, qa, release],
+        approval_fn=approval_fn,
         run_budget_tokens=run_budget_tokens,
     )
 

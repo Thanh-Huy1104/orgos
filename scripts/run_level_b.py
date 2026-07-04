@@ -78,6 +78,21 @@ def main() -> None:
     print(f"Status        : {sprint.status}")
     print(f"Envelopes     : {sorted(sprint.envelopes.keys())}")
 
+    # If no envelopes came back, dump the raw spawn result so we can see the
+    # underlying failure reason.
+    if not sprint.envelopes and sprint.spawn_result is not None:
+        sr = sprint.spawn_result
+        env = sr.envelope
+        print()
+        print(f"[debug] spawn envelope status   : {env.status}")
+        print(f"[debug] spawn envelope summary  : {env.summary}")
+        if env.notes:
+            print(f"[debug] spawn envelope notes    : {env.notes[:400]}")
+        print(f"[debug] token usage             : {sr.token_usage}")
+        print(f"[debug] raw output (first 800c) :")
+        raw = (sr.raw_output or "")[:800]
+        print(raw or "  (empty)")
+
     grade = sprint.envelopes.get("grade")
     if grade is not None:
         p = grade.parsed_payload()

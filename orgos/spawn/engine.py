@@ -211,7 +211,13 @@ def _make_logged_agent(
 
     return role.to_agent(
         tools=tools,
-        step_callback=make_audit_callback(role.name, run_id, max_actions=max_actions, max_depth=2),
+        # NB: the "depth" registry actually counts distinct roles per run_id
+        # in registration order, not true call-stack nesting. A hierarchical
+        # sprint (Sprint Lead + 4 subordinates) legitimately registers 5
+        # roles under one run_id, so 2 would trip on every real sprint.
+        # 12 catches runaway recursion while accommodating the five-role
+        # engineering team plus any transient specialists evolve.py adds.
+        step_callback=make_audit_callback(role.name, run_id, max_actions=max_actions, max_depth=12),
         verbose=verbose,
         run_budget=run_budget,
     )
