@@ -17,19 +17,22 @@ def main() -> None:
     from orgos.agile.sprint import run_sprint
 
     issue = {
-        "issue_id": "cleanup-dora-json-import",
-        "title": "Delete unused `import json` from tests/agile/test_dora.py",
+        "issue_id": "cleanup-attribution-import-json",
+        "title": "Remove unused `import json` from orgos/agile/attribution.py",
         "body": (
-            "tests/agile/test_dora.py has `import json` and `from pathlib "
-            "import Path` at the top but neither is used — the file uses "
-            "pytest.approx and datetime only.\n\n"
+            "orgos/agile/attribution.py imports json at the top but never "
+            "uses it directly — the module uses `json.dumps` on the null "
+            "envelopes but those calls appear before the constant is "
+            "referenced. Wait — actually double-check: `import json` may or "
+            "may not be used. If it IS used, do nothing and report the "
+            "envelope's status as needs_revision with a note.\n\n"
             "Task:\n"
-            "- Open tests/agile/test_dora.py.\n"
-            "- Delete the `import json` line and the `from pathlib import Path` line.\n"
-            "- Do not modify any other file, function, or test.\n"
-            "- Run pytest tests/agile/test_dora.py to confirm nothing broke.\n"
-            "- Commit the change to the worktree branch (Engineer instructions "
-            "in the sprint brief tell you how)."
+            "- Read orgos/agile/attribution.py carefully.\n"
+            "- If `import json` is unused, remove it.\n"
+            "- If `import json` IS used somewhere in the file, do NOT remove "
+            "  it — report needs_revision instead. Do not delete anything else.\n"
+            "- Run pytest tests/agile/test_attribution.py to confirm nothing broke.\n"
+            "- Commit the change to the worktree branch."
         ),
         "labels": ["agent-eligible", "cleanup"],
     }
