@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Heading, Card, Badge } from "@/lib/ui";
 
 type Snapshot = {
   id?: number;
@@ -35,55 +36,19 @@ function tierColor(tier: string): string {
   return map[tier] ?? "#6b7280";
 }
 
-function MetricCard({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
+function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div
-      className="card"
-      style={{
-        background: "var(--bg-secondary)",
-        borderRadius: 8,
-        padding: "16px 20px",
-        minWidth: 140,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          color: "var(--text-muted)",
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700 }}>{value}</div>
-      {sub && (
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-          {sub}
-        </div>
-      )}
-    </div>
+    <Card className="flex-1 text-center" style={{ background: "var(--bg-secondary)", borderRadius: 8 }}>
+      <div className="text-[11px] uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }}>{label}</div>
+      <div className="text-[22px] font-bold" style={{ color: "var(--text-primary)" }}>{value}</div>
+      {sub && <div className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>{sub}</div>}
+    </Card>
   );
 }
 
 export default function DoraPage() {
-  const [data, setData] = useState<{
-    latest: Snapshot;
-    history: Snapshot[];
-  } | null>(null);
-  const [heur, setHeur] = useState<{
-    active: Heuristic[];
-    candidates: Heuristic[];
-  } | null>(null);
+  const [data, setData] = useState<{ latest: Snapshot; history: Snapshot[] } | null>(null);
+  const [heur, setHeur] = useState<{ active: Heuristic[]; candidates: Heuristic[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -91,240 +56,99 @@ export default function DoraPage() {
       fetch("/api/dora").then((r) => r.json()),
       fetch("/api/heuristics").then((r) => r.json()),
     ])
-      .then(([d, h]) => {
-        setData(d);
-        setHeur(h);
-      })
+      .then(([d, h]) => { setData(d); setHeur(h); })
       .catch((e) => setErr(String(e)));
   }, []);
 
-  if (err)
-    return (
-      <div className="p-6" style={{ color: "var(--text-muted)" }}>
-        Error: {err}
-      </div>
-    );
-  if (!data || !heur)
-    return (
-      <div className="p-6" style={{ color: "var(--text-muted)" }}>
-        Loading...
-      </div>
-    );
+  if (err) return <div className="px-6 py-6" style={{ color: "var(--text-muted)" }}>Error: {err}</div>;
+  if (!data || !heur) return <div className="px-6 py-6" style={{ color: "var(--text-muted)" }}>Loading...</div>;
 
   const s = data.latest;
   const history = [...data.history].reverse();
 
   return (
-    <div className="space-y-6" style={{ padding: "24px 32px" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>DORA Metrics</h1>
-        <span
-          style={{
-            background: tierColor(s.tier),
-            color: "#fff",
-            borderRadius: 6,
-            padding: "2px 10px",
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
+    <div className="px-6 py-6 space-y-8">
+      <div className="flex items-center gap-4">
+        <Heading level={1}>DORA Metrics</Heading>
+        <span style={{ background: tierColor(s.tier), color: "#fff", borderRadius: 6, padding: "2px 10px", fontSize: 13, fontWeight: 600 }}>
           {s.tier}
         </span>
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          window: {s.window_days}d
-        </span>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>window: {s.window_days}d</span>
       </div>
 
-      {/* Metric cards */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <MetricCard
-          label="Deploy freq"
-          value={`${s.deploy_freq.toFixed(2)}/d`}
-          sub="deploys per day"
-        />
-        <MetricCard
-          label="Lead time p50"
-          value={`${(s.lead_time_p50 / 3600).toFixed(1)}h`}
-          sub="commit → deploy"
-        />
-        <MetricCard
-          label="CFR"
-          value={`${(s.cfr * 100).toFixed(1)}%`}
-          sub="change fail rate"
-        />
-        <MetricCard
-          label="MTTR p50"
-          value={`${(s.mttr_p50 / 3600).toFixed(1)}h`}
-          sub="mean time to restore"
-        />
+      <div className="flex gap-4 flex-wrap">
+        <MetricCard label="Deploy freq" value={`${s.deploy_freq.toFixed(2)}/d`} sub="deploys per day" />
+        <MetricCard label="Lead time p50" value={`${(s.lead_time_p50 / 3600).toFixed(1)}h`} sub="commit → deploy" />
+        <MetricCard label="CFR" value={`${(s.cfr * 100).toFixed(1)}%`} sub="change fail rate" />
+        <MetricCard label="MTTR p50" value={`${(s.mttr_p50 / 3600).toFixed(1)}h`} sub="mean time to restore" />
       </div>
 
-      {/* History table */}
       <section>
-        <h2
-          style={{
-            fontSize: 15,
-            fontWeight: 600,
-            marginBottom: 8,
-          }}
-        >
-          Snapshot history ({history.length})
-        </h2>
+        <Heading level={2}>Snapshot history ({history.length})</Heading>
         {history.length === 0 ? (
-          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
-            No snapshots stored yet.
-          </div>
+          <div className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>No snapshots stored yet.</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                fontSize: 13,
-                borderCollapse: "collapse",
-              }}
-            >
+          <Card className="overflow-x-auto p-0 mt-2">
+            <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
               <thead>
-                <tr
-                  style={{
-                    color: "var(--text-muted)",
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  {[
-                    "Date",
-                    "Tier",
-                    "Deploy/d",
-                    "Lead p50 (h)",
-                    "CFR",
-                    "MTTR p50 (h)",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      style={{ textAlign: "left", padding: "4px 10px" }}
-                    >
-                      {h}
-                    </th>
+                <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                  {["Date","Tier","Deploy/d","Lead p50 (h)","CFR","MTTR p50 (h)"].map(h => (
+                    <th key={h} className="px-3 py-2 text-left text-xs font-medium">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {history.map((row, i) => (
-                  <tr
-                    key={i}
-                    style={{ borderBottom: "1px solid var(--border)" }}
-                  >
-                    <td style={{ padding: "5px 10px" }}>
-                      {row.created_at ? row.created_at.slice(0, 10) : "—"}
-                    </td>
-                    <td style={{ padding: "5px 10px" }}>
-                      <span
-                        style={{
-                          color: tierColor(row.tier),
-                          fontWeight: 600,
-                        }}
-                      >
-                        {row.tier}
-                      </span>
-                    </td>
-                    <td style={{ padding: "5px 10px" }}>
-                      {row.deploy_freq.toFixed(2)}
-                    </td>
-                    <td style={{ padding: "5px 10px" }}>
-                      {(row.lead_time_p50 / 3600).toFixed(1)}
-                    </td>
-                    <td style={{ padding: "5px 10px" }}>
-                      {(row.cfr * 100).toFixed(1)}%
-                    </td>
-                    <td style={{ padding: "5px 10px" }}>
-                      {(row.mttr_p50 / 3600).toFixed(1)}
-                    </td>
+                  <tr key={i} className="border-b border-[var(--border)] hover:bg-[var(--bg-secondary)] transition-colors">
+                    <td className="px-3 py-2">{row.created_at ? row.created_at.slice(0, 10) : "—"}</td>
+                    <td className="px-3 py-2"><span style={{ color: tierColor(row.tier), fontWeight: 600 }}>{row.tier}</span></td>
+                    <td className="px-3 py-2">{row.deploy_freq.toFixed(2)}</td>
+                    <td className="px-3 py-2">{(row.lead_time_p50 / 3600).toFixed(1)}</td>
+                    <td className="px-3 py-2">{(row.cfr * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2">{(row.mttr_p50 / 3600).toFixed(1)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </Card>
         )}
       </section>
 
-      {/* Candidate heuristics */}
       <section>
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
-          Candidate heuristics ({heur.candidates.length})
-        </h2>
+        <Heading level={2}>Candidate heuristics ({heur.candidates.length})</Heading>
         {heur.candidates.length === 0 ? (
-          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>None.</div>
+          <div className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>None.</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="space-y-2 mt-2">
             {heur.candidates.map((h) => (
-              <div
-                key={h.id}
-                style={{
-                  background: "var(--bg-secondary)",
-                  borderRadius: 8,
-                  padding: "10px 14px",
-                  fontSize: 13,
-                }}
-              >
-                <div style={{ fontWeight: 600, fontFamily: "monospace" }}>
-                  {h.rule}
+              <Card key={h.id} style={{ background: "var(--bg-secondary)", borderRadius: 8 }}>
+                <div className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{h.rule}</div>
+                <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{h.why}</div>
+                <div className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
+                  tags: {h.tags.join(", ")} | score: {h.score.toFixed(2)} | source: {h.source}
                 </div>
-                <div
-                  style={{ color: "var(--text-muted)", marginTop: 2 }}
-                >
-                  {h.why}
-                </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-muted)" }}>
-                  tags: {h.tags.join(", ")} &nbsp;|&nbsp; score:{" "}
-                  {h.score.toFixed(2)} &nbsp;|&nbsp; source: {h.source}
-                </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
       </section>
 
-      {/* Active heuristics */}
       <section>
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
-          Active heuristics ({heur.active.length})
-        </h2>
+        <Heading level={2}>Active heuristics ({heur.active.length})</Heading>
         {heur.active.length === 0 ? (
-          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>None.</div>
+          <div className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>None.</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="space-y-2 mt-2">
             {heur.active.map((h) => (
-              <div
-                key={h.id}
-                style={{
-                  background: "var(--bg-secondary)",
-                  borderRadius: 8,
-                  padding: "10px 14px",
-                  fontSize: 13,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  gap: 12,
-                }}
-              >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontFamily: "monospace" }}>
-                    {h.rule}
+              <Card key={h.id} style={{ background: "var(--bg-secondary)", borderRadius: 8 }}>
+                <div className="flex justify-between items-start gap-3">
+                  <div className="flex-1">
+                    <div className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{h.rule}</div>
+                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{h.why}</div>
                   </div>
-                  <div style={{ color: "var(--text-muted)", marginTop: 2 }}>
-                    {h.why}
-                  </div>
+                  <div className="text-[11px] shrink-0" style={{ color: "var(--text-muted)" }}>used {h.use_count}x</div>
                 </div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  used {h.use_count}x
-                </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}

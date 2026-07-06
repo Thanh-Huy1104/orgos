@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
+import { Heading, Card, Badge, Button } from "@/lib/ui";
 
 type Role = { name: string; tier: string; contribution: number };
 type Edge = { from: string; to: string; weight: number };
@@ -180,16 +181,16 @@ export default function TeamPage() {
     };
   }, [topology]);
 
-  if (!topology || !adrs) return <div className="p-6">Loading...</div>;
+  if (!topology || !adrs) return <div className="px-6 py-6">Loading...</div>;
 
   return (
-    <div>
-      <section className="mb-6">
-        <h2 className="text-xl font-semibold mb-3">Role topology</h2>
+    <div className="px-6 py-6">
+      <section className="mb-8">
+        <Heading level={1} className="mb-3">Role topology</Heading>
         <div
           ref={graphBoxRef}
-          className="border rounded bg-white w-full"
-          style={{ height: 500, position: "relative", overflow: "hidden" }}
+          className="border rounded-xl bg-white w-full"
+          style={{ height: 500, position: "relative", overflow: "hidden", borderColor: "var(--border)" }}
         >
           <svg
             ref={svgRef}
@@ -198,44 +199,51 @@ export default function TeamPage() {
             style={{ display: "block" }}
           />
         </div>
-        <div className="mt-2 text-xs text-gray-500 flex gap-4 flex-wrap">
+        <div className="mt-2 text-xs flex gap-4 flex-wrap" style={{ color: "var(--text-muted)" }}>
           <LegendDot color="#6366F1" label="orchestrator" />
           <LegendDot color="#059669" label="worker" />
           <LegendDot color="#D97706" label="validator" />
           <LegendDot color="#DC2626" label="publisher" />
-          <span>• node size = last-sprint contribution</span>
+          <span>• node size = contribution</span>
           <span>• drag nodes to rearrange</span>
         </div>
       </section>
 
       <section>
-        <h2 className="text-xl mb-2">ADRs</h2>
+        <Heading level={1} className="mb-3">ADRs</Heading>
         {["pending", "approved", "applied", "rejected"].map((bucket) => (
           <div key={bucket} className="mb-4">
-            <h3 className="text-sm font-bold uppercase">{bucket}</h3>
-            <ul className="space-y-2">
+            <Heading level={3} className="uppercase mb-2">{bucket}</Heading>
+            <div className="space-y-2">
               {(adrs[bucket] ?? []).map((a) => (
-                <li key={a.id} className="border p-3 rounded">
-                  <div className="flex justify-between">
-                    <div>
-                      <div className="font-mono text-sm">ADR-{String(a.id).padStart(3, "0")} · {a.kind}</div>
-                      <div className="text-xs text-gray-600 mt-1">{a.rationale}</div>
+                <Card key={a.id}>
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                          ADR-{String(a.id).padStart(3, "0")}
+                        </span>
+                        <Badge variant="gray">{a.kind}</Badge>
+                      </div>
+                      <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{a.rationale}</div>
                     </div>
                     {bucket === "pending" && (
-                      <div className="space-x-2">
-                        <button className="px-2 py-1 bg-green-600 text-white rounded" onClick={() => act(a.id, "approve")}>Approve</button>
-                        <button className="px-2 py-1 bg-red-600 text-white rounded" onClick={() => act(a.id, "reject")}>Reject</button>
+                      <div className="flex gap-2 shrink-0">
+                        <Button variant="primary" size="sm" onClick={() => act(a.id, "approve")}>Approve</Button>
+                        <Button variant="danger" size="sm" onClick={() => act(a.id, "reject")}>Reject</Button>
                       </div>
                     )}
                   </div>
                   <details className="mt-2">
-                    <summary className="text-xs cursor-pointer">Show diff</summary>
-                    <pre className="text-xs whitespace-pre-wrap bg-gray-50 p-2">{a.after_yaml}</pre>
+                    <summary className="text-xs cursor-pointer" style={{ color: "var(--text-muted)" }}>Show diff</summary>
+                    <pre className="text-xs whitespace-pre-wrap rounded-lg p-3 mt-2" style={{ background: "var(--bg-secondary)" }}>{a.after_yaml}</pre>
                   </details>
-                </li>
+                </Card>
               ))}
-              {(adrs[bucket] ?? []).length === 0 && <li className="text-gray-400 text-sm">None</li>}
-            </ul>
+              {(adrs[bucket] ?? []).length === 0 && (
+                <div className="text-sm py-2" style={{ color: "var(--text-muted)" }}>None</div>
+              )}
+            </div>
           </div>
         ))}
       </section>

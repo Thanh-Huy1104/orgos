@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Heading, Card } from "@/lib/ui";
 
 export default function LabPicker() {
   const [sprints, setSprints] = useState<any[]>([]);
@@ -8,19 +9,26 @@ export default function LabPicker() {
     fetch("/api/sprints").then(r => r.json()).then(setSprints);
   }, []);
   return (
-    <div className="p-6">
-      <h1 className="text-2xl mb-4">Counterfactual Lab</h1>
-      <p className="text-sm text-gray-600 mb-4">
+    <div className="px-6 py-6 space-y-6">
+      <Heading level={1}>Counterfactual Lab</Heading>
+      <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
         Pick a completed sprint to replay with a mutated brief.
       </p>
-      <ul className="space-y-1">
-        {sprints.filter((s: any) => s.status === "completed").map((s: any) => (
-          <li key={s.id}>
-            <Link href={`/lab/${s.id}`} className="text-blue-600">{s.id}</Link>
-            <span className="text-xs text-gray-500 ml-2">{s.branch}</span>
-          </li>
-        ))}
-      </ul>
+      <Card>
+        <ul className="space-y-2">
+          {sprints.filter((s: any) => s.status === "completed").map((s: any) => (
+            <li key={s.id}>
+              <Link href={`/lab/${s.id}`} className="text-sm font-medium hover:underline" style={{ color: "var(--blue)" }}>
+                {s.id}
+              </Link>
+              <span className="text-xs ml-2" style={{ color: "var(--text-muted)" }}>{s.branch}</span>
+            </li>
+          ))}
+          {sprints.filter((s: any) => s.status === "completed").length === 0 && (
+            <li className="text-sm" style={{ color: "var(--text-muted)" }}>No completed sprints available.</li>
+          )}
+        </ul>
+      </Card>
     </div>
   );
 }

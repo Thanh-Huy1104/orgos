@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { Heading, Card, Badge } from "@/lib/ui";
 
 type Envelope = {
   role?: string;
@@ -31,12 +32,12 @@ const PHASE_ORDER = [
   "backlog", "brief", "engineering", "grade", "release", "dora", "retro",
 ];
 
-const STATUS_COLOR: Record<string, string> = {
-  completed: "text-green-700 bg-green-50 border-green-200",
-  needs_revision: "text-yellow-700 bg-yellow-50 border-yellow-200",
-  failed: "text-red-700 bg-red-50 border-red-200",
-  in_progress: "text-blue-700 bg-blue-50 border-blue-200",
-  pending_release: "text-yellow-700 bg-yellow-50 border-yellow-200",
+const STATUS_VARIANT: Record<string, "green" | "yellow" | "red" | "blue" | "gray"> = {
+  completed: "green",
+  needs_revision: "yellow",
+  failed: "red",
+  in_progress: "blue",
+  pending_release: "yellow",
 };
 
 function safeParsePayload(payload: string | undefined): any {
@@ -44,7 +45,7 @@ function safeParsePayload(payload: string | undefined): any {
   try {
     return JSON.parse(payload);
   } catch {
-    return payload;  // keep raw text if not JSON
+    return payload;
   }
 }
 
@@ -56,32 +57,32 @@ export default function SprintDetail() {
     fetch(`/api/sprints/${sprintId}`).then(r => r.json()).then(setData);
   }, [sprintId]);
 
-  if (!data) return <div className="p-6">Loading...</div>;
-  if (data.error) return <div className="p-6 text-red-600">Error: {data.error}</div>;
+  if (!data) return <div className="px-6 py-6">Loading...</div>;
+  if (data.error) return <div className="px-6 py-6" style={{ color: "var(--red)" }}>Error: {data.error}</div>;
 
   const envs = data.envelopes ?? {};
   const captured = PHASE_ORDER.filter(p => envs[p]);
   const missing = PHASE_ORDER.filter(p => !envs[p] && p !== "retro" && p !== "dora");
   const summary = envs["summary"];
   const status = data.sprint?.status ?? "in_progress";
-  const badge = STATUS_COLOR[status] ?? "text-gray-700 bg-gray-50 border-gray-200";
+  const variant = STATUS_VARIANT[status] ?? "gray";
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
+    <div className="px-6 py-6 space-y-6 max-w-5xl">
       <div>
-        <div className="text-xs uppercase text-gray-500 tracking-wider mb-1">Sprint</div>
+        <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Sprint</div>
         <div className="flex items-baseline gap-3">
-          <div className="font-mono text-2xl">{sprintId}</div>
-          <span className={`text-xs px-2 py-0.5 rounded border ${badge}`}>{status}</span>
+          <Heading level={1}>{sprintId}</Heading>
+          <Badge variant={variant}>{status}</Badge>
         </div>
         {data.sprint && (
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
             branch <span className="font-mono">{data.sprint.branch}</span> ·
             started {data.sprint.started_at?.slice(0, 19).replace("T", " ")}
           </div>
         )}
         {data.replay && (
-          <div className="text-xs mt-2 text-purple-700">
+          <div className="text-xs mt-2" style={{ color: "var(--accent)" }}>
             replay of{" "}
             <a href={`/sprints/${data.replay.parent_sprint_id}`} className="underline">
               {data.replay.parent_sprint_id}
@@ -95,9 +96,7 @@ export default function SprintDetail() {
 
       {captured.length > (summary ? 1 : 0) && (
         <section>
-          <h2 className="text-sm font-bold uppercase text-gray-500 tracking-wider mb-2">
-            Captured phases
-          </h2>
+          <Heading level={3} className="uppercase tracking-wider mb-3">Captured phases</Heading>
           <div className="space-y-3">
             {captured
               .filter(p => p !== "summary")
@@ -108,15 +107,13 @@ export default function SprintDetail() {
 
       {missing.length > 0 && (
         <section>
-          <h2 className="text-sm font-bold uppercase text-gray-500 tracking-wider mb-2">
-            Phases not captured
-          </h2>
-          <div className="text-xs text-gray-500 border p-3 rounded bg-gray-50">
+          <Heading level={3} className="uppercase tracking-wider mb-3">Phases not captured</Heading>
+          <Card className="text-xs" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)" }}>
             {missing.join(", ")} — the sprint-lead delegated to subordinates but
             their raw output didn&apos;t contain a JSON envelope this parser
             could match. See the <span className="font-mono">summary</span> above for the
             authoritative sprint-lead account.
-          </div>
+          </Card>
         </section>
       )}
     </div>
@@ -125,55 +122,55 @@ export default function SprintDetail() {
 
 function SummaryCard({ env }: { env: Envelope }) {
   return (
-    <section className="border rounded p-4 bg-white">
+    <Card>
       <div className="flex items-baseline justify-between mb-2">
-        <h2 className="font-bold">Sprint-Lead Summary</h2>
-        <span className="text-xs text-gray-500">
+        <Heading level={2}>Sprint-Lead Summary</Heading>
+        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
           {env.status}
           {env.requires_human_approval ? " · needs approval" : ""}
-        </span>
+        </div>
       </div>
-      <div className="whitespace-pre-wrap text-sm leading-relaxed">{env.summary}</div>
+      <div className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{env.summary}</div>
       {env.notes && (
-        <div className="mt-3 text-xs text-gray-600 italic border-t pt-2">
+        <div className="mt-3 text-xs italic border-t pt-2" style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}>
           {env.notes}
         </div>
       )}
       {env.artifacts && env.artifacts.length > 0 && (
         <details className="mt-3">
-          <summary className="text-xs text-gray-500 cursor-pointer">
+          <summary className="text-xs cursor-pointer" style={{ color: "var(--text-muted)" }}>
             {env.artifacts.length} artifact{env.artifacts.length === 1 ? "" : "s"}
           </summary>
           <ul className="mt-2 space-y-1 text-xs font-mono">
             {env.artifacts.map((a, i) => (
-              <li key={i} className="bg-gray-50 border rounded p-2 whitespace-pre-wrap break-all">{a}</li>
+              <li key={i} className="rounded-lg p-2 whitespace-pre-wrap break-all" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>{a}</li>
             ))}
           </ul>
         </details>
       )}
-    </section>
+    </Card>
   );
 }
 
 function PhaseCard({ phase, env }: { phase: string; env: Envelope }) {
   const payload = safeParsePayload(env.payload);
   return (
-    <div className="border rounded p-3 bg-white">
+    <Card>
       <div className="flex items-baseline justify-between mb-1">
-        <div className="font-mono text-xs uppercase text-gray-700">[{phase}]</div>
-        <div className="text-xs text-gray-500">
+        <div className="font-mono text-xs uppercase" style={{ color: "var(--text-primary)" }}>[{phase}]</div>
+        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
           {env.role} · {env.status}
         </div>
       </div>
-      {env.summary && <div className="text-sm mb-2">{env.summary}</div>}
+      {env.summary && <div className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>{env.summary}</div>}
       {payload && (
         <details>
-          <summary className="text-xs text-gray-500 cursor-pointer">payload</summary>
-          <pre className="text-[11px] bg-gray-50 border rounded p-2 mt-2 whitespace-pre-wrap overflow-x-auto">
+          <summary className="text-xs cursor-pointer" style={{ color: "var(--text-muted)" }}>payload</summary>
+          <pre className="text-[11px] rounded-lg p-2 mt-2 whitespace-pre-wrap overflow-x-auto" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
             {typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)}
           </pre>
         </details>
       )}
-    </div>
+    </Card>
   );
 }
