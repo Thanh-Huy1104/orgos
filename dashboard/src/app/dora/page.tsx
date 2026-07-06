@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Heading, Card, Badge } from "@/lib/ui";
+import { Markdown } from "@/lib/markdown";
 
 type Snapshot = {
   id?: number;
@@ -144,7 +145,7 @@ export default function DoraPage() {
                 <div className="flex justify-between items-start gap-3">
                   <div className="flex-1">
                     <div className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{h.rule}</div>
-                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{h.why}</div>
+                <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}><Markdown>{h.why}</Markdown></div>
                   </div>
                   <div className="text-[11px] shrink-0" style={{ color: "var(--text-muted)" }}>used {h.use_count}x</div>
                 </div>

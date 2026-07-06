@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import { Heading, Card, Badge, Button } from "@/lib/ui";
+import { Markdown } from "@/lib/markdown";
 
 type Role = { name: string; tier: string; contribution: number };
 type Edge = { from: string; to: string; weight: number };
@@ -225,7 +226,7 @@ export default function TeamPage() {
                         </span>
                         <Badge variant="gray">{a.kind}</Badge>
                       </div>
-                      <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{a.rationale}</div>
+                      <div className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}><Markdown>{a.rationale}</Markdown></div>
                     </div>
                     {bucket === "pending" && (
                       <div className="flex gap-2 shrink-0">

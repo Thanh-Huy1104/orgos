@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Heading, Card, Badge } from "@/lib/ui";
+import { Markdown } from "@/lib/markdown";
 
 type Envelope = {
   role?: string;
@@ -130,7 +131,7 @@ function SummaryCard({ env }: { env: Envelope }) {
           {env.requires_human_approval ? " · needs approval" : ""}
         </div>
       </div>
-      <div className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{env.summary}</div>
+      <div className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}><Markdown>{env.summary ?? ""}</Markdown></div>
       {env.notes && (
         <div className="mt-3 text-xs italic border-t pt-2" style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}>
           {env.notes}
@@ -162,7 +163,7 @@ function PhaseCard({ phase, env }: { phase: string; env: Envelope }) {
           {env.role} · {env.status}
         </div>
       </div>
-      {env.summary && <div className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>{env.summary}</div>}
+      {env.summary && <div className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}><Markdown>{env.summary}</Markdown></div>}
       {payload && (
         <details>
           <summary className="text-xs cursor-pointer" style={{ color: "var(--text-muted)" }}>payload</summary>
