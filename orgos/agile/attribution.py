@@ -11,7 +11,7 @@ import json
 
 from .envelopes import (
     BriefEnvelope, EngineeringEnvelope, GradeEnvelope,
-    HandoffEnvelope, ReleaseEnvelope,
+    ReleaseEnvelope,
 )
 from .rubric import grade as run_rubric
 
