@@ -96,10 +96,27 @@ def _make_worktree(repo: Path, sprint_id: str, branch: str) -> Path:
         ["git", "worktree", "add", "-b", branch, str(worktree_root), "HEAD"],
         cwd=repo, check=True, capture_output=True,
     )
+    # Drop a per-worktree .git/info/exclude so orgos-owned scratch files
+    # (snapshot.json, retro.md if we add it later) never get picked up by a
+    # blanket `git add -A` in the Engineer's commit step. exclude is
+    # local-only, so nothing here leaks to the branch or origin.
+    exclude_path = worktree_root / ".git" / "info" / "exclude"
+    if not exclude_path.exists():
+        # git worktree puts .git as a file, not a dir; resolve to the actual
+        # per-worktree git dir.
+        gitfile = (worktree_root / ".git").read_text().strip()
+        if gitfile.startswith("gitdir: "):
+            gitdir = Path(gitfile[len("gitdir: "):])
+            if not gitdir.is_absolute():
+                gitdir = (worktree_root / gitdir).resolve()
+            exclude_path = gitdir / "info" / "exclude"
+    exclude_path.parent.mkdir(parents=True, exist_ok=True)
+    with exclude_path.open("a") as f:
+        f.write("\n# orgos scratch — do not commit\nsnapshot.json\n")
     return worktree_root
 
 
-def _brief_for_team(issue: dict, worktree: Path) -> TaskBrief:
+def _brief_for_team(issue: dict, worktree: Path, branch: str) -> TaskBrief:
     return TaskBrief(
         objective=(
             f"Ship issue {issue.get('issue_id', '?')}: {issue.get('title', '')}. "
@@ -107,15 +124,146 @@ def _brief_for_team(issue: dict, worktree: Path) -> TaskBrief:
             f"emits its typed envelope; you synthesise the final HandoffEnvelope.\n\n"
             f"The Engineer's git worktree is at {worktree}. All shell commands "
             f"run there automatically — do NOT try to cd or search elsewhere. "
-            f"The initial files are src.py, test_src.py, README.md."
+            f"The worktree is a fork of the current repo HEAD; the branch is "
+            f"'{branch}'.\n\n"
+            f"IMPORTANT — the Engineer MUST commit its final change to the "
+            f"worktree branch before handing off. Run:\n"
+            f"  git add -A && git -c user.name=orgos-engineer "
+            f"-c user.email=engineer@orgos.local commit -m "
+            f"'<one-line summary of the change>'\n"
+            f"...as the LAST step of the engineering phase, after tests pass. "
+            f"The EngineeringEnvelope's commit_sha field must contain the SHA "
+            f"of that new commit. If the tests don't pass, do not commit; "
+            f"report status=needs_revision instead."
         ),
         expected_output="A synthesised final envelope describing the sprint outcome.",
         success_criteria=[
             "Each subordinate produced a typed envelope.",
+            "The Engineer committed to the worktree branch with a valid SHA.",
             "The Release envelope contains a pr_url (or mock://pr/...).",
         ],
-        inputs={"issue": json.dumps(issue), "worktree_path": str(worktree)},
+        inputs={"issue": json.dumps(issue), "worktree_path": str(worktree),
+                "branch": branch},
     )
+
+
+# Envelope subclasses keyed by the phase name they represent.
+_PHASE_TO_ENVELOPE: dict[str, type] = {
+    "backlog": BacklogEnvelope,
+    "brief": BriefEnvelope,
+    "engineering": EngineeringEnvelope,
+    "grade": GradeEnvelope,
+    "release": ReleaseEnvelope,
+    "dora": DoraEnvelope,
+}
+
+# Substrings in the envelope's `role` field that map to a phase.
+_ROLE_TO_PHASE: list[tuple[str, str]] = [
+    ("product-manager", "brief"),
+    ("product manager", "brief"),
+    ("pm", "brief"),
+    ("engineer", "engineering"),
+    ("qa", "grade"),
+    ("release", "release"),
+    ("intake", "backlog"),
+    ("dora", "dora"),
+]
+
+
+def _extract_json_objects(text: str) -> list[str]:
+    """Pull ALL balanced JSON objects out of a mixed prose/markdown blob.
+
+    The hierarchical manager task's output typically contains several
+    envelopes embedded in prose — one per subordinate delegated to. Grab
+    each `{...}` span whose braces balance; caller filters by shape.
+    """
+    import re
+    out: list[str] = []
+    # First, any ```json ... ``` fenced blocks — most reliable.
+    for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL):
+        out.append(m.group(1))
+    # Then any bare balanced JSON objects. Skip fenced blocks we already grabbed.
+    consumed_spans = [(text.find(s), text.find(s) + len(s)) for s in out if s in text]
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch != "{":
+            i += 1
+            continue
+        # Skip if we're inside a span we already captured via fence match.
+        if any(a <= i < b for a, b in consumed_spans):
+            i += 1
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        for j in range(i, len(text)):
+            c = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append(text[i : j + 1])
+                    i = j + 1
+                    break
+        else:
+            break
+    return out
+
+
+# Preserve the singular form for callers that just want the first hit.
+def _extract_json_object(text: str) -> str | None:
+    hits = _extract_json_objects(text)
+    return hits[0] if hits else None
+
+
+def _classify_by_role(role: str) -> str | None:
+    """Map a role name from an envelope's `role` field to a phase name."""
+    role_l = role.lower()
+    for needle, phase in _ROLE_TO_PHASE:
+        if needle in role_l:
+            return phase
+    return None
+
+
+def _parse_task_envelope(raw_text: str) -> tuple[str, Any] | None:
+    """Try to parse one task's raw output into a typed envelope.
+
+    Returns (phase, envelope) if the raw text contains a JSON blob that
+    validates against one of the phase envelope subclasses, else None.
+    """
+    if not raw_text:
+        return None
+    blob = _extract_json_object(raw_text)
+    if not blob:
+        return None
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    role = data.get("role", "") or ""
+    phase = _classify_by_role(role)
+    if phase is None:
+        return None
+    subclass = _PHASE_TO_ENVELOPE.get(phase)
+    if subclass is None:
+        return None
+    try:
+        return phase, subclass.model_validate(data)
+    except Exception:
+        return None
 
 
 def run_sprint(
@@ -160,7 +308,7 @@ def run_sprint(
     )
     lead = sprint_lead_role(model=model)
 
-    brief = _brief_for_team(issue, worktree)
+    brief = _brief_for_team(issue, worktree, branch)
     # In mock mode there is no human review loop, so we auto-approve the
     # MockPRTool gate. Real runs (mock_pr=False) still require the caller to
     # supply an approval_fn through the higher-level nightly loop.
@@ -173,23 +321,50 @@ def run_sprint(
     )
 
     envelopes: dict[str, Any] = {}
+    # 1. If a task carries a typed pydantic HandoffEnvelope subclass, take it
+    #    directly (fast path for tasks where output_pydantic is set).
+    # 2. Otherwise scan the task's raw string for embedded envelope JSON.
+    #    CrewAI's hierarchical process routes subordinate outputs back to
+    #    the manager task as prose — the envelopes are still there but need
+    #    to be dug out.
     for tout in result.tasks_output:
-        env = getattr(tout, "pydantic", None) or getattr(tout, "raw", None)
-        if isinstance(env, BriefEnvelope):
-            envelopes["brief"] = env
-        elif isinstance(env, EngineeringEnvelope):
-            envelopes["engineering"] = env
-        elif isinstance(env, ReleaseEnvelope):
-            envelopes["release"] = env
+        pyd = getattr(tout, "pydantic", None)
+        if isinstance(pyd, BriefEnvelope):
+            envelopes.setdefault("brief", pyd)
+        elif isinstance(pyd, EngineeringEnvelope):
+            envelopes.setdefault("engineering", pyd)
+        elif isinstance(pyd, ReleaseEnvelope):
+            envelopes.setdefault("release", pyd)
+        elif isinstance(pyd, GradeEnvelope):
+            envelopes.setdefault("grade", pyd)
 
-    # Deterministic rubric over the EngineeringEnvelope (overrides any LLM grade).
+        raw = getattr(tout, "raw", "") or ""
+        for blob in _extract_json_objects(raw):
+            try:
+                data = json.loads(blob)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            phase = _classify_by_role(data.get("role", "") or "")
+            if phase is None:
+                continue
+            subclass = _PHASE_TO_ENVELOPE.get(phase)
+            if subclass is None:
+                continue
+            try:
+                envelopes.setdefault(phase, subclass.model_validate(data))
+            except Exception:
+                continue
+
+    # Deterministic rubric over the EngineeringEnvelope always wins over any
+    # LLM-produced GradeEnvelope, since the rubric is reproducible.
     if "brief" in envelopes and "engineering" in envelopes:
         envelopes["grade"] = run_rubric(envelopes["brief"], envelopes["engineering"])
 
-    # CrewAI's hierarchical spawn returns raw strings from delegated tasks —
-    # only the synthesis task carries a typed HandoffEnvelope. Keep it as the
-    # authoritative "summary" envelope so the dashboard always has something
-    # to show and status is driven by what the sprint lead actually reported.
+    # The sprint-lead's synthesis envelope is always kept as the "summary"
+    # phase so the dashboard has a top-level narrative even when the
+    # subordinate parses fail.
     envelopes["summary"] = result.envelope
 
     status = "completed" if (

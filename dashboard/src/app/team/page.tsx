@@ -29,17 +29,17 @@ export default function TeamPage() {
 
   const graphBoxRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
-  const [size, setSize] = useState({ w: 800, h: 380 });
+  const [size, setSize] = useState({ w: 800, h: 500 });
 
   useEffect(() => {
     if (!graphBoxRef.current) return;
     const el = graphBoxRef.current;
     // Measure immediately so the first paint isn't 0x0.
     const rect = el.getBoundingClientRect();
-    if (rect.width > 0) setSize({ w: Math.floor(rect.width), h: 380 });
+    if (rect.width > 0) setSize({ w: Math.floor(rect.width), h: 500 });
     const ro = new ResizeObserver(entries => {
       const w = Math.floor(entries[0].contentRect.width);
-      if (w > 0) setSize(prev => (prev.w === w ? prev : { w, h: 380 }));
+      if (w > 0) setSize(prev => (prev.w === w ? prev : { w, h: 500 }));
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -89,13 +89,13 @@ export default function TeamPage() {
   if (!topology || !adrs) return <div className="p-6">Loading...</div>;
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-xl mb-2">Role topology</h2>
+    <div>
+      <section className="mb-6">
+        <h2 className="text-xl font-semibold mb-3">Role topology</h2>
         <div
           ref={graphBoxRef}
-          className="border rounded bg-white"
-          style={{ height: 380, position: "relative", overflow: "hidden" }}
+          className="border rounded bg-white w-full"
+          style={{ height: 500, position: "relative", overflow: "hidden" }}
         >
           <ForceGraph2D
             ref={fgRef}
@@ -120,7 +120,7 @@ export default function TeamPage() {
           <LegendDot color="#DC2626" label="publisher" />
           <span>• node size = last-sprint contribution</span>
         </div>
-      </div>
+      </section>
 
       <section>
         <h2 className="text-xl mb-2">ADRs</h2>
