@@ -53,13 +53,14 @@ export default function LabRunner() {
         <div>
           <Heading level={2}>Replay</Heading>
           <Card className="mt-2 space-y-3">
-            <Input label="Mutation type">
+            <label className="block" style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+              Mutation type
               <select value={mutKind} onChange={e => setMutKind(e.target.value as any)} className="input w-full mt-1">
                 <option value="inject_heuristic">Inject heuristic</option>
                 <option value="swap_backlog_pick">Swap backlog pick</option>
                 <option value="swap_role">Swap role model</option>
               </select>
-            </Input>
+            </label>
             {mutKind === "inject_heuristic" && <>
               <Input label="Rule" placeholder="rule" value={args.rule || ""} onChange={e => setArgs({...args, rule: e.target.value})} />
               <Input label="Why" placeholder="why" value={args.why || ""} onChange={e => setArgs({...args, why: e.target.value})} />
