@@ -8,7 +8,6 @@ can mutate without touching the orgos worktree.
 from __future__ import annotations
 
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
