@@ -273,6 +273,15 @@ class RoleSpec(BaseModel):
         """
         return self.structured_output and _supports_json_schema(self.model)
 
+    @classmethod
+    def from_agent_dir(cls, agents_root: Path, agent_name: str) -> "RoleSpec":
+        """Build a RoleSpec from Neil-style layered persona files.
+
+        See docs/superpowers/plans/2026-07-08-persona-file-loader.md.
+        """
+        from orgos.spawn.persona_loader import load_agent
+        return load_agent(agents_root, agent_name)
+
     def _build_llm(self, run_budget: Any | None = None) -> LLM | str | None:
         llm: LLM | None = None
         if isinstance(self.model, LLM):
