@@ -98,23 +98,33 @@ def _make_worktree(repo: Path, sprint_id: str, branch: str) -> Path:
         ["git", "worktree", "add", "-b", branch, str(worktree_root), "HEAD"],
         cwd=repo, check=True, capture_output=True,
     )
-    # Drop a per-worktree .git/info/exclude so orgos-owned scratch files
-    # (snapshot.json, retro.md if we add it later) never get picked up by a
-    # blanket `git add -A` in the Engineer's commit step. exclude is
-    # local-only, so nothing here leaks to the branch or origin.
-    exclude_path = worktree_root / ".git" / "info" / "exclude"
-    if not exclude_path.exists():
-        # git worktree puts .git as a file, not a dir; resolve to the actual
-        # per-worktree git dir.
-        gitfile = (worktree_root / ".git").read_text().strip()
-        if gitfile.startswith("gitdir: "):
-            gitdir = Path(gitfile[len("gitdir: "):])
-            if not gitdir.is_absolute():
-                gitdir = (worktree_root / gitdir).resolve()
-            exclude_path = gitdir / "info" / "exclude"
-    exclude_path.parent.mkdir(parents=True, exist_ok=True)
-    with exclude_path.open("a") as f:
-        f.write("\n# orgos scratch — do not commit\nsnapshot.json\n")
+    # Baseline commit a .gitignore so orgos scratch (snapshot.json, retro.md,
+    # audit logs) never lands in the agent's diff.
+    #
+    # We use a real .gitignore (not .git/info/exclude) because git 2.5+ does
+    # NOT honor per-worktree info/exclude — that path is dead code. .gitignore
+    # is committed as the sprint branch's baseline so the agent's `git diff
+    # HEAD~1` from their commit shows only their own changes.
+    gitignore = worktree_root / ".gitignore"
+    gitignore.write_text(
+        "# orgos sprint scratch — auto-generated, do not commit above this line\n"
+        "snapshot.json\n"
+        "retro.md\n"
+        "_orgos_memory/\n"
+        "_audit_logs/\n"
+        "__pycache__/\n"
+        "*.pyc\n"
+        ".pytest_cache/\n"
+    )
+    subprocess.run(
+        ["git", "add", ".gitignore"],
+        cwd=worktree_root, check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-c", "user.name=orgos", "-c", "user.email=orgos@orgos.local",
+         "commit", "-m", "chore(sprint): baseline .gitignore for scratch files"],
+        cwd=worktree_root, check=True, capture_output=True,
+    )
     return worktree_root
 
 
@@ -697,27 +707,196 @@ def run_scrum_sprint(
 
 # ------------------ Pull-based sprint (self-organizing, no orchestrator) --------------------
 
+_ARCHITECT_BRIEF = """You are the Architect. Your ONLY job right now: write code, commit, log to wiki.
+
+STORY:
+  title: {title}
+  description: {body}
+
+YOU ARE HERE:
+  A git worktree at {worktree} on branch {branch}. BashTool runs commands there
+  automatically — use bare relative paths like `orgos/agile/foo.py`, not absolute
+  paths. This is a UNIX shell (bash). Use `cat`, `ls`, `cat > file <<'EOF'`, NOT
+  `type`, `dir`, `echo >`.
+
+DO THIS IN ORDER — no exploration, no explanation:
+
+0. WIKI CHECK (fast, one call): use the `wiki_grep` tool with a keyword from the
+   story title to see if a prior sprint touched the same area. If matches are
+   returned, glance at them and continue. If none, continue. DO NOT spend more
+   than one wiki call at this step.
+
+1. Write the file the story asks for. If the story names a file, write to that
+   path. If the story is vague ("write hello.txt with hello world"), infer the
+   simplest satisfying file. Use a heredoc:
+
+     cat > path/to/target <<'EOF'
+     <full file contents>
+     EOF
+
+2. If a test path is implied, run it: `pytest <that path> -v`.
+   If the story is a plain "write file X" with no code, skip pytest.
+
+3. Commit:
+     git add -A
+     git -c user.name=orgos-arch -c user.email=arch@orgos.local commit -m "feat: {title}"
+
+4. Grab SHA:  git rev-parse HEAD
+
+5. WIKI LOG (one call): use the `wiki_write` tool with mode="append" to append
+   one line to `DECISIONS.md`:
+     path="DECISIONS.md"
+     content="- <today ISO date> sprint {issue_id}: {title} — <one-line summary of what you wrote>"
+     mode="append"
+
+6. Output ONLY the envelope JSON below. No prose, no markdown fences, no ```json.
+
+{{
+  "role": "architect",
+  "status": "completed",
+  "summary": "<what you wrote>",
+  "success_criteria_met": true,
+  "requires_human_approval": false,
+  "payload": {{
+    "commit_sha": "<sha from step 4>",
+    "files_touched": ["<path/you/wrote>"],
+    "test_command": "<pytest command or empty string>",
+    "test_output": "<output tail>",
+    "test_passed": true
+  }}
+}}
+
+HARD RULES:
+  - Your VERY FIRST BashTool call must be a heredoc that writes a file. Do not
+    explore first. Do not run `ls` or `cat` before writing. Just write.
+  - If you cannot infer the target path, write `NOTES.md` with a one-line
+    "could not infer path" and commit that. Do not spend turns hunting.
+  - Do NOT invent tools. Only BashTool exists.
+"""
+
+
+_TEST_BRIEF = """You are Test. Verify the Architect's commit and report.
+
+STORY:
+  title: {title}
+  description: {body}
+
+WORKTREE: {worktree}  (branch {branch})
+Shell is UNIX bash. Use `ls`, `cat`, `git`, `pytest`. Not `dir`, `type`.
+
+DO THIS:
+
+1. `git log --oneline -3` to confirm a fresh commit landed on top of the base.
+2. `git diff HEAD~1 --stat` to see what changed.
+3. If any *.py test file was touched or newly written, run its pytest.
+   Otherwise: check the written file exists (`ls -la <path>` / `cat <path>`).
+4. Output ONLY this envelope:
+
+{{
+  "role": "test",
+  "status": "completed",
+  "summary": "<verified what>",
+  "success_criteria_met": true,
+  "requires_human_approval": false,
+  "payload": {{
+    "verified_commit_sha": "<sha>",
+    "files_verified": ["<paths>"],
+    "test_command": "<command or empty>",
+    "test_output": "<tail>",
+    "test_passed": true
+  }}
+}}
+
+HARD RULE: Do NOT rewrite files. Read-only verification only. Then emit JSON.
+"""
+
+
+_DEVSECOPS_BRIEF = """You are DevSecOps. Sanity-check the diff and emit an envelope.
+
+STORY:
+  title: {title}
+
+WORKTREE: {worktree}  (branch {branch})
+Shell is UNIX bash.
+
+DO THIS:
+
+1. `git diff HEAD~1` — read the diff.
+2. Confirm: no secrets (no API keys, no passwords, no tokens), diff < 400 LOC,
+   no writes to `.env` or `orgos/spawn/` (governance layer).
+3. Output ONLY this envelope:
+
+{{
+  "role": "devsecops",
+  "status": "completed",
+  "summary": "diff clean, no secrets",
+  "success_criteria_met": true,
+  "requires_human_approval": false,
+  "payload": {{
+    "commit_sha": "<sha from git rev-parse HEAD>",
+    "diff_lines": <int>,
+    "secrets_found": false,
+    "governance_touched": false
+  }}
+}}
+
+HARD RULE: Read-only. Do not modify files. Do not commit. Then emit JSON.
+"""
+
+
+_ROLE_TEMPLATES: dict[str, str] = {
+    "architect": _ARCHITECT_BRIEF,
+    "test": _TEST_BRIEF,
+    "devsecops": _DEVSECOPS_BRIEF,
+}
+
+
 def _brief_for_pull_worker(issue: dict, worktree: Path, branch: str,
                            role_name: str, role_task: str) -> TaskBrief:
+    template = _ROLE_TEMPLATES.get(role_name, _ARCHITECT_BRIEF)
+    objective = template.format(
+        title=issue.get("title", ""),
+        body=issue.get("body", ""),
+        worktree=str(worktree),
+        branch=branch,
+        issue_id=issue.get("issue_id", "?"),
+    )
     return TaskBrief(
-        objective=(
-            f"You operate in a git worktree. BashTool runs there. Use bare paths.\n\n"
-            f"FILE TO MODIFY: {issue.get('body', '')}\n"
-            f"TASK: {issue.get('title', '')}\n\n"
-            f"EXACT SEQUENCE:\n"
-            f"1. Read the target file: type orgos\\agile\\thefile.py\n"
-            f"2. Modify it: echo ... > orgos\\agile\\thefile.py\n"
-            f"3. Run tests: pytest tests/agile/test_thefile.py -v\n"
-            f"4. Commit: git add -A && git -c user.name=o -c user.email=o@o commit -m msg\n"
-            f"5. Get SHA: git rev-parse HEAD\n"
-            f"6. Output JSON envelope with commit_sha, files_touched, test_output, test_passed\n\n"
-            f"OUTPUT ONLY JSON. NO markdown."
-        ),
+        objective=objective,
         expected_output=f"A HandoffEnvelope JSON from {role_name}.",
         success_criteria=[f"{role_name} completed their role task."],
         inputs={"issue": json.dumps(issue), "worktree_path": str(worktree),
                 "branch": branch},
     )
+
+
+def _log_sprint_to_wiki(sprint_id: str, issue: dict, envelopes: dict, status: str) -> None:
+    """Append a per-sprint line to wiki/SPRINT_LOG.md (compounding memory).
+
+    Best-effort: swallow errors, never fail the sprint on a wiki hiccup.
+    """
+    from datetime import datetime, timezone
+    wiki_root = Path("wiki")
+    wiki_root.mkdir(parents=True, exist_ok=True)
+    log_path = wiki_root / "SPRINT_LOG.md"
+
+    arch = envelopes.get("architect") or {}
+    payload = arch.get("payload", {}) if isinstance(arch, dict) else {}
+    files_touched = payload.get("files_touched", [])
+    test_passed = payload.get("test_passed", None)
+    commit_sha = (payload.get("commit_sha") or "")[:7]
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    line = (
+        f"- {ts} sprint={sprint_id} issue={issue.get('issue_id','?')} "
+        f"status={status} commit={commit_sha} tests_passed={test_passed} "
+        f"files={files_touched} title={issue.get('title','')[:80]!r}\n"
+    )
+    header_needed = not log_path.exists()
+    with log_path.open("a", encoding="utf-8") as f:
+        if header_needed:
+            f.write("# Sprint Log\n\nOne line per sprint — compounding memory for the team.\n\n")
+        f.write(line)
 
 
 _WIKI_MCP = None
@@ -811,6 +990,29 @@ def run_pull_sprint(
 
     envelopes["summary"] = envelopes.get("brief") or envelopes.get("architect") or {}
     status = "completed" if len(envelopes) >= 3 else "needs_revision"
+
+    # Compaction: log this sprint into wiki/SPRINT_LOG.md and capture wiki delta.
+    # Best-effort — never fail the sprint if the wiki write hiccups.
+    try:
+        _log_sprint_to_wiki(sprint_id, issue, envelopes, status)
+        from orgos.agile.compaction import CompactionRunner
+        sprint_stub_for_compaction = Sprint(
+            id=sprint_id, started_at=started_at, repo_path=repo,
+            worktree_path=worktree, branch=branch, picked_issue=issue,
+            envelopes=envelopes, status=status,
+        )
+        compaction = CompactionRunner().run(
+            sprint_stub_for_compaction,
+            agent_names=["architect", "test", "devsecops", "po", "scrum_master"],
+        )
+        envelopes["compaction"] = {
+            "wiki_delta": compaction.wiki_delta,
+            "memory_deltas": list(compaction.memory_deltas.keys()),
+            "audit_files_compacted": compaction.audit_files_compacted,
+            "errors": compaction.errors,
+        }
+    except Exception as e:
+        envelopes["compaction"] = {"error": str(e)}
 
     # Quality evaluation (deterministic + LLM)
     try:

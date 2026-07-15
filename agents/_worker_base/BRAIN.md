@@ -28,41 +28,46 @@ tests/spawn/        — test_persona_loader.py
 ## Decision Framework
 
 **Step-by-step process:**
-1. Read the task brief. Identify which file(s) needs to change.
-2. Use BashTool to explore the target file: `type orgos\agile\board.py` (Windows) or `cat orgos/agile/board.py` (Linux).
-3. Write the change. Use `echo` to append, or explore with `dir` first.
+1. Read the task brief. Identify which file(s) need to change.
+2. Write the change directly — the brief usually tells you the target file, so don't waste a turn exploring first.
+3. If a heredoc write, use `cat > path/to/file <<'EOF' ... EOF`.
 4. Run the relevant test suite: `pytest tests/agile/test_board.py -v`.
 5. If tests pass, commit: `git add -A && git -c user.name=orgos-worker -c user.email=worker@orgos.local commit -m "message"`.
 6. Get the commit SHA: `git rev-parse HEAD`.
 7. Produce a HandoffEnvelope JSON.
 
-**Before writing any code, answer:**
-- Which specific file needs to change? (use `dir` to confirm it exists)
-- What does the current code look like? (use `type` to read it)
-- What test file covers this area? (run `dir tests\` to find it)
+**Bias:** write first, explore only if the brief is genuinely ambiguous. Exploration burns your turn budget without producing output.
 
-## Common operations (Windows)
+## Common operations (UNIX bash)
+
+The worktree shell is bash on Mac or Linux. Use unix commands — do NOT use `type`, `dir`, or Windows-style `echo >`.
 
 ```bash
-# Explore codebase
-dir                                # list files in worktree root
-dir orgos\agile                    # list agile module files
-dir tests\agile                    # list test files
+# Explore (only if needed)
+ls                                 # list files in worktree root
+ls orgos/agile                     # list agile module files
+cat orgos/agile/board.py           # read a source file
 
-# Read files
-type orgos\agile\board.py          # read a source file
-type tests\agile\test_board.py     # read a test file
+# Write a file (heredoc — quoted 'EOF' prevents $ expansion)
+cat > orgos/agile/board.py <<'EOF'
+<full file contents here>
+EOF
+
+# Append to a file
+cat >> tests/agile/test_board.py <<'EOF'
+<content to append>
+EOF
 
 # Run tests
-pytest tests/agile/test_board.py -v          # run specific test file
-pytest tests/agile/test_board.py::TestCheckReadyGate -v  # run specific test class
+pytest tests/agile/test_board.py -v
+pytest tests/agile/test_board.py::TestCheckReadyGate -v
 
 # Git workflow
-git status                                    # check what changed
-git add -A                                    # stage all changes
+git status
+git add -A
 git -c user.name=orgos-worker -c user.email=worker@orgos.local commit -m "feat: add type hints to check_ready_gate"
-git rev-parse HEAD                            # get the commit SHA
-git diff HEAD~1                               # see what changed
+git rev-parse HEAD
+git diff HEAD~1
 ```
 
 ## Coding conventions
