@@ -216,14 +216,24 @@
   <!-- SCRUM TEAM -->
   <div class="col scrum">
     <h2>Scrum team</h2>
-    <div class="tag">N interchangeable full-stack devs · shared wiki · no handoffs</div>
+    <div class="tag">PO prioritizes · workers self-assign from backlog · shared wiki</div>
 
     <div class="flow">
-      <div class="wiki">
-        <div class="title">📚 wiki / DECISIONS.md</div>
-        <div class="sub">shared knowledge — every worker reads and writes it</div>
+      <div class="role-box scrum-role" style="max-width: 240px;">
+        <div class="who">Product Owner</div>
+        <div class="what">drafts &amp; orders the backlog</div>
       </div>
-      <div class="bidi">↑ ↓ ↑ ↓ ↑ ↓</div>
+      <div class="arrow-down">↓ prioritizes (does NOT assign)</div>
+
+      <div class="backlog">
+        <div class="backlog-title">📋 Backlog (inbox)</div>
+        <div class="story"><span class="prio">P1</span> add median_takt metric</div>
+        <div class="story"><span class="prio">P2</span> add cycle_time helper</div>
+        <div class="story"><span class="prio">P3</span> refactor pricing util</div>
+        <div class="story dim"><span class="prio">P4</span> …</div>
+      </div>
+      <div class="arrow-down">↓ any free worker pulls the top story</div>
+
       <div class="scrum-cluster">
         <div class="role-box scrum-role">
           <div class="who">Worker A</div>
@@ -238,12 +248,16 @@
           <div class="what">full-stack</div>
         </div>
       </div>
-      <div class="arrow-down">↓</div>
-      <div style="text-align:center; color: var(--muted); font-size: 12px; margin-top: 6px;">
-        Free worker pulls the story.<br/>
-        Reads wiki for prior conventions.<br/>
-        Writes code, tests, commits.<br/>
-        Writes new decisions back to wiki.
+
+      <div class="bidi">↕ &nbsp; ↕ &nbsp; ↕</div>
+      <div class="wiki">
+        <div class="title">📚 wiki / DECISIONS.md</div>
+        <div class="sub">shared knowledge — every worker reads before, writes after</div>
+      </div>
+
+      <div style="text-align:center; color: var(--muted); font-size: 12px; margin-top: 8px;">
+        No pre-assignment. No handoffs. No gates.<br/>
+        Worker does the whole story, commits, updates wiki.
       </div>
     </div>
 
@@ -251,12 +265,12 @@
       <div><div class="k">roles per issue</div><div class="v good">1</div></div>
       <div><div class="k">shared memory</div><div class="v good">yes</div></div>
       <div><div class="k">gates</div><div class="v good">0</div></div>
-      <div><div class="k">gets smarter over time</div><div class="v good">yes</div></div>
+      <div><div class="k">smarter over time</div><div class="v good">yes</div></div>
     </div>
 
     <div class="whyline">
-      The Sutherland pattern: flat team, self-organizing, shared knowledge base.
-      One worker does the whole story. Memory compounds across issues so the
+      The Sutherland pattern: PO prioritizes but does not assign; workers pull
+      from top of backlog; shared wiki compounds knowledge across issues. The
       team gets sharper the longer it runs.
     </div>
   </div>
