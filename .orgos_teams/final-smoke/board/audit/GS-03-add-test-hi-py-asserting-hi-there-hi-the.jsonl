@@ -1,0 +1,10 @@
+{"timestamp": "2026-07-15T19:14:50.892008+00:00", "actor": "po", "action": "draft_story", "title": "Add test_hi.py asserting hi('there') == 'hi there'", "story_type": "test", "priority": 85}
+{"timestamp": "2026-07-15T19:15:16.356908+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}
+{"timestamp": "2026-07-15T19:15:18.278663+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 192}
+{"timestamp": "2026-07-15T19:15:21.155119+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 257}
+{"timestamp": "2026-07-15T19:15:23.400210+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 223}
+{"timestamp": "2026-07-15T19:15:23.401178+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}
+{"timestamp": "2026-07-15T19:15:23.402026+00:00", "actor": "architect", "action": "signoff", "role": "architect"}
+{"timestamp": "2026-07-15T19:15:23.402998+00:00", "actor": "test", "action": "signoff", "role": "test"}
+{"timestamp": "2026-07-15T19:15:23.403820+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}
+{"timestamp": "2026-07-15T19:15:23.404570+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}

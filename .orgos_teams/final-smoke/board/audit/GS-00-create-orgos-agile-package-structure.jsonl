@@ -1,0 +1,16 @@
+{"timestamp": "2026-07-15T19:14:50.889926+00:00", "actor": "po", "action": "draft_story", "title": "Create orgos/agile package structure", "story_type": "architecture", "priority": 100}
+{"timestamp": "2026-07-15T19:14:50.895095+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}
+{"timestamp": "2026-07-15T19:14:52.677902+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 189}
+{"timestamp": "2026-07-15T19:14:54.921063+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 235}
+{"timestamp": "2026-07-15T19:14:56.714082+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 188}
+{"timestamp": "2026-07-15T19:14:56.715063+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}
+{"timestamp": "2026-07-15T19:14:56.715816+00:00", "actor": "architect", "action": "signoff", "role": "architect"}
+{"timestamp": "2026-07-15T19:14:56.716821+00:00", "actor": "test", "action": "signoff", "role": "test"}
+{"timestamp": "2026-07-15T19:14:56.717699+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}
+{"timestamp": "2026-07-15T19:14:56.718439+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}
+{"timestamp": "2026-07-15T19:15:47.685911+00:00", "actor": "architect", "action": "assign"}
+{"timestamp": "2026-07-15T19:15:47.686718+00:00", "actor": "architect", "action": "transition", "from_state": "ready", "to_state": "in_progress", "reason": ""}
+{"timestamp": "2026-07-15T19:16:10.081599+00:00", "actor": "architect", "action": "set_commit", "commit_sha": "f436009d0861c98f3bc201519dcf08a90f4a7357"}
+{"timestamp": "2026-07-15T19:16:10.082244+00:00", "actor": "architect", "action": "transition", "from_state": "in_progress", "to_state": "review", "reason": ""}
+{"timestamp": "2026-07-15T19:16:23.213777+00:00", "actor": "test_reviewer", "action": "comment", "body_len": 187}
+{"timestamp": "2026-07-15T19:16:23.214635+00:00", "actor": "reviewer", "action": "transition", "from_state": "review", "to_state": "done", "reason": ""}

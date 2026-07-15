@@ -1,0 +1,10 @@
+{"timestamp": "2026-07-15T19:14:50.892586+00:00", "actor": "po", "action": "draft_story", "title": "Ensure orgos/agile/__init__.py exports hi", "story_type": "feature", "priority": 80}
+{"timestamp": "2026-07-15T19:15:23.405405+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}
+{"timestamp": "2026-07-15T19:15:25.322768+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 146}
+{"timestamp": "2026-07-15T19:15:27.304385+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 259}
+{"timestamp": "2026-07-15T19:15:29.474780+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 187}
+{"timestamp": "2026-07-15T19:15:29.475630+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}
+{"timestamp": "2026-07-15T19:15:29.476460+00:00", "actor": "architect", "action": "signoff", "role": "architect"}
+{"timestamp": "2026-07-15T19:15:29.477238+00:00", "actor": "test", "action": "signoff", "role": "test"}
+{"timestamp": "2026-07-15T19:15:29.478013+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}
+{"timestamp": "2026-07-15T19:15:29.478815+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}

@@ -140,8 +140,63 @@ def _wiki_recent(n: int = 10) -> list[dict]:
     return files[:n]
 
 
-def _wiki_write(path: str, content: str, mode: str = "overwrite") -> dict:
+_REQUIRED_FIELDS = ("author", "timestamp", "source")
+
+
+def _validate_three_fields(content: str) -> list[str]:
+    """Return list of missing required fields.
+
+    We accept ANY of these forms per field (case-insensitive):
+      - a markdown line starting with "- <field>:" or "* <field>:"
+      - "<field>=<value>" inline (for one-liner changelog entries)
+      - "<field>: <value>" (a header line)
+
+    Empty list means all three present. This is deliberately loose so
+    agents don't need to memorize one exact format — but strict enough
+    that "content mentions 'author' in prose" isn't a pass.
+    """
+    missing: list[str] = []
+    for field in _REQUIRED_FIELDS:
+        # Match the field name followed by ':' or '=' after either:
+        #   - start of line + optional list marker + optional whitespace, OR
+        #   - whitespace (so inline "author=x timestamp=y source=z" works).
+        pattern = (
+            rf"(?im)(?:^[ \t]*(?:[-*][ \t]+)?|[ \t]+)"
+            rf"{re.escape(field)}[ \t]*[:=]"
+        )
+        if not re.search(pattern, content):
+            missing.append(field)
+    return missing
+
+
+def _wiki_write(path: str, content: str, mode: str = "overwrite",
+                skip_validation: bool = False) -> dict:
     p = _resolve(path)
+    # Enforce three-field validation for DECISIONS.md and any file under
+    # `decisions/` or ending in `.decision.md`. Everything else is unchecked
+    # so agents can still freely write ADRs, session notes, etc.
+    require_fields = (
+        p.name == "DECISIONS.md"
+        or "decisions" in p.parts
+        or p.name.endswith(".decision.md")
+    )
+    if require_fields and not skip_validation:
+        missing = _validate_three_fields(content)
+        if missing:
+            return {
+                "error": (
+                    f"wiki_write rejected: {p.name} entries must include "
+                    f"the three fields (author, timestamp, source). "
+                    f"Missing: {', '.join(missing)}. "
+                    f"Include them as list items ('- author: X'), "
+                    f"header lines ('author: X'), or inline "
+                    f"('author=X timestamp=Y source=Z'). "
+                    f"Legacy entries above this write are grandfathered; "
+                    f"NEW writes must comply."
+                ),
+                "path": path,
+                "missing_fields": missing,
+            }
     p.parent.mkdir(parents=True, exist_ok=True)
     if mode == "append":
         with p.open("a", encoding="utf-8") as f:
@@ -150,7 +205,8 @@ def _wiki_write(path: str, content: str, mode: str = "overwrite") -> dict:
         p.write_text(content, encoding="utf-8")
     stat = p.stat()
     return {"path": path, "size": stat.st_size,
-            "modified": _format_timestamp(stat.st_mtime)}
+            "modified": _format_timestamp(stat.st_mtime),
+            "three_fields_validated": require_fields}
 
 
 async def serve() -> None:

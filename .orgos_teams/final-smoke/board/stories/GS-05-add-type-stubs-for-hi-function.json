@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-05-add-type-stubs-for-hi-function",
+  "title": "Add type stubs for hi function",
+  "body": "If the project uses a `py.typed` marker or follows PEP 561, add `orgos/agile/hi.pyi` as:\n```python\ndef hi(name: str) -> str: ...\n```\nOtherwise skip. Check by looking for `py.typed` in repo root or `orgos/`.\n\n**Done when:** `mypy orgos/agile/hi.py --strict` passes (or stub exists if applicable).",
+  "state": "ready",
+  "type": "security",
+  "priority": 70,
+  "points": 2,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 2,
+      "justification": "Adding a type stub .pyi file is a small, well-defined change with no code logic involved, taking under an hour. However, I need to first verify whether the project follows PEP 561 by checking for py.typed marker, which adds a minor investigation step.",
+      "timestamp": "2026-07-15T19:15:31.712286+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "Adding a type stub file is trivial and requires no test execution \u2014 just verifying the stub exists and mypy passes. The only risk is if py.typed is missing, which is a simple check.",
+      "timestamp": "2026-07-15T19:15:33.973688+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 2,
+      "justification": "Adding a type stub is a straightforward task with low risk of introducing security vulnerabilities; verifying the existence of py.typed and creating a simple .pyi file takes minimal effort. However, the security impact is negligible, so the estimate remains small.",
+      "timestamp": "2026-07-15T19:15:36.195295+00:00"
+    }
+  ],
+  "signoffs": {
+    "architect": true,
+    "test": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:14:50.892707+00:00",
+  "updated_at": "2026-07-15T19:15:36.199486+00:00"
+}

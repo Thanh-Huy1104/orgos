@@ -1,0 +1,9 @@
+{
+  "team_id": "final-smoke",
+  "goal": "Add orgos/agile/hi.py exposing hi(name)->str that returns f'hi {name}' plus tests/agile/test_hi.py asserting hi('there') == 'hi there'.",
+  "source_repo": "/Users/th/Documents/Github/orgos",
+  "model": "deepseek/deepseek-chat",
+  "created_at": "2026-07-15T19:14:41.178512+00:00",
+  "branch": "team/final-smoke",
+  "baseline_sha": "618a815738bc3294cf6902ea74e7ae0a523d8f71"
+}

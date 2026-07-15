@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-07-verify-security-input-injection-resilien",
+  "title": "Verify security: input injection resilience",
+  "body": "Add negative tests in `test_hi.py` that pass strings like `'<script>alert(1)</script>'` and verify the function does not evaluate or escape \u2014 it just returns the literal string. Since the function uses f-strings with no evaluation, this is a no-op safety check.\n\n**Done when:** New test `test_hi_xss()` passes, proving raw string output.",
+  "state": "ready",
+  "type": "security",
+  "priority": 40,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "This is a trivial test-only change to an existing function that already returns literal strings. The Architect sees no risk because the implementation uses f-strings with no evaluation, so the test merely documents existing safe behavior.",
+      "timestamp": "2026-07-15T19:15:43.452069+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "This is a trivial test addition \u2014 a single new test function that follows an existing pattern, with zero implementation risk. The function under test is already safe by construction, so verification is quick and the test passes immediately.",
+      "timestamp": "2026-07-15T19:15:45.793881+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "This is a simple test addition with no code changes to the production function, and the f-string ensures no injection risk. I estimate minimal effort (< 30 min) as it's a straightforward XSS safety test.",
+      "timestamp": "2026-07-15T19:15:47.679418+00:00"
+    }
+  ],
+  "signoffs": {
+    "architect": true,
+    "test": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:14:50.893733+00:00",
+  "updated_at": "2026-07-15T19:15:47.683874+00:00"
+}

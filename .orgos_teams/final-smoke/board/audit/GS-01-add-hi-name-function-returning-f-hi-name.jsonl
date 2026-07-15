@@ -1,0 +1,20 @@
+{"timestamp": "2026-07-15T19:14:50.890711+00:00", "actor": "po", "action": "draft_story", "title": "Add hi(name) function returning f'hi {name}'", "story_type": "feature", "priority": 95}
+{"timestamp": "2026-07-15T19:14:56.719249+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}
+{"timestamp": "2026-07-15T19:14:59.430628+00:00", "actor": "architect", "action": "poker_vote", "points": 5, "justification_len": 18}
+{"timestamp": "2026-07-15T19:15:01.631682+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 198}
+{"timestamp": "2026-07-15T19:15:04.081461+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 196}
+{"timestamp": "2026-07-15T19:15:06.438738+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 143}
+{"timestamp": "2026-07-15T19:15:08.357923+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 164}
+{"timestamp": "2026-07-15T19:15:10.359160+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 158}
+{"timestamp": "2026-07-15T19:15:10.360048+00:00", "actor": "system", "action": "refinement_round", "round": 1}
+{"timestamp": "2026-07-15T19:15:10.360835+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}
+{"timestamp": "2026-07-15T19:15:10.361688+00:00", "actor": "architect", "action": "signoff", "role": "architect"}
+{"timestamp": "2026-07-15T19:15:10.362515+00:00", "actor": "test", "action": "signoff", "role": "test"}
+{"timestamp": "2026-07-15T19:15:10.363187+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}
+{"timestamp": "2026-07-15T19:15:10.363910+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}
+{"timestamp": "2026-07-15T19:16:23.216164+00:00", "actor": "architect", "action": "assign"}
+{"timestamp": "2026-07-15T19:16:23.216863+00:00", "actor": "architect", "action": "transition", "from_state": "ready", "to_state": "in_progress", "reason": ""}
+{"timestamp": "2026-07-15T19:16:47.600418+00:00", "actor": "architect", "action": "set_commit", "commit_sha": "b88d48ead3aac6da73315593fb84ef764f15bd81"}
+{"timestamp": "2026-07-15T19:16:47.601035+00:00", "actor": "architect", "action": "transition", "from_state": "in_progress", "to_state": "review", "reason": ""}
+{"timestamp": "2026-07-15T19:17:01.337533+00:00", "actor": "test_reviewer", "action": "comment", "body_len": 210}
+{"timestamp": "2026-07-15T19:17:01.338574+00:00", "actor": "reviewer", "action": "transition", "from_state": "review", "to_state": "done", "reason": ""}

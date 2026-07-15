@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-02-create-tests-agile-package-structure",
+  "title": "Create tests/agile package structure",
+  "body": "Create the directory `tests/agile/` with an empty `__init__.py` so test discovery works. This mirrors the source layout.\n\n**Done when:** `tests/agile/__init__.py` exists and pytest discovers it.",
+  "state": "ready",
+  "type": "architecture",
+  "priority": 90,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "Creating a directory with an empty __init__.py is a one-command operation with no design risk or code complexity. From an architecture perspective, this is purely a mechanical setup task that follows the established pattern.",
+      "timestamp": "2026-07-15T19:15:12.515268+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "Creating an empty __init__.py file is trivial \u2014 no logic to test, no risk of breakage. Verification is immediate by running pytest discovery.",
+      "timestamp": "2026-07-15T19:15:14.465452+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "Creating an empty __init__.py file is trivial and poses no security risk. No credentials or sensitive patterns can be introduced in an empty file.",
+      "timestamp": "2026-07-15T19:15:16.351251+00:00"
+    }
+  ],
+  "signoffs": {
+    "architect": true,
+    "test": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:14:50.890889+00:00",
+  "updated_at": "2026-07-15T19:15:16.355542+00:00"
+}

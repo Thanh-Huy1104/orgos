@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-06-document-hi-function-in-module-docstring",
+  "title": "Document hi function in module docstring",
+  "body": "Add a docstring to `orgos/agile/hi.py`:\n```python\n\"\"\"Greeting function.\n\n>>> hi('there')\n'hi there'\n\"\"\"\n```\nAlso mention the function in `README.md` or a new `orgos/agile/README.md` with a one-liner.\n\n**Done when:** `pytest --doctest-modules orgos/agile/hi.py` passes the doctest.",
+  "state": "ready",
+  "type": "docs",
+  "priority": 50,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "The change is trivial: a small docstring and a one-line README addition with no design or implementation risk. I can write both files and run the doctest in under 10 minutes.",
+      "timestamp": "2026-07-15T19:15:37.908869+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "The change is a simple docstring addition with a single-line doctest, requiring minimal test verification. The test run is straightforward with no risk of failures.",
+      "timestamp": "2026-07-15T19:15:39.730170+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "This is a trivial doc-only change with no code changes, so secrets exposure risk is near zero. The only review needed is ensuring no accidental secrets are embedded in the docstring.",
+      "timestamp": "2026-07-15T19:15:41.378687+00:00"
+    }
+  ],
+  "signoffs": {
+    "architect": true,
+    "test": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:14:50.893257+00:00",
+  "updated_at": "2026-07-15T19:15:41.383310+00:00"
+}

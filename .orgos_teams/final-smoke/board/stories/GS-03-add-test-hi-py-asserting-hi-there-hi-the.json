@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-03-add-test-hi-py-asserting-hi-there-hi-the",
+  "title": "Add test_hi.py asserting hi('there') == 'hi there'",
+  "body": "In `tests/agile/test_hi.py`, write a single test function:\n```python\nfrom orgos.agile.hi import hi\n\ndef test_hi_default():\n    assert hi('there') == 'hi there'\n```\nAlso add parametrized cases for edge inputs: empty string, non-ASCII (`'Jos\u00e9'`), and `'world'`.\n\n**Done when:** `pytest tests/agile/test_hi.py -v` passes all tests.",
+  "state": "ready",
+  "type": "test",
+  "priority": 85,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "The story is purely a test addition with no production code changes, only trivial parametrized cases. From an architect's perspective, there's zero risk of design impact or integration issues.",
+      "timestamp": "2026-07-15T19:15:18.277651+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "This story is purely adding a few simple test functions with no production code changes or complex setup. From a test perspective, the risk is minimal \u2014 the tests are straightforward assertions on a function that likely already exists or is trivial to stub.",
+      "timestamp": "2026-07-15T19:15:21.154306+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "The story is a simple test addition with no code changes to the production library, minimal risk of introducing secrets or security issues. Verification is quick \u2014 a grep for hardcoded credentials in the test file suffices.",
+      "timestamp": "2026-07-15T19:15:23.399232+00:00"
+    }
+  ],
+  "signoffs": {
+    "architect": true,
+    "test": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:14:50.891574+00:00",
+  "updated_at": "2026-07-15T19:15:23.404012+00:00"
+}

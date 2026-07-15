@@ -1,22 +1,23 @@
-# Core
-crewai>=1.0          # agent engine (uses litellm under the hood for model routing)
-pydantic>=2          # RoleSpec / TaskBrief / HandoffEnvelope schemas
-ruamel.yaml>=0.18    # comment-preserving org.yaml round-trip when evolve applies a proposal
+# Core runtime dependencies for the Agent Scrum Team Platform.
+# For a full editable install (with the `orgos` CLI on PATH), use:
+#   pip install -e .
+# This requirements file is provided as a fallback for environments that
+# prefer plain pip.
 
-# examples/quant_pair_scanner.py
-numpy>=1.24          # price series + OLS in the cointegration tool
-statsmodels>=0.14    # optional: real ADF test (falls back to a correlation proxy if absent)
+crewai>=1.0          # agent engine (uses litellm for provider routing)
+pydantic>=2          # schemas for RoleSpec / TaskBrief / HandoffEnvelope
+ruamel.yaml>=0.18    # persona YAML frontmatter parsing
 
-# ── LLM provider keys (set whichever provider your models use) ────────────────
-# This project is provider-agnostic via litellm. Pick models per role (see
-# .env.example), then export the matching key:
-#   OpenAI     gpt-*                 -> OPENAI_API_KEY      (platform.openai.com)
-#   Anthropic  anthropic/claude-*    -> ANTHROPIC_API_KEY   (console.anthropic.com)
-#   Gemini     gemini/*              -> GEMINI_API_KEY      (aistudio.google.com)
-# Keys are read from the environment by litellm — no package install needed.
-yfinance
-ccxt
-redis
-lxml
-ib_insync   # IBKR paper-trade execution for the options desk
-tzdata      # IANA tz db for ib_insync execution timestamps (US/Eastern)
+# ── Development ──────────────────────────────────────────────────────────
+# pytest>=8
+
+# ── LLM provider keys ────────────────────────────────────────────────────
+# litellm reads keys from the environment. Set one or more depending on
+# which model(s) you use. Common options:
+#   DeepSeek     deepseek/deepseek-chat     -> DEEPSEEK_API_KEY
+#   OpenAI       gpt-*                      -> OPENAI_API_KEY
+#   Anthropic    anthropic/claude-*         -> ANTHROPIC_API_KEY
+#   Gemini       gemini/*                   -> GEMINI_API_KEY
+#
+# Put the key(s) in a .env file at the repo root (auto-loaded by the CLI):
+#   DEEPSEEK_API_KEY=sk-...

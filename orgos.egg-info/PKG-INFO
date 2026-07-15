@@ -1,3 +1,27 @@
+Metadata-Version: 2.4
+Name: orgos
+Version: 0.1.0
+Summary: Agent Scrum Team Platform — deploy autonomous Scrum teams against a goal.
+Author: orgos contributors
+License: MIT
+Project-URL: Documentation, https://github.com/example/orgos
+Project-URL: Source, https://github.com/example/orgos
+Keywords: agents,scrum,llm,crewai,autonomous
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: crewai>=1.0
+Requires-Dist: pydantic>=2
+Requires-Dist: ruamel.yaml>=0.18
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+
 # orgos — Agent Scrum Team Platform
 
 Deploy an autonomous Scrum team of AI agents against a goal. Point it at any

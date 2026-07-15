@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-04-ensure-orgos-agile-init-py-exports-hi",
+  "title": "Ensure orgos/agile/__init__.py exports hi",
+  "body": "Modify `orgos/agile/__init__.py` to include:\n```python\nfrom .hi import hi\n```\nThis makes the function accessible via `orgos.agile.hi` without submodule import.\n\n**Done when:** `from orgos.agile import hi; hi('there')` works without explicitly importing `hi.py`.",
+  "state": "ready",
+  "type": "feature",
+  "priority": 80,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "This is a trivial one-line import addition with no logic changes, tests needed, or design decisions. The only risk is a typo, which is negligible.",
+      "timestamp": "2026-07-15T19:15:25.321880+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "This is a one-line import addition with no logic changes, so testing is limited to verifying the import works via a quick Python invocation. Risk is minimal \u2014 the only potential issue is a missing hi module or circular import, which would be caught instantly.",
+      "timestamp": "2026-07-15T19:15:27.303467+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "This is a trivial one-line change to __init__.py with no security implications; no secrets or risky patterns are introduced. Effort is under 30 minutes, mainly to verify the import works.",
+      "timestamp": "2026-07-15T19:15:29.473798+00:00"
+    }
+  ],
+  "signoffs": {
+    "architect": true,
+    "test": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:14:50.892172+00:00",
+  "updated_at": "2026-07-15T19:15:29.478246+00:00"
+}

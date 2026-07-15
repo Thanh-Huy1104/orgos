@@ -162,11 +162,26 @@ class TestWikiWrite:
         assert (wiki_dir / "INDEX.md").read_text() == "Replaced content"
 
     def test_appends_to_file(self, wiki_dir):
+        # DECISIONS.md now enforces the three-field invariant. Content without
+        # author + timestamp + source is rejected.
         orig = (wiki_dir / "DECISIONS.md").read_text()
-        _wiki_write("DECISIONS.md", "New decision: use TDD.", mode="append")
+        _wiki_write(
+            "DECISIONS.md",
+            "- author=tester timestamp=2026-07-15T00:00Z source=TEST-1 "
+            "New decision: use TDD.",
+            mode="append",
+        )
         content = (wiki_dir / "DECISIONS.md").read_text()
         assert orig in content
         assert "use TDD" in content
+
+    def test_decisions_md_rejects_missing_three_fields(self, wiki_dir):
+        # Without author/timestamp/source, DECISIONS.md writes must fail.
+        result = _wiki_write(
+            "DECISIONS.md", "New decision: use TDD.", mode="append",
+        )
+        assert "error" in result
+        assert set(result["missing_fields"]) == {"author", "timestamp", "source"}
 
     def test_creates_parent_directories(self, wiki_dir):
         _wiki_write("nested/deep/file.md", "deep content")
