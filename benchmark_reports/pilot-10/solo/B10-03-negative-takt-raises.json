@@ -1,0 +1,45 @@
+{
+  "issue_id": "B10-03-negative-takt-raises",
+  "approach": "solo",
+  "model": "deepseek/deepseek-chat",
+  "started_at": "2026-07-15T14:34:03.507151+00:00",
+  "wall_seconds": 22.68,
+  "tokens_input": 26824,
+  "tokens_output": 2737,
+  "tokens_total": 29561,
+  "cost_usd": 0.010253,
+  "commit_produced": true,
+  "commit_sha": "efabfcb6e28baa1a6427eb6cb668d6091474b024",
+  "files_changed": 2,
+  "loc_added": 24,
+  "loc_removed": 0,
+  "tests_run": 14,
+  "tests_passed": 14,
+  "tests_failed": 0,
+  "quality_ac": 5,
+  "quality_code": 5,
+  "quality_tests": 5,
+  "quality_summary": "All criteria met: negative duration raises ValueError, zero and positive durations work. Minimal change with docstring update. Tests cover all three cases.",
+  "diff_text": "diff --git a/orgos/agile/flow_metric.py b/orgos/agile/flow_metric.py\nindex a6dc351..8e6dc3a 100644\n--- a/orgos/agile/flow_metric.py\n+++ b/orgos/agile/flow_metric.py\n@@ -19,7 +19,11 @@ def takt_time(duration_seconds: float, n_issues: int) -> float:\n     \"\"\"Average calendar time per issue. Lower = faster flow.\n \n     Returns 0.0 if no issues were processed (degenerate sprint).\n+\n+    Raises ValueError if duration_seconds is negative.\n     \"\"\"\n+    if duration_seconds < 0:\n+        raise ValueError('duration_seconds must be >= 0')\n     if n_issues <= 0:\n         return 0.0\n     return duration_seconds / max(n_issues, 1)\ndiff --git a/tests/agile/test_takt_negative.py b/tests/agile/test_takt_negative.py\nnew file mode 100644\nindex 0000000..f3781c0\n--- /dev/null\n+++ b/tests/agile/test_takt_negative.py\n@@ -0,0 +1,20 @@\n+\"\"\"Test that takt_time raises on negative duration.\"\"\"\n+\n+import pytest\n+from orgos.agile.flow_metric import takt_time\n+\n+\n+def test_negative_duration_raises():\n+    \"\"\"Negative duration_seconds must raise ValueError.\"\"\"\n+    with pytest.raises(ValueError):\n+        takt_time(-1.0, 5)\n+\n+\n+def test_zero_duration_ok():\n+    \"\"\"Zero duration is valid and returns 0.0.\"\"\"\n+    assert takt_time(0.0, 1) == 0.0\n+\n+\n+def test_positive_duration_ok():\n+    \"\"\"Positive duration returns correct takt time.\"\"\"\n+    assert takt_time(3600.0, 2) == 1800.0\n",
+  "envelope_trail": [
+    {
+      "role": "solo",
+      "status": "completed",
+      "summary": "Added ValueError raise in takt_time() when duration_seconds < 0. Created tests/agile/test_takt_negative.py with three tests covering negative (raises), zero, and positive duration. Both new and existing test suites pass.",
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "commit_sha": "efabfcb6e28baa1a6427eb6cb668d6091474b024",
+        "files_touched": [
+          "orgos/agile/flow_metric.py",
+          "tests/agile/test_takt_negative.py"
+        ],
+        "test_command": "pytest tests/agile/test_takt_negative.py -v && pytest tests/agile/test_flow_metric.py -v",
+        "test_output": "tests/agile/test_takt_negative.py::test_negative_duration_raises PASSED\ntests/agile/test_takt_negative.py::test_zero_duration_ok PASSED\ntests/agile/test_takt_negative.py::test_positive_duration_ok PASSED\n---\ntests/agile/test_flow_metric.py::TestTaktTime::test_four_hours_for_one_issue PASSED\ntests/agile/test_flow_metric.py::TestTaktTime::test_two_hours_per_issue PASSED\ntests/agile/test_flow_metric.py::TestTaktTime::test_zero_issues_returns_zero PASSED\ntests/agile/test_flow_metric.py::TestTaktTime::test_negative_issues_returns_zero PASSED\n... (14 passed)",
+        "test_passed": true
+      }
+    }
+  ],
+  "raw_output": "```json\n{\n  \"role\": \"solo\",\n  \"status\": \"completed\",\n  \"summary\": \"Added ValueError raise in takt_time() when duration_seconds < 0. Created tests/agile/test_takt_negative.py with three tests covering negative (raises), zero, and positive duration. Both new and existing test suites pass.\",\n  \"success_criteria_met\": true,\n  \"requires_human_approval\": false,\n  \"payload\": {\n    \"commit_sha\": \"efabfcb6e28baa1a6427eb6cb668d6091474b024\",\n    \"files_touched\": [\n      \"orgos/agile/flow_metric.py\",\n      \"tests/agile/test_takt_negative.py\"\n    ],\n    \"test_command\": \"pytest tests/agile/test_takt_negative.py -v && pytest tests/agile/test_flow_metric.py -v\",\n    \"test_output\": \"tests/agile/test_takt_negative.py::test_negative_duration_raises PASSED\\ntests/agile/test_takt_negative.py::test_zero_duration_ok PASSED\\ntests/agile/test_takt_negative.py::test_positive_duration_ok PASSED\\n---\\ntests/agile/test_flow_metric.py::TestTaktTime::test_four_hours_for_one_issue PASSED\\ntests/agile/test_flow_metric.py::TestTaktTime::test_two_hours_per_issue PASSED\\ntests/agile/test_flow_metric.py::TestTaktTime::test_zero_issues_returns_zero PASSED\\ntests/agile/test_flow_metric.py::TestTaktTime::test_negative_issues_returns_zero PASSED\\n... (14 passed)\",\n    \"test_passed\": true\n  }\n}\n```",
+  "error": ""
+}

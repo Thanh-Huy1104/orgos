@@ -56,6 +56,9 @@ class Sprint:
     envelopes: dict[str, Any] = field(default_factory=dict)
     status: str = "in_progress"  # in_progress | completed | needs_revision | failed
     spawn_result: SpawnResult | None = None
+    baseline_sha: str = ""  # HEAD SHA immediately after _make_worktree — diff against this
+    total_tokens_input: int = 0
+    total_tokens_output: int = 0
 
 
 def _new_sprint_id() -> str:
@@ -721,10 +724,13 @@ YOU ARE HERE:
 
 DO THIS IN ORDER — no exploration, no explanation:
 
-0. WIKI CHECK (fast, one call): use the `wiki_grep` tool with a keyword from the
-   story title to see if a prior sprint touched the same area. If matches are
-   returned, glance at them and continue. If none, continue. DO NOT spend more
-   than one wiki call at this step.
+0. WIKI READ (up to two calls): use the `wiki_read` tool on `DECISIONS.md`
+   first. If it returns "file not found", continue. If it exists, SKIM it for
+   any convention block relevant to your story (naming style, unit choice,
+   field order, error-handling policy, API shape). If you see something
+   directly relevant, FOLLOW IT EXACTLY when you write code. If you also
+   see relevant hits via `wiki_grep`, glance at those too. Do NOT spend
+   more than two wiki calls at this step.
 
 1. Write the file the story asks for. If the story names a file, write to that
    path. If the story is vague ("write hello.txt with hello world"), infer the
@@ -743,11 +749,24 @@ DO THIS IN ORDER — no exploration, no explanation:
 
 4. Grab SHA:  git rev-parse HEAD
 
-5. WIKI LOG (one call): use the `wiki_write` tool with mode="append" to append
-   one line to `DECISIONS.md`:
-     path="DECISIONS.md"
-     content="- <today ISO date> sprint {issue_id}: {title} — <one-line summary of what you wrote>"
-     mode="append"
+5. WIKI DECISION (one call): use the `wiki_write` tool with mode="append" on
+   `DECISIONS.md`. If your work established a convention that a FUTURE
+   teammate would need to know to stay consistent — naming style, unit
+   choice, field order, error-handling policy, API shape — record it as
+   a full block:
+
+     ## <topic> — sprint {issue_id}
+     - <decision>: <the exact choice, as it appears in the code>
+     - Rationale: <why this over the alternative>
+     - Applies to: <what future code should follow this>
+
+   If your work established no new convention (e.g. it just added a
+   docstring or fixed a typo), append a one-line changelog entry instead:
+
+     - <today ISO date> sprint {issue_id}: {title} — <one-line summary>
+
+   Do NOT skip this step. Reading and writing DECISIONS.md is how the team
+   stays coherent across sprints.
 
 6. Output ONLY the envelope JSON below. No prose, no markdown fences, no ```json.
 
@@ -923,11 +942,24 @@ def run_pull_sprint(
     branch = f"agile/{sprint_id}"
     worktree = _make_worktree(repo_path, sprint_id, branch)
     repo = Path(repo_path)
+    baseline_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(worktree), capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
     write_snapshot(Sprint(id=sprint_id, started_at=started_at, repo_path=repo,
                  worktree_path=worktree, branch=branch, picked_issue=issue,
-                 envelopes={}, status="in_progress"), backlog=[], heuristics=[])
+                 envelopes={}, status="in_progress",
+                 baseline_sha=baseline_sha), backlog=[], heuristics=[])
 
     envelopes: dict[str, Any] = {}
+    total_in = 0
+    total_out = 0
+
+    def _accum(sr):
+        nonlocal total_in, total_out
+        if sr and sr.token_usage:
+            total_in += sr.token_usage.get("prompt_tokens", 0)
+            total_out += sr.token_usage.get("completion_tokens", 0)
 
     # PO prioritizes - does NOT delegate
     po = po_role(model=model)
@@ -937,6 +969,7 @@ def run_pull_sprint(
         success_criteria=["Issue prioritized as READY."],
     )
     po_result = spawn(po, po_brief, run_budget_tokens=min(run_budget_tokens // 4, 200_000))
+    _accum(po_result)
     for tout in po_result.tasks_output:
         raw = getattr(tout, "raw", "") or ""
         for blob in _extract_json_objects(raw):
@@ -963,6 +996,7 @@ def run_pull_sprint(
     for role_name, role, role_task in workers:
         brief = _brief_for_pull_worker(issue, worktree, branch, role_name, role_task)
         wr = spawn(role, brief, run_budget_tokens=wb)
+        _accum(wr)
         for tout in wr.tasks_output:
             raw = getattr(tout, "raw", "") or ""
             for blob in _extract_json_objects(raw):
@@ -980,6 +1014,7 @@ def run_pull_sprint(
     )
     af = (lambda r, n, a: True) if mock_pr else None
     rel_result = spawn(release, rel_brief, approval_fn=af, run_budget_tokens=50_000)
+    _accum(rel_result)
     for tout in rel_result.tasks_output:
         raw = getattr(tout, "raw", "") or ""
         for blob in _extract_json_objects(raw):
@@ -1040,4 +1075,6 @@ def run_pull_sprint(
 
     return Sprint(id=sprint_id, started_at=started_at, repo_path=repo,
                   worktree_path=worktree, branch=branch, picked_issue=issue,
-                  envelopes=envelopes, status=status, spawn_result=po_result)
+                  envelopes=envelopes, status=status, spawn_result=po_result,
+                  baseline_sha=baseline_sha,
+                  total_tokens_input=total_in, total_tokens_output=total_out)

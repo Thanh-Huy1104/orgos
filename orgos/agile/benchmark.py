@@ -83,3 +83,97 @@ def pytest_stats(pytest_output: str) -> tuple[int, int, int]:
     m = re.search(r"(\d+) failed", pytest_output or "")
     failed = int(m.group(1)) if m else 0
     return passed + failed, passed, failed
+
+
+def run_team(
+    repo_path: Path,
+    issue: dict,
+    *,
+    model: str,
+    run_budget_tokens: int = 2_500_000,
+) -> tuple[Any, "BenchmarkRun"]:
+    """Wrap run_pull_sprint into a BenchmarkRun with the same schema as solo."""
+    import time
+    from orgos.agile.sprint import run_pull_sprint
+
+    t0 = time.time()
+    err = ""
+    sprint = None
+    try:
+        sprint = run_pull_sprint(
+            repo_path, issue, model=model, mock_pr=True,
+            run_budget_tokens=run_budget_tokens,
+        )
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+    wall = time.time() - t0
+
+    tokens_in = getattr(sprint, "total_tokens_input", 0) if sprint else 0
+    tokens_out = getattr(sprint, "total_tokens_output", 0) if sprint else 0
+
+    envelope_trail = []
+    quality_ac = quality_code = quality_tests = None
+    quality_summary = ""
+    commit_sha = ""
+    if sprint:
+        for role_name, env in sprint.envelopes.items():
+            if isinstance(env, dict):
+                envelope_trail.append({"role": role_name, **env})
+        arch = sprint.envelopes.get("architect", {}) or {}
+        if isinstance(arch, dict):
+            commit_sha = (arch.get("payload", {}) or {}).get("commit_sha", "") or ""
+        q = sprint.envelopes.get("quality", {}) or {}
+        scores = q.get("llm_scores", {}) if isinstance(q, dict) else {}
+        quality_ac = scores.get("ac_compliance")
+        quality_code = scores.get("code_quality")
+        quality_tests = scores.get("test_relevance")
+        quality_summary = q.get("llm_summary", "") if isinstance(q, dict) else ""
+
+    baseline_sha = getattr(sprint, "baseline_sha", "") if sprint else ""
+    files = added = removed = 0
+    diff_text = ""
+    commit_produced = False
+    if sprint and baseline_sha:
+        files, added, removed, diff_text = diff_stats(sprint.worktree_path, baseline_sha)
+        import subprocess
+        current_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(sprint.worktree_path), capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+        commit_produced = bool(current_head) and current_head != baseline_sha
+
+    test_output = ""
+    if sprint:
+        arch = sprint.envelopes.get("architect", {}) or {}
+        if isinstance(arch, dict):
+            test_output = (arch.get("payload", {}) or {}).get("test_output", "") or ""
+    tests_run, tests_passed, tests_failed = pytest_stats(test_output)
+
+    run = BenchmarkRun(
+        issue_id=issue.get("issue_id", "?"),
+        approach="team",
+        model=model,
+        started_at=sprint.started_at if sprint else "",
+        wall_seconds=round(wall, 2),
+        tokens_input=tokens_in,
+        tokens_output=tokens_out,
+        tokens_total=tokens_in + tokens_out,
+        cost_usd=round(cost_usd(model, tokens_in, tokens_out), 6),
+        commit_produced=commit_produced,
+        commit_sha=commit_sha,
+        files_changed=files,
+        loc_added=added,
+        loc_removed=removed,
+        tests_run=tests_run,
+        tests_passed=tests_passed,
+        tests_failed=tests_failed,
+        quality_ac=quality_ac,
+        quality_code=quality_code,
+        quality_tests=quality_tests,
+        quality_summary=quality_summary,
+        diff_text=diff_text,
+        envelope_trail=envelope_trail,
+        raw_output="",
+        error=err,
+    )
+    return sprint, run

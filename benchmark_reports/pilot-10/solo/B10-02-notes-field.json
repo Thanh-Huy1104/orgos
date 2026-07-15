@@ -1,0 +1,45 @@
+{
+  "issue_id": "B10-02-notes-field",
+  "approach": "solo",
+  "model": "deepseek/deepseek-chat",
+  "started_at": "2026-07-15T14:32:11.226944+00:00",
+  "wall_seconds": 28.42,
+  "tokens_input": 30084,
+  "tokens_output": 2627,
+  "tokens_total": 32711,
+  "cost_usd": 0.011012,
+  "commit_produced": true,
+  "commit_sha": "e5351d0adf257f03e9268ce6ebe158c81eca3e81",
+  "files_changed": 2,
+  "loc_added": 63,
+  "loc_removed": 0,
+  "tests_run": 2,
+  "tests_passed": 2,
+  "tests_failed": 0,
+  "quality_ac": 5,
+  "quality_code": 5,
+  "quality_tests": 5,
+  "quality_summary": "All acceptance criteria are met: the notes field is added after error, to_json works via asdict, tests verify defaults and serialization. Code change is minimal and follows conventions. Tests directly verify both criteria.",
+  "diff_text": "diff --git a/orgos/agile/benchmark.py b/orgos/agile/benchmark.py\nindex 7e45935..3ab3744 100644\n--- a/orgos/agile/benchmark.py\n+++ b/orgos/agile/benchmark.py\n@@ -39,6 +39,7 @@ class BenchmarkRun:\n     envelope_trail: list[dict] = field(default_factory=list)\n     raw_output: str = \"\"\n     error: str = \"\"\n+    notes: list[str] = field(default_factory=list)\n \n     def to_json(self) -> str:\n         return json.dumps(asdict(self), indent=2)\ndiff --git a/tests/agile/test_benchmark_notes.py b/tests/agile/test_benchmark_notes.py\nnew file mode 100644\nindex 0000000..5125c97\n--- /dev/null\n+++ b/tests/agile/test_benchmark_notes.py\n@@ -0,0 +1,62 @@\n+\"\"\"Tests for the optional notes field on BenchmarkRun.\"\"\"\n+\n+from orgos.agile.benchmark import BenchmarkRun\n+\n+\n+def test_notes_defaults_to_empty_list():\n+    run = BenchmarkRun(\n+        issue_id=\"TEST-1\",\n+        approach=\"solo\",\n+        model=\"gpt-4\",\n+        started_at=\"2025-01-01T00:00:00\",\n+        wall_seconds=10.0,\n+        tokens_input=100,\n+        tokens_output=50,\n+        tokens_total=150,\n+        cost_usd=0.01,\n+        commit_produced=False,\n+        commit_sha=\"\",\n+        files_changed=0,\n+        loc_added=0,\n+        loc_removed=0,\n+        tests_run=0,\n+        tests_passed=0,\n+        tests_failed=0,\n+        quality_ac=None,\n+        quality_code=None,\n+        quality_tests=None,\n+        quality_summary=\"\",\n+        diff_text=\"\",\n+    )\n+    assert run.notes == []\n+\n+\n+def test_notes_serialises_through_to_json():\n+    run = BenchmarkRun(\n+        issue_id=\"TEST-2\",\n+        approach=\"team\",\n+        model=\"gpt-4\",\n+        started_at=\"2025-01-01T00:00:00\",\n+        wall_seconds=20.0,\n+        tokens_input=200,\n+        tokens_output=100,\n+        tokens_total=300,\n+        cost_usd=0.02,\n+        commit_produced=True,\n+        commit_sha=\"abc123\",\n+        files_changed=1,\n+        loc_added=10,\n+        loc_removed=0,\n+        tests_run=2,\n+        tests_passed=2,\n+        tests_failed=0,\n+        quality_ac=1,\n+        quality_code=2,\n+        quality_tests=3,\n+        quality_summary=\"good\",\n+        diff_text=\"+hello\",\n+        notes=[\"first note\", \"second note\"],\n+    )\n+    import json\n+    data = json.loads(run.to_json())\n+    assert data[\"notes\"] == [\"first note\", \"second note\"]\n",
+  "envelope_trail": [
+    {
+      "role": "solo",
+      "status": "completed",
+      "summary": "Added `notes: list[str] = field(default_factory=list)` field to BenchmarkRun dataclass after the `error` field in orgos/agile/benchmark.py. Wrote tests at tests/agile/test_benchmark_notes.py verifying default empty list and JSON serialisation. Both tests pass. Committed with SHA e5351d0.",
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "commit_sha": "e5351d0adf257f03e9268ce6ebe158c81eca3e81",
+        "files_touched": [
+          "orgos/agile/benchmark.py",
+          "tests/agile/test_benchmark_notes.py"
+        ],
+        "test_command": "pytest tests/agile/test_benchmark_notes.py -v",
+        "test_output": "tests/agile/test_benchmark_notes.py::test_notes_defaults_to_empty_list PASSED [ 50%]\ntests/agile/test_benchmark_notes.py::test_notes_serialises_through_to_json PASSED [100%]\n\n============================== 2 passed in 1.02s ===============================",
+        "test_passed": true
+      }
+    }
+  ],
+  "raw_output": "{\n  \"role\": \"solo\",\n  \"status\": \"completed\",\n  \"summary\": \"Added `notes: list[str] = field(default_factory=list)` field to BenchmarkRun dataclass after the `error` field in orgos/agile/benchmark.py. Wrote tests at tests/agile/test_benchmark_notes.py verifying default empty list and JSON serialisation. Both tests pass. Committed with SHA e5351d0.\",\n  \"success_criteria_met\": true,\n  \"requires_human_approval\": false,\n  \"payload\": {\n    \"commit_sha\": \"e5351d0adf257f03e9268ce6ebe158c81eca3e81\",\n    \"files_touched\": [\"orgos/agile/benchmark.py\", \"tests/agile/test_benchmark_notes.py\"],\n    \"test_command\": \"pytest tests/agile/test_benchmark_notes.py -v\",\n    \"test_output\": \"tests/agile/test_benchmark_notes.py::test_notes_defaults_to_empty_list PASSED [ 50%]\\ntests/agile/test_benchmark_notes.py::test_notes_serialises_through_to_json PASSED [100%]\\n\\n============================== 2 passed in 1.02s ===============================\",\n    \"test_passed\": true\n  }\n}",
+  "error": ""
+}

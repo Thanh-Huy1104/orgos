@@ -1,0 +1,11 @@
+{
+  "run_id": "pilot-10",
+  "model": "deepseek/deepseek-chat",
+  "n": 10,
+  "seed": 42,
+  "approaches": [
+    "team",
+    "solo"
+  ],
+  "started_at": "2026-07-15T14:29:23.365162+00:00"
+}

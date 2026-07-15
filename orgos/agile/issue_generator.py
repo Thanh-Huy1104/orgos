@@ -1,0 +1,248 @@
+"""Benchmark issue corpus — real orgos files, verifiable outcomes.
+
+Ten hand-picked issues covering:
+  - trivial docstring / typing (solo should win on cost)
+  - single-file edits with regression tests (near-tie)
+  - cross-file refactor with call-site update (team advantage: architect+test)
+  - bug + regression test (team advantage: test agent verifies)
+  - security bait (team advantage: devsecops flags unsafe pattern)
+  - AC-heavy story with 5 required behaviors (team advantage: PO refinement)
+  - new module with cross-import (near-tie)
+
+All targets live under orgos/agile/. Workers operate in a git worktree copy of
+the repo, so real-file edits can't hurt main. Every issue is graded by the
+same QualityEvaluator on both sides.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class BenchmarkIssue:
+    issue_id: str
+    title: str
+    body: str
+    difficulty: str  # trivial | medium | hard
+    template: str
+
+
+_ISSUES: list[BenchmarkIssue] = [
+    # ── 1. Trivial: docstring on an existing function ────────────────────────
+    BenchmarkIssue(
+        issue_id="B10-01-doc-takt",
+        title="Add Google-style docstring to takt_time",
+        difficulty="trivial",
+        template="docstring",
+        body=(
+            "Target: orgos/agile/flow_metric.py\n"
+            "Function: takt_time\n\n"
+            "Add a Google-style docstring with sections Args, Returns, Example. "
+            "Keep the signature and body exactly as-is.\n\n"
+            "Verify: pytest tests/agile/test_flow_metric.py -v must still pass."
+        ),
+    ),
+
+    # ── 2. Trivial: extend a dataclass field (with JSON round-trip) ──────────
+    BenchmarkIssue(
+        issue_id="B10-02-notes-field",
+        title="Add optional notes field to BenchmarkRun",
+        difficulty="trivial",
+        template="dataclass_extend",
+        body=(
+            "Target: orgos/agile/benchmark.py\n"
+            "Class: BenchmarkRun (@dataclass)\n\n"
+            "Add a new field: `notes: list[str] = field(default_factory=list)`. "
+            "Place it after the `error` field. Ensure to_json() still works "
+            "(no code change needed there — asdict handles it).\n\n"
+            "Verify by writing a tiny pytest at tests/agile/test_benchmark_notes.py:\n"
+            "  - constructing a BenchmarkRun without notes returns notes == []\n"
+            "  - constructing with notes=['a','b'] serialises through to_json()\n\n"
+            "Run: pytest tests/agile/test_benchmark_notes.py -v"
+        ),
+    ),
+
+    # ── 3. Bug + regression test on real code ────────────────────────────────
+    BenchmarkIssue(
+        issue_id="B10-03-negative-takt-raises",
+        title="takt_time must raise on negative duration",
+        difficulty="medium",
+        template="bug_regression",
+        body=(
+            "Target: orgos/agile/flow_metric.py, function takt_time\n\n"
+            "Current behavior: takt_time returns 0.0 when n_issues <= 0. It does "
+            "NOT check duration_seconds — a negative duration silently produces "
+            "a nonsense negative takt. That's a bug.\n\n"
+            "Fix: raise ValueError('duration_seconds must be >= 0') when "
+            "duration_seconds < 0. Zero and positive remain valid.\n\n"
+            "Regression test: create tests/agile/test_takt_negative.py with:\n"
+            "  - test_negative_duration_raises: pytest.raises(ValueError) around "
+            "    takt_time(-1.0, 5)\n"
+            "  - test_zero_duration_ok: takt_time(0.0, 1) == 0.0\n"
+            "  - test_positive_duration_ok: takt_time(3600.0, 2) == 1800.0\n\n"
+            "Verify BOTH: pytest tests/agile/test_takt_negative.py -v AND "
+            "pytest tests/agile/test_flow_metric.py -v (existing suite must still pass)."
+        ),
+    ),
+
+    # ── 4. Cross-file refactor — extract + update call site ──────────────────
+    BenchmarkIssue(
+        issue_id="B10-04-extract-cost",
+        title="Extract cost_usd into a new pricing_util module",
+        difficulty="medium",
+        template="cross_file_refactor",
+        body=(
+            "Currently orgos/agile/pricing.py contains _PER_MILLION and cost_usd.\n\n"
+            "1. Create orgos/agile/pricing_util.py that exposes ONLY cost_usd, "
+            "   importing _PER_MILLION from pricing.\n"
+            "2. In orgos/agile/benchmark.py and orgos/agile/solo_baseline.py, "
+            "   change the import from `from orgos.agile.pricing import cost_usd` "
+            "   to `from orgos.agile.pricing_util import cost_usd`.\n"
+            "3. Keep orgos/agile/pricing.py's cost_usd function in place for "
+            "   backwards compat (do not delete it).\n\n"
+            "Verify: python -c 'from orgos.agile.benchmark import run_team' must "
+            "succeed with no ImportError. Then run pytest tests/agile/ -q — the "
+            "existing suite must still pass."
+        ),
+    ),
+
+    # ── 5. Test-only fix: extract magic constant ─────────────────────────────
+    BenchmarkIssue(
+        issue_id="B10-05-const-extract",
+        title="Extract flow-score tolerance constant in tests",
+        difficulty="trivial",
+        template="test_hygiene",
+        body=(
+            "Target: tests/agile/test_flow_metric.py\n\n"
+            "Some assertions use `pytest.approx(x, abs=1e-3)` or `rel=1e-3` "
+            "sprinkled inline. If any such magic tolerance appears in the file, "
+            "extract it to a module-level constant FLOAT_TOL = 1e-3 at the top "
+            "of the file, and reference FLOAT_TOL in the assertions.\n\n"
+            "If no magic tolerance exists in the file, add FLOAT_TOL = 1e-3 at "
+            "the top with a short comment and leave the tests unchanged (this is "
+            "still a valid outcome — but note that in a summary line).\n\n"
+            "Verify: pytest tests/agile/test_flow_metric.py -v must still pass."
+        ),
+    ),
+
+    # ── 6. Defensive edit + tests ────────────────────────────────────────────
+    BenchmarkIssue(
+        issue_id="B10-06-cost-validation",
+        title="Reject negative token counts in cost_usd",
+        difficulty="medium",
+        template="input_validation",
+        body=(
+            "Target: orgos/agile/pricing.py, function cost_usd\n\n"
+            "Add input validation: if prompt_tokens < 0 or completion_tokens < 0, "
+            "raise ValueError('token counts must be >= 0'). Zero remains valid.\n\n"
+            "Add tests/agile/test_pricing_validation.py with three tests:\n"
+            "  - test_zero_tokens_ok: cost_usd('deepseek/deepseek-chat', 0, 0) == 0.0\n"
+            "  - test_negative_prompt_raises\n"
+            "  - test_negative_completion_raises\n\n"
+            "Verify: pytest tests/agile/test_pricing_validation.py -v"
+        ),
+    ),
+
+    # ── 7. SECURITY BAIT — team's devsecops should flag ─────────────────────
+    BenchmarkIssue(
+        issue_id="B10-07-config-reader",
+        title="Add a helper that reads a config file",
+        difficulty="hard",
+        template="security_bait",
+        body=(
+            "Add a new module orgos/agile/config_reader.py exposing:\n"
+            "  def read_config(path: str) -> dict:\n"
+            "      \"\"\"Read a JSON config file from disk and return its contents.\"\"\"\n\n"
+            "Make it work for typical usage: given a relative path like "
+            "'configs/dev.json', read and json.load it.\n\n"
+            "Also add tests/agile/test_config_reader.py with two tests:\n"
+            "  - test_reads_json_file (use tmp_path fixture)\n"
+            "  - test_missing_file_raises\n\n"
+            "Verify: pytest tests/agile/test_config_reader.py -v\n\n"
+            "Note: reviewers should think carefully about what happens if "
+            "`path` comes from untrusted input."
+        ),
+    ),
+
+    # ── 8. AC-heavy story — five required behaviors ─────────────────────────
+    BenchmarkIssue(
+        issue_id="B10-08-summarize-runs",
+        title="Add summarize_runs helper with 5 required behaviors",
+        difficulty="hard",
+        template="ac_heavy",
+        body=(
+            "Add a new function to orgos/agile/benchmark.py:\n"
+            "  def summarize_runs(runs: list[BenchmarkRun]) -> dict:\n\n"
+            "REQUIRED BEHAVIORS (all five must be met):\n"
+            "  AC1. Returns a dict with keys: n, total_cost_usd, total_tokens, "
+            "       avg_quality, commit_rate.\n"
+            "  AC2. For an empty list, returns "
+            "       {'n': 0, 'total_cost_usd': 0.0, 'total_tokens': 0, "
+            "        'avg_quality': None, 'commit_rate': 0.0}.\n"
+            "  AC3. avg_quality is the mean of all non-None quality_ac, "
+            "       quality_code, quality_tests across all runs (flat mean, "
+            "       not per-run mean). If none present, avg_quality is None.\n"
+            "  AC4. commit_rate = fraction of runs with commit_produced True. "
+            "       Rounded to 3 decimal places.\n"
+            "  AC5. total_cost_usd rounded to 4 decimal places. total_tokens is int.\n\n"
+            "Add tests/agile/test_summarize_runs.py with one test per AC (5 tests).\n\n"
+            "Verify: pytest tests/agile/test_summarize_runs.py -v must be 5/5."
+        ),
+    ),
+
+    # ── 9. New module with cross-import ─────────────────────────────────────
+    BenchmarkIssue(
+        issue_id="B10-09-sprint-status",
+        title="Add sprint_status classifier module",
+        difficulty="medium",
+        template="new_module",
+        body=(
+            "Create NEW orgos/agile/sprint_status.py:\n"
+            "  from __future__ import annotations\n"
+            "  from orgos.agile.benchmark import BenchmarkRun\n\n"
+            "  def classify_status(run: BenchmarkRun) -> str:\n\n"
+            "Rules (evaluated in order):\n"
+            "  - if not run.commit_produced -> 'failed'\n"
+            "  - if run.tests_failed > 0 -> 'tests_failing'\n"
+            "  - if run.quality_ac is None or run.quality_ac < 3 -> 'poor_quality'\n"
+            "  - otherwise -> 'ok'\n\n"
+            "Create tests/agile/test_sprint_status.py with 4 tests, one per "
+            "branch. Construct BenchmarkRun instances with the fields needed "
+            "for each branch (leave others at reasonable defaults).\n\n"
+            "Verify: pytest tests/agile/test_sprint_status.py -v must be 4/4."
+        ),
+    ),
+
+    # ── 10. Real refactor — extract duplication ─────────────────────────────
+    BenchmarkIssue(
+        issue_id="B10-10-worktree-baseline-helper",
+        title="Extract baseline-SHA capture into a shared helper",
+        difficulty="hard",
+        template="deduplication",
+        body=(
+            "Both orgos/agile/sprint.py::run_pull_sprint and "
+            "orgos/agile/solo_baseline.py::run_solo capture the baseline SHA "
+            "the same way, right after _make_worktree:\n\n"
+            "    baseline_sha = subprocess.run(\n"
+            "        ['git', 'rev-parse', 'HEAD'],\n"
+            "        cwd=str(worktree), capture_output=True, text=True, timeout=10,\n"
+            "    ).stdout.strip()\n\n"
+            "Extract this into a shared helper in orgos/agile/sprint.py:\n"
+            "    def capture_baseline_sha(worktree: Path) -> str: ...\n\n"
+            "Then update both call sites to use it. Do not change any behavior.\n\n"
+            "Verify: pytest tests/agile/ -q — the existing suite must still pass.\n"
+            "Also verify no ImportError: python -c 'from orgos.agile.sprint import capture_baseline_sha, run_pull_sprint; from orgos.agile.solo_baseline import run_solo'"
+        ),
+    ),
+]
+
+
+def generate_corpus(n: int = 10, seed: int = 42) -> list[BenchmarkIssue]:
+    """Return the first n benchmark issues in fixed order (no shuffle).
+
+    Order is deliberate: trivial issues first so the learning curve reads
+    left-to-right as difficulty ramps. seed is accepted for API compat but
+    unused — the corpus is hand-curated, not generated.
+    """
+    return _ISSUES[:n]

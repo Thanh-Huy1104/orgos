@@ -13,6 +13,7 @@ from typing import Any
 
 from orgos.agile.benchmark import BenchmarkRun, diff_stats, pytest_stats
 from orgos.agile.pricing import cost_usd
+import subprocess
 from orgos.agile.sprint import (
     Sprint, _extract_json_objects, _make_worktree, _new_sprint_id, write_snapshot,
 )
@@ -118,6 +119,13 @@ def run_solo(
                           envelopes={}, status="in_progress"),
                    backlog=[], heuristics=[])
 
+    # Baseline SHA — the .gitignore commit _make_worktree just wrote. Diff
+    # against this so the agent's diff is exactly what it produced ON TOP.
+    baseline_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(worktree), capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+
     role = _solo_role(model)
     role.tools = [BashTool(default_working_dir=str(worktree))]
 
@@ -159,8 +167,8 @@ def run_solo(
 
     wall = time.time() - t0
 
-    # Diff stats — compare against the baseline .gitignore commit (HEAD~1).
-    files, added, removed, diff_text = diff_stats(worktree, "HEAD~1")
+    # Diff stats — compare against the actual baseline SHA we captured.
+    files, added, removed, diff_text = diff_stats(worktree, baseline_sha)
 
     # Parse pytest counts from the envelope's test_output (if any).
     test_output = ""
@@ -172,7 +180,13 @@ def run_solo(
     commit_sha = ""
     if envelope:
         commit_sha = (envelope.get("payload", {}) or {}).get("commit_sha", "") or ""
-    commit_produced = bool(commit_sha) and files > 0
+
+    # Actual commit-on-top check: did HEAD advance past baseline?
+    current_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(worktree), capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+    commit_produced = bool(current_head) and current_head != baseline_sha
 
     # Quality — reuse the same evaluator on this diff.
     quality_ac = quality_code = quality_tests = None

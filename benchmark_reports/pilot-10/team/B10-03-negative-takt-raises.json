@@ -1,0 +1,177 @@
+{
+  "issue_id": "B10-03-negative-takt-raises",
+  "approach": "team",
+  "model": "deepseek/deepseek-chat",
+  "started_at": "2026-07-15T14:32:41.749511+00:00",
+  "wall_seconds": 81.72,
+  "tokens_input": 164526,
+  "tokens_output": 6499,
+  "tokens_total": 171025,
+  "cost_usd": 0.051571,
+  "commit_produced": true,
+  "commit_sha": "d4429a16f79d4c0c585013464d78379b0deb9192",
+  "files_changed": 2,
+  "loc_added": 47,
+  "loc_removed": 0,
+  "tests_run": 3,
+  "tests_passed": 3,
+  "tests_failed": 0,
+  "quality_ac": 5,
+  "quality_code": 5,
+  "quality_tests": 5,
+  "quality_summary": "All acceptance criteria are fully addressed: negative duration raises ValueError, zero/positive durations work, and new tests cover all scenarios. Code change is minimal, adds proper validation and docstring updates, follows conventions. Tests directly verify the criteria with clear assertions.",
+  "diff_text": "diff --git a/orgos/agile/flow_metric.py b/orgos/agile/flow_metric.py\nindex a6dc351..62fd94e 100644\n--- a/orgos/agile/flow_metric.py\n+++ b/orgos/agile/flow_metric.py\n@@ -19,7 +19,30 @@ def takt_time(duration_seconds: float, n_issues: int) -> float:\n     \"\"\"Average calendar time per issue. Lower = faster flow.\n \n     Returns 0.0 if no issues were processed (degenerate sprint).\n+    Raises ValueError if duration_seconds is negative.\n+\n+    Args:\n+        duration_seconds: Total duration of the sprint in seconds (>= 0).\n+        n_issues: Number of issues completed in the sprint.\n+\n+    Returns:\n+        Average time per issue in seconds, or 0.0 when n_issues <= 0.\n+\n+    Raises:\n+        ValueError: If duration_seconds < 0.\n+\n+    Examples:\n+        >>> takt_time(3600.0, 2)\n+        1800.0\n+        >>> takt_time(0.0, 1)\n+        0.0\n+        >>> takt_time(-1.0, 5)\n+        Traceback (most recent call last):\n+        ...\n+        ValueError: duration_seconds must be >= 0\n     \"\"\"\n+    if duration_seconds < 0:\n+        raise ValueError(\"duration_seconds must be >= 0\")\n     if n_issues <= 0:\n         return 0.0\n     return duration_seconds / max(n_issues, 1)\ndiff --git a/tests/agile/test_takt_negative.py b/tests/agile/test_takt_negative.py\nnew file mode 100644\nindex 0000000..f9bd241\n--- /dev/null\n+++ b/tests/agile/test_takt_negative.py\n@@ -0,0 +1,24 @@\n+\"\"\"Tests for takt_time negative duration validation.\"\"\"\n+\n+from __future__ import annotations\n+\n+import pytest\n+\n+from orgos.agile.flow_metric import takt_time\n+\n+\n+class TestTaktNegative:\n+    \"\"\"takt_time must raise ValueError on negative duration.\"\"\"\n+\n+    def test_negative_duration_raises(self) -> None:\n+        \"\"\"Negative duration_seconds raises ValueError.\"\"\"\n+        with pytest.raises(ValueError, match=\"duration_seconds must be >= 0\"):\n+            takt_time(-1.0, 5)\n+\n+    def test_zero_duration_ok(self) -> None:\n+        \"\"\"Zero duration with one issue returns 0.0.\"\"\"\n+        assert takt_time(0.0, 1) == 0.0\n+\n+    def test_positive_duration_ok(self) -> None:\n+        \"\"\"3600 seconds / 2 issues = 1800.0.\"\"\"\n+        assert takt_time(3600.0, 2) == 1800.0\n",
+  "envelope_trail": [
+    {
+      "role": "PO_Agent",
+      "status": "completed",
+      "summary": "**Issue #B10-03-negative-takt-raises prioritized as READY**\n\nUpdated backlog: issue B10-03 is now at the top of the READY queue. Acceptance criteria confirmed as clear and actionable. No implementation delegation needed per task instructions.\n\n**Backlog state:**\n1. **B10-03** \u2014 [READY] Negative takt raises validation (highest value, unblocks worker pull)\n2. *(further items remain in refinement phase below)*\n\n**Acceptance criteria for B10-03:**\n- When takt value is negative, system raises a descriptive validation error\n- Error message contains human-readable explanation\n- No data is written to the database for negative takt values\n- Unit test coverage includes negative, zero, and positive boundary cases\n- All existing tests pass with the change",
+      "artifacts": [
+        "Backlog reordered: B10-03 promoted to slot 1 in READY queue",
+        "Acceptance criteria verified and recorded on story body"
+      ],
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "prioritized_story": "B10-03-negative-takt-raises",
+        "priority_position": 1,
+        "state": "READY",
+        "acceptance_criteria_verified": true,
+        "scope_boundary": "under 5 files, under 400 LOC"
+      },
+      "notes": "Workers may now pull this story. No further PO action required until the next backlog refinement."
+    },
+    {
+      "role": "architect",
+      "status": "completed",
+      "summary": "Added ValueError('duration_seconds must be >= 0') to takt_time() when duration_seconds < 0 in orgos/agile/flow_metric.py; created tests/agile/test_takt_negative.py with 3 tests (negative raises, zero ok, positive ok); both test suites pass (3/3 new tests, 14/14 existing tests).",
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "commit_sha": "d4429a16f79d4c0c585013464d78379b0deb9192",
+        "files_touched": [
+          "orgos/agile/flow_metric.py",
+          "tests/agile/test_takt_negative.py"
+        ],
+        "test_command": "pytest tests/agile/test_takt_negative.py -v && pytest tests/agile/test_flow_metric.py -v",
+        "test_output": "test_takt_negative: 3/3 passed. test_flow_metric: 14/14 passed.",
+        "test_passed": true
+      }
+    },
+    {
+      "role": "test",
+      "status": "completed",
+      "summary": "Verified commit d4429a1 \u2014 takt_time raises ValueError on negative duration. New test file (test_takt_negative.py) and existing test suite (test_flow_metric.py) both pass: 3/3 and 14/14 tests passed.",
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "verified_commit_sha": "d4429a1",
+        "files_verified": [
+          "orgos/agile/flow_metric.py",
+          "tests/agile/test_takt_negative.py"
+        ],
+        "test_command": "python3 -m pytest tests/agile/test_takt_negative.py -v && python3 -m pytest tests/agile/test_flow_metric.py -v",
+        "test_output": "New suite: 3 passed in 1.11s (test_negative_duration_raises, test_zero_duration_ok, test_positive_duration_ok). Existing suite: 14 passed in 1.12s (TestTaktTime 4, TestVelocityDelta 5, TestComputeFlowMetrics 5).",
+        "test_passed": true
+      }
+    },
+    {
+      "role": "devsecops",
+      "status": "completed",
+      "summary": "diff clean, no secrets",
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "commit_sha": "d4429a16f79d4c0c585013464d78379b0deb9192",
+        "diff_lines": 47,
+        "secrets_found": false,
+        "governance_touched": false
+      }
+    },
+    {
+      "role": "release-manager",
+      "status": "completed",
+      "summary": "Opened mock PR for issue #B10-03-negative-takt-raises. Branch: B10-03-negative-takt-raises. PR URL: mock://pr/19f8439e4fa9",
+      "artifacts": [
+        "mock://pr/19f8439e4fa9"
+      ],
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "pr_url": "mock://pr/19f8439e4fa9",
+        "branch": "B10-03-negative-takt-raises",
+        "mock_mode": true
+      },
+      "notes": "Exactly one PR-opening tool call was made (duplicate invocations produced the same deterministic URL). Branch matches the sprint's branch name. pr_url is present."
+    },
+    {
+      "role": "PO_Agent",
+      "status": "completed",
+      "summary": "**Issue #B10-03-negative-takt-raises prioritized as READY**\n\nUpdated backlog: issue B10-03 is now at the top of the READY queue. Acceptance criteria confirmed as clear and actionable. No implementation delegation needed per task instructions.\n\n**Backlog state:**\n1. **B10-03** \u2014 [READY] Negative takt raises validation (highest value, unblocks worker pull)\n2. *(further items remain in refinement phase below)*\n\n**Acceptance criteria for B10-03:**\n- When takt value is negative, system raises a descriptive validation error\n- Error message contains human-readable explanation\n- No data is written to the database for negative takt values\n- Unit test coverage includes negative, zero, and positive boundary cases\n- All existing tests pass with the change",
+      "artifacts": [
+        "Backlog reordered: B10-03 promoted to slot 1 in READY queue",
+        "Acceptance criteria verified and recorded on story body"
+      ],
+      "success_criteria_met": true,
+      "requires_human_approval": false,
+      "payload": {
+        "prioritized_story": "B10-03-negative-takt-raises",
+        "priority_position": 1,
+        "state": "READY",
+        "acceptance_criteria_verified": true,
+        "scope_boundary": "under 5 files, under 400 LOC"
+      },
+      "notes": "Workers may now pull this story. No further PO action required until the next backlog refinement."
+    },
+    {
+      "role": "compaction",
+      "wiki_delta": [
+        "SPRINT_LOG.md",
+        "DECISIONS.md"
+      ],
+      "memory_deltas": [
+        "architect",
+        "test",
+        "devsecops",
+        "po",
+        "scrum_master"
+      ],
+      "audit_files_compacted": 0,
+      "errors": []
+    },
+    {
+      "role": "quality",
+      "overall": 1.0,
+      "deterministic": {
+        "diff_size": {
+          "passed": true,
+          "reason": "diff_lines=47"
+        },
+        "files_in_scope": {
+          "passed": true,
+          "reason": "no allowlist, all files accepted"
+        },
+        "secrets": {
+          "passed": true,
+          "reason": "no secrets detected"
+        },
+        "commit_valid": {
+          "passed": true,
+          "reason": "sha=d4429a16f79d"
+        },
+        "tests_passed": {
+          "passed": true,
+          "reason": "no test output provided"
+        }
+      },
+      "llm_scores": {
+        "ac_compliance": 5,
+        "code_quality": 5,
+        "test_relevance": 5
+      },
+      "llm_summary": "All acceptance criteria are fully addressed: negative duration raises ValueError, zero/positive durations work, and new tests cover all scenarios. Code change is minimal, adds proper validation and docstring updates, follows conventions. Tests directly verify the criteria with clear assertions."
+    }
+  ],
+  "raw_output": "",
+  "error": ""
+}
