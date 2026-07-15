@@ -1,6 +1,3 @@
+  check: Read back DECISIONS.md to confirm append worked
 
-## metrics_v2 conventions (established sprint L10-01)
-- Metric dataclass fields, in order: (name, value, unit). frozen=True.
-- Metric.name style: snake_case only (e.g. 'mean_takt', not 'MeanTakt' or 'mean-takt').
-- Invalid-input policy for metric functions: RETURN None, do NOT raise. This applies to every metrics_v2/*.py function.
-- Every new metric function goes in its own module under orgos/agile/metrics_v2/.
+- 2026-07-15 sprint L10-05-wait-time-follows-unit: Add wait_time metric — must match established time_unit — Added wait_time(ready_ts, start_ts) returning Metric with unit='seconds' (matching cycle_time convention), plus 3 tests verifying value, name, and unit consistency with cycle_time.
