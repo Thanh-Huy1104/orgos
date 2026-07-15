@@ -13,9 +13,9 @@ from pathlib import Path
 
 from orgos.pm import PMStore
 
-from .mutations import BriefMutation, apply_mutation
+from .mutations import BriefMutation, SwapTopology, apply_mutation
 from .sprint import (
-    Sprint, _new_sprint_id, read_snapshot, run_sprint,
+    Sprint, _new_sprint_id, read_snapshot, run_sprint, run_scrum_sprint,
 )
 
 
@@ -47,10 +47,15 @@ def replay_sprint(
             status="completed",
         )
     else:
-        replayed = run_sprint(
-            base, mutated["picked_issue"], model=model, mock_pr=True,
-        )
-        # run_sprint already created the sprint row — only attach replay metadata.
+        if isinstance(mutation, SwapTopology):
+            replayed = run_scrum_sprint(
+                base, mutated["picked_issue"], model=model, mock_pr=True,
+            )
+        else:
+            replayed = run_sprint(
+                base, mutated["picked_issue"], model=model, mock_pr=True,
+            )
+        # run_sprint/run_scrum_sprint already created the sprint row — only attach replay metadata.
         pm = PMStore()  # default path matches run_sprint
         pm.record_sprint_envelope(
             replayed.id, "_replay",

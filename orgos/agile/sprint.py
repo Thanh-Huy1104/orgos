@@ -29,15 +29,17 @@ from orgos.pm import PMStore
 from orgos.spawn import TaskBrief, spawn
 from orgos.spawn.engine import SpawnResult
 from orgos.subagents import (
-    engineer_role, product_manager_role, qa_validator_role,
-    release_manager_role, sprint_lead_role,
+    architect_role, devsecops_role, engineer_role, po_role,
+    product_manager_role, qa_validator_role, release_manager_role,
+    scrum_master_role, sprint_lead_role, test_role,
 )
 from orgos.tools.bash import BashTool
 from orgos.tools.mock_pr_tool import MockPRTool
 
 from .envelopes import (
     BacklogEnvelope, BriefEnvelope, DoraEnvelope, EngineeringEnvelope,
-    GradeEnvelope, ReleaseEnvelope,
+    GradeEnvelope, PullEnvelope, ReadyEnvelope, RefinementEnvelope,
+    ReleaseEnvelope,
 )
 from .intake import rank_backlog
 from .rubric import grade as run_rubric
@@ -151,6 +153,9 @@ def _brief_for_team(issue: dict, worktree: Path, branch: str) -> TaskBrief:
 _PHASE_TO_ENVELOPE: dict[str, type] = {
     "backlog": BacklogEnvelope,
     "brief": BriefEnvelope,
+    "refinement": RefinementEnvelope,
+    "ready": ReadyEnvelope,
+    "pull": PullEnvelope,
     "engineering": EngineeringEnvelope,
     "grade": GradeEnvelope,
     "release": ReleaseEnvelope,
@@ -162,6 +167,13 @@ _ROLE_TO_PHASE: list[tuple[str, str]] = [
     ("product-manager", "brief"),
     ("product manager", "brief"),
     ("pm", "brief"),
+    ("po", "brief"),
+    ("product owner", "brief"),
+    ("scrum master", "refinement"),
+    ("sm", "refinement"),
+    ("architect", "refinement"),
+    ("test", "refinement"),
+    ("devsecops", "refinement"),
     ("engineer", "engineering"),
     ("qa", "grade"),
     ("release", "release"),
@@ -392,6 +404,11 @@ def run_sprint(
     )
 
 
+    # ── Pull-based sprint (self-organizing, no orchestrator) ─────────────────────
+
+_WIKI_MCP = None
+
+
 def _fetch_open_issues() -> list[dict]:
     """Live fetch via GitHubListIssuesTool. Patchable in tests."""
     from orgos.tools.github_issue_tool import GitHubListIssuesTool
@@ -505,3 +522,320 @@ def run_nightly_sprint(
             _pm.create_adr(sprint.id, p.kind, p.before_yaml, p.after_yaml, p.rationale)
 
     return sprint
+
+
+def _brief_for_scrum_team(issue: dict, worktree: Path, branch: str) -> TaskBrief:
+    return TaskBrief(
+        objective=(
+            f"Complete this sprint on issue #{issue.get('issue_id', '?')}: "
+            f"{issue.get('title', '')}\n\n"
+            f"Issue description: {issue.get('body', '')}\n\n"
+            f"You are the PO (Product Owner, orchestrator). Your subordinates are "
+            f"SM, Architect, Test, DevSecOps, and Release. Delegate work to them "
+            f"in order so each produces a HandoffEnvelope.\n\n"
+            f"CRITICAL — TOOLS: You and subordinates have BashTool (shell commands) "
+            f"and MockPRTool. THAT IS IT. No board/API/wiki tools exist. "
+            f"BashTool runs in the worktree: {worktree}\n\n"
+            f"CRITICAL — ENVELOPE FORMAT: Every agent MUST output valid JSON:\n"
+            f'{{\n'
+            f'  "role": "<your role name>",\n'
+            f'  "status": "completed|needs_revision|blocked|failed",\n'
+            f'  "summary": "<what was done>",\n'
+            f'  "success_criteria_met": true|false,\n'
+            f'  "requires_human_approval": false,\n'
+            f'  "payload": {{... any data ...}}\n'
+            f'}}\n'
+            f"NO markdown wrappers, NO code fences, NO prose around the JSON. "
+            f"Output ONLY the JSON object.\n\n"
+            f"ROLES:\n"
+            f"1. SM — assess sprint readiness, brief the workers\n"
+            f"2. Architect — WRITE the implementation files in {worktree}, run tests, "
+            f"commit with: git add -A && git -c user.name=orgos-worker "
+            f"-c user.email=worker@orgos.local commit -m '...'\n"
+            f"3. Test — RUN the acceptance tests, verify output\n"
+            f"4. DevSecOps — verify the change is safe, no leaked keys\n"
+            f"5. Release — record a mock PR via MockPRTool\n\n"
+            f"WORKTREE: {worktree}, BRANCH: {branch}\n"
+            f"Commit SHA goes in payload.commit_sha. Test output in payload.test_output. "
+            f"Files touched in payload.files_touched. PR URL in payload.pr_url."
+        ),
+        expected_output=(
+            "A HandoffEnvelope JSON object summarising the sprint. "
+            "Each subordinate produced their own JSON envelope."
+        ),
+        success_criteria=[
+            "Each subordinate produced a valid HandoffEnvelope JSON with role/status/summary.",
+            "The workers committed to the worktree branch with a valid SHA.",
+            "The Release envelope contains a pr_url.",
+        ],
+        inputs={"issue": json.dumps(issue), "worktree_path": str(worktree),
+                "branch": branch},
+    )
+
+
+def run_scrum_sprint(
+    repo_path: Path,
+    issue: dict,
+    *,
+    model: str | None = None,
+    mock_pr: bool = True,
+    run_budget_tokens: int = 400_000,
+) -> Sprint:
+    sprint_id = _new_sprint_id()
+    started_at = datetime.now(timezone.utc).isoformat()
+    branch = f"agile/{sprint_id}"
+    worktree = _make_worktree(repo_path, sprint_id, branch)
+    write_snapshot(
+        Sprint(
+            id=sprint_id,
+            started_at=started_at,
+            repo_path=repo_path,
+            worktree_path=worktree,
+            branch=branch,
+            picked_issue=issue,
+            envelopes={},
+            status="in_progress",
+        ),
+        backlog=[],
+        heuristics=[],
+    )
+
+    po = po_role(model=model)
+    sm = scrum_master_role(model=model)
+    arch = architect_role(
+        model=model,
+        extra_tools=[BashTool(default_working_dir=str(worktree))],
+    )
+    tst = test_role(
+        model=model,
+        extra_tools=[BashTool(default_working_dir=str(worktree))],
+    )
+    ds = devsecops_role(
+        model=model,
+        extra_tools=[BashTool(default_working_dir=str(worktree))],
+    )
+    release = release_manager_role(
+        model=model,
+        extra_tools=[MockPRTool()] if mock_pr else [],
+    )
+
+    brief = _brief_for_scrum_team(issue, worktree, branch)
+    approval_fn = (lambda role, name, args: True) if mock_pr else None
+    result = spawn(
+        po, brief,
+        subordinates=[sm, arch, tst, ds, release],
+        approval_fn=approval_fn,
+        run_budget_tokens=run_budget_tokens,
+    )
+
+    envelopes: dict[str, Any] = {}
+    for tout in result.tasks_output:
+        pyd = getattr(tout, "pydantic", None)
+        if isinstance(pyd, (BriefEnvelope, EngineeringEnvelope, ReleaseEnvelope,
+                           GradeEnvelope, RefinementEnvelope, ReadyEnvelope,
+                           PullEnvelope)):
+            phase_map = {
+                BriefEnvelope: "brief", EngineeringEnvelope: "engineering",
+                ReleaseEnvelope: "release", GradeEnvelope: "grade",
+                RefinementEnvelope: "refinement", ReadyEnvelope: "ready",
+                PullEnvelope: "pull",
+            }
+            for cls, phase in phase_map.items():
+                if isinstance(pyd, cls):
+                    envelopes.setdefault(phase, pyd)
+                    break
+
+        raw = getattr(tout, "raw", "") or ""
+        for blob in _extract_json_objects(raw):
+            try:
+                data = json.loads(blob)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            phase = _classify_by_role(data.get("role", "") or "")
+            if phase is None:
+                continue
+            subclass = _PHASE_TO_ENVELOPE.get(phase)
+            if subclass is None:
+                continue
+            try:
+                envelopes.setdefault(phase, subclass.model_validate(data))
+            except Exception:
+                continue
+
+    if "brief" in envelopes and "engineering" in envelopes:
+        envelopes["grade"] = run_rubric(envelopes["brief"], envelopes["engineering"])
+
+    envelopes["summary"] = result.envelope
+
+    status = "completed" if (
+        result.envelope.status == "completed"
+        or (envelopes.get("grade") and envelopes["grade"].success_criteria_met
+            and "release" in envelopes)
+    ) else "needs_revision"
+
+    pm_store = PMStore()
+    pm_store.create_sprint(sprint_id, branch, issue, status="in_progress", started_at=started_at)
+    for phase, env in envelopes.items():
+        pm_store.record_sprint_envelope(sprint_id, phase, env.model_dump_json())
+    pm_store.update_sprint_status(sprint_id, status)
+
+    return Sprint(
+        id=sprint_id,
+        started_at=started_at,
+        repo_path=repo_path,
+        worktree_path=worktree,
+        branch=branch,
+        picked_issue=issue,
+        envelopes=envelopes,
+        status=status,
+        spawn_result=result,
+    )
+
+
+
+# ------------------ Pull-based sprint (self-organizing, no orchestrator) --------------------
+
+def _brief_for_pull_worker(issue: dict, worktree: Path, branch: str,
+                           role_name: str, role_task: str) -> TaskBrief:
+    return TaskBrief(
+        objective=(
+            f"You operate in a git worktree. BashTool runs there. Use bare paths.\n\n"
+            f"FILE TO MODIFY: {issue.get('body', '')}\n"
+            f"TASK: {issue.get('title', '')}\n\n"
+            f"EXACT SEQUENCE:\n"
+            f"1. Read the target file: type orgos\\agile\\thefile.py\n"
+            f"2. Modify it: echo ... > orgos\\agile\\thefile.py\n"
+            f"3. Run tests: pytest tests/agile/test_thefile.py -v\n"
+            f"4. Commit: git add -A && git -c user.name=o -c user.email=o@o commit -m msg\n"
+            f"5. Get SHA: git rev-parse HEAD\n"
+            f"6. Output JSON envelope with commit_sha, files_touched, test_output, test_passed\n\n"
+            f"OUTPUT ONLY JSON. NO markdown."
+        ),
+        expected_output=f"A HandoffEnvelope JSON from {role_name}.",
+        success_criteria=[f"{role_name} completed their role task."],
+        inputs={"issue": json.dumps(issue), "worktree_path": str(worktree),
+                "branch": branch},
+    )
+
+
+_WIKI_MCP = None
+
+
+def _get_wiki_mcp():
+    global _WIKI_MCP
+    if _WIKI_MCP is None:
+        from orgos.mcps.wiki import create_wiki_mcp
+        _WIKI_MCP = create_wiki_mcp()
+    return _WIKI_MCP
+
+
+def run_pull_sprint(
+    repo_path: Path,
+    issue: dict,
+    *,
+    model: str | None = None,
+    mock_pr: bool = True,
+    run_budget_tokens: int = 1_500_000,
+) -> Sprint:
+    sprint_id = _new_sprint_id()
+    started_at = datetime.now(timezone.utc).isoformat()
+    branch = f"agile/{sprint_id}"
+    worktree = _make_worktree(repo_path, sprint_id, branch)
+    repo = Path(repo_path)
+    write_snapshot(Sprint(id=sprint_id, started_at=started_at, repo_path=repo,
+                 worktree_path=worktree, branch=branch, picked_issue=issue,
+                 envelopes={}, status="in_progress"), backlog=[], heuristics=[])
+
+    envelopes: dict[str, Any] = {}
+
+    # PO prioritizes - does NOT delegate
+    po = po_role(model=model)
+    po_brief = TaskBrief(
+        objective=f"Prioritize issue #{issue.get('issue_id','?')} as READY. Do NOT delegate. Workers self-assign. Output JSON envelope.",
+        expected_output="A HandoffEnvelope JSON.",
+        success_criteria=["Issue prioritized as READY."],
+    )
+    po_result = spawn(po, po_brief, run_budget_tokens=min(run_budget_tokens // 4, 200_000))
+    for tout in po_result.tasks_output:
+        raw = getattr(tout, "raw", "") or ""
+        for blob in _extract_json_objects(raw):
+            try: data = json.loads(blob)
+            except json.JSONDecodeError: continue
+            if isinstance(data, dict) and data.get("role"):
+                envelopes.setdefault("brief", data)
+
+    # Workers spawn independently
+    wiki = _get_wiki_mcp()
+    wb = run_budget_tokens // 3
+    arch = architect_role(model, extra_tools=[BashTool(default_working_dir=str(worktree))])
+    arch.mcp_servers = [wiki]
+    tst = test_role(model, extra_tools=[BashTool(default_working_dir=str(worktree))])
+    tst.mcp_servers = [wiki]
+    ds = devsecops_role(model, extra_tools=[BashTool(default_working_dir=str(worktree))])
+    ds.mcp_servers = [wiki]
+
+    workers = [
+        ("architect", arch, "Write implementation files, run tests, git commit."),
+        ("test", tst, "Run acceptance tests, verify output, report results."),
+        ("devsecops", ds, "Verify no secrets, change is safe, diff is clean."),
+    ]
+    for role_name, role, role_task in workers:
+        brief = _brief_for_pull_worker(issue, worktree, branch, role_name, role_task)
+        wr = spawn(role, brief, run_budget_tokens=wb)
+        for tout in wr.tasks_output:
+            raw = getattr(tout, "raw", "") or ""
+            for blob in _extract_json_objects(raw):
+                try: data = json.loads(blob)
+                except json.JSONDecodeError: continue
+                if isinstance(data, dict) and data.get("role"):
+                    envelopes.setdefault(role_name, data)
+
+    # Release
+    release = release_manager_role(model=model, extra_tools=[MockPRTool()] if mock_pr else [])
+    rel_brief = TaskBrief(
+        objective=f"Record mock PR for issue #{issue.get('issue_id')}. Use MockPRTool. Output JSON.",
+        expected_output="A HandoffEnvelope JSON.",
+        success_criteria=["pr_url is present."],
+    )
+    af = (lambda r, n, a: True) if mock_pr else None
+    rel_result = spawn(release, rel_brief, approval_fn=af, run_budget_tokens=50_000)
+    for tout in rel_result.tasks_output:
+        raw = getattr(tout, "raw", "") or ""
+        for blob in _extract_json_objects(raw):
+            try: data = json.loads(blob)
+            except json.JSONDecodeError: continue
+            if isinstance(data, dict) and data.get("role") == "release-manager":
+                envelopes.setdefault("release", data)
+
+    envelopes["summary"] = envelopes.get("brief") or envelopes.get("architect") or {}
+    status = "completed" if len(envelopes) >= 3 else "needs_revision"
+
+    # Quality evaluation (deterministic + LLM)
+    try:
+        from orgos.agile.evaluator import QualityEvaluator
+        evaluator = QualityEvaluator(model=model)
+        sprint_stub = Sprint(id=sprint_id, started_at=started_at, repo_path=repo,
+                             worktree_path=worktree, branch=branch, picked_issue=issue,
+                             envelopes=envelopes, status=status, spawn_result=po_result)
+        quality = evaluator.evaluate(sprint_stub, issue)
+        envelopes["quality"] = {
+            "overall": quality.overall,
+            "deterministic": quality.deterministic_criteria,
+            "llm_scores": quality.llm_scores,
+            "llm_summary": quality.llm_summary,
+        }
+    except Exception:
+        pass
+
+    pm_store = PMStore()
+    pm_store.create_sprint(sprint_id, branch, issue, status="in_progress", started_at=started_at)
+    for phase, env in envelopes.items():
+        if isinstance(env, dict):
+            pm_store.record_sprint_envelope(sprint_id, phase, json.dumps(env))
+    pm_store.update_sprint_status(sprint_id, status)
+
+    return Sprint(id=sprint_id, started_at=started_at, repo_path=repo,
+                  worktree_path=worktree, branch=branch, picked_issue=issue,
+                  envelopes=envelopes, status=status, spawn_result=po_result)

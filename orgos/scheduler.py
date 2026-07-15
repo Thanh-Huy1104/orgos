@@ -420,3 +420,60 @@ def register_nightly_jobs(scheduler: "Scheduler") -> None:
         id="nightly-agile-sprint",
         misfire_grace_time=600,
     )
+
+
+# ── Scrum sprint (4h interval) ────────────────────────────────────────────────
+
+_SCRUM_AGENT_NAMES = ["po", "scrum_master", "architect", "test", "devsecops"]
+
+
+def _boot_and_run_scrum_sprint(repo_path: str = ".") -> None:
+    """One 4h scrum sprint cycle: conductor boot -> spawn -> compaction.
+
+    For each agent in the scrum team, the conductor reads HEARTBEAT.md to
+    produce a TaskBrief. The PO orchestrates the sprint via spawn(). At
+    sprint end, compaction runs: wiki delta, MEMORY deltas, audit pruning,
+    retro candidates.
+    """
+    from pathlib import Path as _P
+    from orgos.agile.sprint import run_scrum_sprint
+    from orgos.agile.compaction import CompactionRunner
+
+    repo = _P(repo_path)
+    compaction = CompactionRunner(
+        wiki_root=repo / "wiki",
+        agents_root=repo / "agents",
+    )
+
+    _log.info("scrum sprint cycle: booting %d agents", len(_SCRUM_AGENT_NAMES))
+    sprint = run_scrum_sprint(repo, {}, model=None, mock_pr=True)
+
+    result = compaction.run(sprint, agent_names=_SCRUM_AGENT_NAMES)
+    _log.info(
+        "scrum sprint done: sprint_id=%s wiki_delta=%d memory_deltas=%d "
+        "audit_compacted=%d errors=%d",
+        sprint.id, len(result.wiki_delta), len(result.memory_deltas),
+        result.audit_files_compacted, len(result.errors),
+    )
+
+
+def register_scrum_sprint_jobs(scheduler: "Scheduler") -> None:
+    """Register the 4h interval scrum sprint with conductor + compaction.
+
+    Call this after constructing a Scheduler to activate autonomous
+    scrum team sprints::
+
+        org = load_org("config/org.yaml")
+        s = Scheduler(org)
+        register_scrum_sprint_jobs(s)
+        s.run_loop()
+    """
+    scheduler.add_job(
+        _boot_and_run_scrum_sprint,
+        trigger="cron",
+        hour="*",
+        minute=0,
+        id="scrum-sprint-cycle",
+        misfire_grace_time=600,
+    )
+

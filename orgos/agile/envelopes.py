@@ -57,3 +57,24 @@ class RetroEnvelope(_PayloadMixin, HandoffEnvelope):
 class DoraEnvelope(_PayloadMixin, HandoffEnvelope):
     """Phase [06] DORA snapshot. payload: {deploy_freq, lead_time_p50, cfr,
     mttr_p50, tier}."""
+
+
+class QualityEnvelope(_PayloadMixin, HandoffEnvelope):
+    """Phase [07] Quality evaluation. payload: {overall: float 0-1,
+    deterministic: {criterion: bool}, llm_scores: {ac_compliance: float,
+    code_quality: float, test_relevance: float}, llm_summary: str}."""
+
+
+class RefinementEnvelope(_PayloadMixin, HandoffEnvelope):
+    """Phase [07] Refinement. payload: {story_id, role_signoffs: [{role, agent_id,
+    concern, approved}], size_ok, ready_for_grooming}."""
+
+
+class ReadyEnvelope(_PayloadMixin, HandoffEnvelope):
+    """Phase [08] READY gate. payload: {story_id, size_caps_pass, all_roles_signed,
+    rank_in_backlog, ready_for_pull}."""
+
+
+class PullEnvelope(_PayloadMixin, HandoffEnvelope):
+    """Phase [09] Pull. payload: {story_id, captain_agent_id, wiki_consulted,
+    parent_epic_verified}."""

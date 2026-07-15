@@ -876,14 +876,94 @@ def lab_replay(req: ReplayReq) -> dict:
         m = InjectHeuristic(**req.mutation_args)
     elif req.mutation_kind == "swap_role":
         m = SwapRole(**req.mutation_args)
+    elif req.mutation_kind == "swap_topology":
+        from orgos.agile.mutations import SwapTopology
+        m = SwapTopology(**req.mutation_args)
     else:
         return {"error": f"unknown mutation_kind: {req.mutation_kind}"}
     try:
         s = replay_sprint(req.parent_sprint_id, m)
     except Exception as exc:
         return {"error": str(exc)}
-    return {"replay_sprint_id": s.id, "status": s.status,
-            "picked_issue": s.picked_issue}
+        return {"replay_sprint_id": s.id, "status": s.status,
+             "picked_issue": s.picked_issue}
+
+
+class PairedRunReq(BaseModel):
+    issue_id: str = ""
+    issue_title: str = ""
+    agents_dir_b: str = ""
+
+
+@app.post("/api/lab/paired-run")
+def lab_paired_run(req: PairedRunReq) -> dict:
+    """Run a dual-team paired benchmark on the same issue.
+
+    Compares the default agents/ topology against an alternative
+    agents/ directory specified by agents_dir_b.
+    """
+    from orgos.agile.paired_run import run_paired_benchmark
+
+    issue = {"issue_id": req.issue_id, "title": req.issue_title}
+    agents_dir_a = Path("agents")
+    agents_dir_b = Path(req.agents_dir_b) if req.agents_dir_b else Path("agents_alt")
+
+    try:
+        report = run_paired_benchmark(
+            repo_path=Path("."),
+            issue=issue,
+            agents_dir_a=agents_dir_a,
+            agents_dir_b=agents_dir_b,
+        )
+        return {
+            "issue_id": report.issue_id,
+            "repo_sha": report.repo_sha,
+            "winner": report.winner,
+            "score_delta": report.score_delta,
+            "flow_delta": report.flow_delta,
+            "summary": report.summary,
+            "team_a": {
+                "sprint_id": report.team_a.sprint_id,
+                "status": report.team_a.status,
+                "rubric_score": report.team_a.rubric_score,
+                "dora_tier": report.team_a.dora_tier,
+                "flow_score": report.team_a.flow_score,
+            },
+            "team_b": {
+                "sprint_id": report.team_b.sprint_id,
+                "status": report.team_b.status,
+                "rubric_score": report.team_b.rubric_score,
+                "dora_tier": report.team_b.dora_tier,
+                "flow_score": report.team_b.flow_score,
+            },
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.get("/api/lab/flow-metrics/{sprint_id}")
+def lab_flow_metrics(sprint_id: str) -> dict:
+    """Compute flow-efficiency metrics for a single sprint."""
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    row = _pm.get_sprint(sprint_id)
+    if not row:
+        raise HTTPException(404, "sprint not found")
+
+    from orgos.agile.flow_metric import compute_flow_metrics
+    result = compute_flow_metrics(
+        sprint_id=sprint_id,
+        started_at_iso=row["started_at"],
+        completed_at_iso=row.get("updated_at"),
+        n_issues=1,
+    )
+    return {
+        "sprint_id": result.sprint_id,
+        "duration_seconds": result.duration_seconds,
+        "takt_time": result.takt_time,
+        "velocity_delta": result.velocity_delta,
+        "flow_score": result.flow_score,
+        "warnings": result.warnings,
+    }
 
 
 @app.get("/api/sprints")
@@ -944,6 +1024,173 @@ def agent_card() -> dict:
              "inputModes": ["application/json"], "outputModes": ["application/json"]},
         ],
     }
+
+
+# ── Monitor API (Streamlit dashboard) ────────────────────────────────────────
+
+
+@app.get("/api/personas")
+def api_personas() -> list[dict]:
+    agents_root = Path("agents")
+    agents = []
+    for d in sorted(agents_root.iterdir()):
+        if not d.is_dir() or d.name.startswith("_") or d.name.startswith("."):
+            continue
+        files = []
+        for ft in ["soul", "brain", "habits", "memory", "heartbeat"]:
+            fp = d / f"{ft}.md"
+            if fp.exists():
+                files.append({"name": ft, "size": fp.stat().st_size})
+        agents.append({"agent": d.name, "files": files})
+    return agents
+
+
+@app.get("/api/personas/{agent}/{file}")
+def api_persona_file(agent: str, file: str) -> dict:
+    fp = Path("agents") / agent / f"{file}.md"
+    if not fp.exists():
+        raise HTTPException(404, "file not found")
+    return {"agent": agent, "file": file,
+            "content": fp.read_text(encoding="utf-8"),
+            "size": fp.stat().st_size}
+
+
+class PersonaUpdateReq(BaseModel):
+    content: str
+
+
+@app.post("/api/personas/{agent}/{file}")
+def api_persona_update(agent: str, file: str, req: PersonaUpdateReq) -> dict:
+    fp = Path("agents") / agent / f"{file}.md"
+    if not fp.exists():
+        raise HTTPException(404, "file not found")
+    fp.write_text(req.content, encoding="utf-8")
+    return {"agent": agent, "file": file, "saved": True}
+
+
+@app.get("/api/wiki/files")
+def api_wiki_files() -> list[dict]:
+    wiki_root = Path("wiki")
+    if not wiki_root.exists():
+        return []
+    results = []
+    for fp in sorted(wiki_root.rglob("*.md")):
+        results.append({
+            "path": str(fp.relative_to(wiki_root)).replace("\\", "/"),
+            "size": fp.stat().st_size,
+            "modified": fp.stat().st_mtime,
+        })
+    return results
+
+
+@app.get("/api/wiki/file")
+def api_wiki_file(path: str = "") -> dict:
+    fp = Path("wiki") / path
+    if not fp.exists():
+        raise HTTPException(404, "wiki file not found")
+    return {"path": path, "content": fp.read_text(encoding="utf-8"),
+            "size": fp.stat().st_size}
+
+
+@app.get("/api/board/status")
+def api_board_status() -> dict:
+    return {
+        "columns": ["draft", "refinement", "ready", "in_progress", "review", "done"],
+        "required_roles": ["architect", "test", "devsecops"],
+        "max_files": 5, "max_loc": 400,
+    }
+
+
+@app.get("/api/experiments")
+def api_experiments() -> list[dict]:
+    results = []
+    for fp in sorted(Path(".").glob("experiment_*.json"), reverse=True):
+        try:
+            data = json.loads(fp.read_text())
+            results.append({"id": fp.stem, "config": data.get("config", {}),
+                           "summary": data.get("summary", {})})
+        except Exception:
+            continue
+    return results
+
+
+@app.get("/api/experiments/{exp_id}")
+def api_experiment_detail(exp_id: str) -> dict:
+    fp = Path(".") / f"{exp_id}.json"
+    if not fp.exists():
+        raise HTTPException(404, "experiment not found")
+    return json.loads(fp.read_text())
+
+
+class ExperimentReq(BaseModel):
+    num_sprints: int = 5
+    model: str = "deepseek/deepseek-chat"
+    budget: int = 300_000
+    mode: str = "pull"
+
+
+@app.post("/api/experiments/run")
+def api_experiment_run(req: ExperimentReq) -> dict:
+    import threading
+
+    def _run():
+        from orgos.agile.sprint import run_pull_sprint
+        from orgos.agile.flow_metric import compute_flow_metrics
+        from datetime import datetime, timezone
+        import time as _t
+        repo = Path(".")
+        results = []
+        tasks = [
+            {"title": "Add docstring to takt_time", "body": "Add docstring explaining return value."},
+            {"title": "Add type hints to check_ready_gate", "body": "Add type annotations."},
+            {"title": "Add logging to conductor boot", "body": "Add log call."},
+            {"title": "Improve scope_drift_check error", "body": "Include file counts."},
+            {"title": "Add __repr__ to CompactionResult", "body": "Add __repr__ method."},
+        ]
+        for i in range(req.num_sprints):
+            t = tasks[i % len(tasks)]
+            issue = {"issue_id": str(600 + i), "title": t["title"], "body": t["body"]}
+            try:
+                s = run_pull_sprint(repo, issue, model=req.model, mock_pr=True,
+                                    run_budget_tokens=req.budget)
+                tokens = (s.spawn_result.token_usage.get("total_tokens", 0)
+                          if s.spawn_result and s.spawn_result.token_usage else 0)
+                flow = compute_flow_metrics(sprint_id=s.id, started_at_iso=s.started_at, n_issues=1)
+                results.append({"sprint_id": s.id, "issue": t["title"],
+                               "status": s.status, "tokens": tokens,
+                               "flow_score": flow.flow_score})
+            except Exception as e:
+                results.append({"sprint_id": f"err-{i}", "status": "crashed",
+                               "tokens": 0, "error": str(e)})
+            _t.sleep(1)
+        out = Path(f"experiment_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}.json")
+        out.write_text(json.dumps({
+            "config": {"num_sprints": req.num_sprints, "model": req.model,
+                       "budget": req.budget, "mode": req.mode},
+            "results": results,
+            "summary": {
+                "completed": sum(1 for r in results if r["status"] == "completed"),
+                "total_tokens": sum(r["tokens"] for r in results),
+            },
+        }, indent=2))
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "num_sprints": req.num_sprints, "model": req.model}
+
+
+@app.get("/api/costs")
+def api_costs() -> list[dict]:
+    _pm = pm if pm is not None else PMStore(PM_DB)
+    rows = _pm.list_sprints(limit=50)
+    out = []
+    for r in rows:
+        envs = json.loads(r.get("envelopes_json") or "{}")
+        mode = "pull" if "architect" in envs else "legacy"
+        out.append({
+            "sprint_id": r["id"], "status": r["status"], "mode": mode,
+            "started_at": r["started_at"], "envelope_count": len(envs),
+        })
+    return out
 
 
 if __name__ == "__main__":

@@ -28,7 +28,13 @@ class SwapRole:
     kind: str = "swap_role"
 
 
-BriefMutation = SwapBacklogPick | InjectHeuristic | SwapRole
+@dataclass
+class SwapTopology:
+    agents_dir: str
+    kind: str = "swap_topology"
+
+
+BriefMutation = SwapBacklogPick | InjectHeuristic | SwapRole | SwapTopology
 
 
 def apply_mutation(snapshot: dict, mutation) -> dict:
@@ -53,6 +59,8 @@ def apply_mutation(snapshot: dict, mutation) -> dict:
             "model": mutation.alt_model,
             "system_prompt": mutation.alt_system_prompt,
         }
+    elif isinstance(mutation, SwapTopology):
+        out["agents_dir"] = mutation.agents_dir
     else:
         raise TypeError(f"unknown mutation type: {type(mutation).__name__}")
     return out
