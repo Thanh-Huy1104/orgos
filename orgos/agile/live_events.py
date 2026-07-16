@@ -56,6 +56,9 @@ _EVENT_META: dict[str, tuple[str, str]] = {
     "pr_feedback_skipped":  ("🙅", "PR feedback ingestion skipped"),
     "pr_feedback_error":    ("⚠️ ", "PR feedback ingestion error"),
     "waterfall_phase":      ("🌊", "waterfall phase"),
+    "merge_queued":         ("📮", "merge request queued"),
+    "merge_completed":      ("🔗", "merge completed"),
+    "merge_conflict":       ("💥", "merge conflict"),
 }
 
 
