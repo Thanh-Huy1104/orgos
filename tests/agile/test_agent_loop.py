@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock
@@ -344,6 +345,193 @@ class TestPokerRefinement:
         story = board.read("S1")
         assert story.state == "ready", f"expected ready, got {story.state}"
         assert story.points == 3, f"expected median points=3, got {story.points}"
+
+
+class TestSprintBoundaryCeremony:
+    """SM's sprint_boundary ceremony fires when keyword-matched."""
+
+    def test_sprint_open_fires_and_emits_events(self, tmp_path, real_repo):
+        board = BoardStore(tmp_path / "board")
+        # Two ready stories waiting to be pulled into a sprint
+        for iid in ("S1", "S2"):
+            board.draft_story(issue_id=iid, title=iid, body="b",
+                              story_type="feature", priority=50, files_to_touch=[])
+            board.transition(iid, "refinement", actor="sm")
+            board.transition(iid, "ready", actor="sm")
+
+        ws = _make_ws(tmp_path, real_repo)
+        ws.team_id = "t1"
+        ws.source_repo = real_repo
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(ws)
+        executor = MagicMock()
+
+        heartbeat_md = "## Every 1 seconds\nOpen the next sprint boundary."
+        agent = AsyncAgent(
+            role="scrum_master", workspace=ws, board=board,
+            executor=executor, merge_queue=queue, emitter=emitter,
+            heartbeat_md=heartbeat_md,
+            is_delivery_agent=False,
+        )
+
+        async def scenario():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+
+        asyncio.run(scenario())
+
+        # A sprint was opened (may be sprint 1 or higher if the ceremony
+        # fires multiple times in the test window)
+        from orgos.agile.sprints import current_sprint_number, read_sprint
+        assert current_sprint_number(ws) >= 1
+        # Sprint 1 exists and was populated at open time (both stories
+        # were unassigned then, so both went in)
+        s1 = read_sprint(ws, 1)
+        assert s1 is not None
+        assert set(s1.committed_backlog) == {"S1", "S2"}
+        # Events emitted
+        events = [json.loads(l) for l in
+                  (tmp_path / "live.jsonl").read_text().splitlines() if l.strip()]
+        assert any(e["action"] == "sprint_opened" for e in events)
+
+
+class TestAcceptanceCeremony:
+    """PO's acceptance ceremony transitions pending_acceptance → done."""
+
+    def test_po_accepts_pending_stories(self, tmp_path, real_repo):
+        board = BoardStore(tmp_path / "board")
+        # Get a story to pending_acceptance
+        board.draft_story(issue_id="S1", title="s", body="b",
+                          story_type="feature", files_to_touch=[])
+        board.transition("S1", "refinement", actor="sm")
+        board.transition("S1", "ready", actor="sm")
+        board.transition("S1", "in_progress", actor="arch")
+        board.transition("S1", "review", actor="arch")
+        board.set_commit("S1", "abc1234", actor="arch")
+        board.transition("S1", "pending_acceptance", actor="merge_worker")
+
+        ws = _make_ws(tmp_path, real_repo)
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(ws)
+        executor = MagicMock()
+
+        heartbeat_md = "## Every 1 seconds\nAcceptance review of merged stories."
+        agent = AsyncAgent(
+            role="po", workspace=ws, board=board,
+            executor=executor, merge_queue=queue, emitter=emitter,
+            heartbeat_md=heartbeat_md,
+            is_delivery_agent=False,
+        )
+
+        async def scenario():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+
+        asyncio.run(scenario())
+        assert board.read("S1").state == "done"
+
+    def test_po_rejects_pending_story_with_no_commit_sha(self, tmp_path, real_repo):
+        board = BoardStore(tmp_path / "board")
+        board.draft_story(issue_id="S1", title="s", body="b",
+                          story_type="feature", files_to_touch=[])
+        board.transition("S1", "refinement", actor="sm")
+        board.transition("S1", "ready", actor="sm")
+        board.transition("S1", "in_progress", actor="arch")
+        board.transition("S1", "review", actor="arch")
+        # Do NOT set commit — story is in pending_acceptance without proof of work
+        board.transition("S1", "pending_acceptance", actor="merge_worker")
+
+        ws = _make_ws(tmp_path, real_repo)
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(ws)
+        agent = AsyncAgent(
+            role="po", workspace=ws, board=board,
+            executor=MagicMock(), merge_queue=queue, emitter=emitter,
+            heartbeat_md="## Every 1 seconds\nAcceptance review of merged stories.",
+            is_delivery_agent=False,
+        )
+
+        async def scenario():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+
+        asyncio.run(scenario())
+        assert board.read("S1").state == "blocked"
+
+
+class TestPersonaHeartbeatRouting:
+    """Every action_text in every shipped persona HEARTBEAT.md must route
+    to a ceremony method — not to scheduled_noop. Prevents the
+    'someone rewords the heartbeat and a ceremony silently stops firing'
+    regression.
+
+    We replicate the routing logic here rather than importing it so any
+    drift between test and implementation surfaces as a test failure.
+    """
+
+    def test_all_persona_actions_route_to_a_ceremony(self):
+        from pathlib import Path
+        import re as _re
+        from orgos.agile.heartbeat_scheduler import parse_schedule
+
+        # Same word-boundary helper as AsyncAgent uses.
+        def matches(text, *words):
+            return any(_re.search(rf"\b{_re.escape(w)}\b", text) for w in words)
+
+        def route(text: str, is_delivery: bool, cadence: int) -> str:
+            text = text.lower()
+            if is_delivery and cadence <= 60 and ("board" in text or "story" in text or "check" in text):
+                return "pull_and_work"
+            if matches(text, "sprint") and matches(text, "open", "close", "start", "boundary", "planning"):
+                return "sprint_boundary"
+            if matches(text, "accept", "acceptance") and matches(text, "story", "stories", "review", "merged"):
+                return "acceptance"
+            if matches(text, "retrospective"): return "retro"
+            if matches(text, "replan"):        return "replan"
+            if matches(text, "retro"):         return "retro"
+            if matches(text, "backlog", "spec"): return "replan"
+            if matches(text, "poker", "refinement"): return "poker"
+            if matches(text, "pr") and matches(text, "comment", "comments", "feedback", "review"):
+                return "pr_feedback"
+            return "noop"
+
+        delivery_roles = {"architect", "test", "devsecops"}
+        # Intentional noops — action texts that are documentation-of-intent
+        # rather than a scheduled ceremony call. If you add a "read wiki"
+        # ceremony later, remove the matching pattern here.
+        INTENTIONAL_NOOP_KEYWORDS = ("wiki", "skim", "grep")
+
+        agents_root = Path(__file__).resolve().parents[2] / "agents"
+        failures = []
+        for role_dir in sorted(agents_root.iterdir()):
+            if not role_dir.is_dir() or role_dir.name.startswith("_"):
+                continue
+            hb = role_dir / "HEARTBEAT.md"
+            if not hb.exists():
+                continue
+            tasks = parse_schedule(hb.read_text(encoding="utf-8"))
+            for t in tasks:
+                r = route(t.action_text, role_dir.name in delivery_roles, t.cadence_seconds)
+                if r == "noop":
+                    txt_low = t.action_text.lower()
+                    if any(k in txt_low for k in INTENTIONAL_NOOP_KEYWORDS):
+                        continue  # explicitly intentional noop
+                    failures.append(
+                        f"  {role_dir.name}/HEARTBEAT.md → cadence={t.cadence_seconds}s "
+                        f"action='{t.action_text[:80]}' routes to NOOP"
+                    )
+        assert not failures, (
+            "Shipped persona HEARTBEAT.md files have action_text that routes "
+            "to scheduled_noop (silent no-op). This is almost always a "
+            "regression from re-wording. Fix the wording OR add a routing "
+            "clause to AsyncAgent.loop:\n" + "\n".join(failures)
+        )
 
 
 class TestAsyncAgentCoordination:

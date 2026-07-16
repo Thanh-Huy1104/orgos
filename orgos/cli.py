@@ -339,8 +339,19 @@ def _cmd_start(args: argparse.Namespace) -> int:
         supervisor.stop()
     signal.signal(signal.SIGINT, _handle_sigint)
 
-    print(f"[cli] team {args.team_id} started with roles {roles}", flush=True)
-    asyncio.run(_run_all())
+    # Write a PID file so `orgos stop --team-id X` can find this process
+    # exactly (not via fragile pgrep substring matching).
+    pid_file = ws.root / "pid.txt"
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
+    print(f"[cli] team {args.team_id} started with roles {roles} (pid={os.getpid()})", flush=True)
+    try:
+        asyncio.run(_run_all())
+    finally:
+        try:
+            pid_file.unlink()
+        except FileNotFoundError:
+            pass
 
     # Write campaign_result.json so scrum runs have parity with waterfall for
     # downstream comparison harnesses.
@@ -360,13 +371,31 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 
 def _cmd_stop(args: argparse.Namespace) -> int:
-    """Signal a running team to stop. Sends SIGINT to matching orgos start process(es)."""
+    """Signal a running team to stop. Reads the PID file `orgos start` wrote."""
     import subprocess
-    r = subprocess.run(
-        ["pgrep", "-f", f"orgos.cli.*start.*--team-id.*{args.team_id}"],
-        capture_output=True, text=True,
-    )
-    pids = [p for p in r.stdout.strip().splitlines() if p]
+    from orgos.agile.team_workspace import TeamWorkspace, TeamWorkspaceMissing
+
+    repo = Path(getattr(args, "repo", ".")).resolve()
+    pids: list[str] = []
+    try:
+        ws = TeamWorkspace.open(args.team_id, repo)
+        pid_file = ws.root / "pid.txt"
+        if pid_file.exists():
+            pid = pid_file.read_text(encoding="utf-8").strip()
+            if pid.isdigit():
+                pids = [pid]
+    except TeamWorkspaceMissing:
+        pass
+
+    # Fallback: fragile pgrep substring match (for legacy workspaces that
+    # predate pid.txt). Uses exact-boundary matching to avoid team-id
+    # substring collisions.
+    if not pids:
+        r = subprocess.run(
+            ["pgrep", "-f", f"orgos.cli.*start.*--team-id[= ]{args.team_id}( |$)"],
+            capture_output=True, text=True,
+        )
+        pids = [p for p in r.stdout.strip().splitlines() if p]
     if not pids:
         print(f"ERROR: no running team found with team-id {args.team_id}", file=sys.stderr)
         return 2
@@ -596,6 +625,9 @@ def main(argv: list[str] | None = None) -> int:
         "stop",
         help="Signal a running team to shut down (SIGINT). Team finishes current stories then exits.",
     )
+    stop_p.add_argument("--repo", type=str, default=".",
+                        help="Target repo (default: CWD). Used to find the "
+                             "team's pid.txt for exact-PID SIGINT.")
     stop_p.add_argument("--team-id", type=str, required=True)
     stop_p.set_defaults(func=_cmd_stop)
 

@@ -130,7 +130,7 @@ Every result above is regenerable from a clean checkout:
 git clone <this repo>
 cd orgos
 pip install -e ".[dev]"
-pytest -q                        # 194 passing
+pytest -q                        # full suite, ~200 tests, ~30s
 
 # Bootstrap a minimal target
 mkdir /tmp/flask-target && cd /tmp/flask-target

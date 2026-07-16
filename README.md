@@ -42,7 +42,7 @@ can measure the gap on a real goal on a real repo.
 git clone <this repo>
 cd orgos
 pip install -e ".[dev]"          # installs the `orgos` CLI + pytest
-pytest -q                        # sanity check — should print "185 passed"
+pytest -q                        # sanity check — full suite, ~200 tests, ~30s
 ```
 
 Requirements: Python ≥ 3.11, git ≥ 2.5 (needs worktree support).
@@ -308,7 +308,9 @@ subscription; no per-run charge.
 
 ```bash
 # Scrum team (v2 async, recommended for measuring)
-orgos start   --repo PATH --team-id ID --goal "..." [--executor auto|claude|copilot|spawn] [--model M] [--fresh]
+orgos start   --repo PATH --team-id ID --goal "..." \
+              [--executor auto|claude|copilot|spawn] [--model M] [--fresh] \
+              [--timeout-seconds N]              # auto-shutdown after N sec (0 = SIGINT-only)
 
 # Waterfall team (v1 sequential pipeline, baseline for comparison)
 orgos run     --repo PATH --team-id ID --goal "..." --waterfall [--model M]
@@ -491,5 +493,5 @@ agents or during experiments. Everything else is fair game.
 ## 11. Testing
 
 ```bash
-pytest -q          # 185 tests, ~30s
+pytest -q          # full suite, ~200 tests, ~30s
 ```

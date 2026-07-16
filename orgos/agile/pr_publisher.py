@@ -186,4 +186,11 @@ def open_pr_for_team(
     if not ok:
         return PublishResult(published=False, error=err)
 
+    # Persist pr_url so mid-run ceremonies (e.g. PO's pr_feedback) can find it
+    # without waiting for campaign_result.json which is only written on shutdown.
+    try:
+        (workspace.root / "pr_url.txt").write_text(url, encoding="utf-8")
+    except Exception:
+        pass
+
     return PublishResult(published=True, pr_url=url)

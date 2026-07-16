@@ -21,8 +21,11 @@ google-*.json
 # subagent-driven-development workflow scratch (task briefs, reports, ledger)
 .superpowers/
 
-# per-sprint git worktrees
+# per-sprint git worktrees (legacy)
 .sprints/
+
+# per-team runtime state (workspaces, worktrees, boards, wikis, live events)
+.orgos_teams/
 
 # macOS metadata
 .DS_Store

@@ -351,15 +351,25 @@ class AsyncAgent:
         try:
             from orgos.agile.pr_feedback import ingest_pr_feedback
             import json
-            r_path = self.workspace.root / "campaign_result.json"
+            # Look for pr_url in (a) a dedicated pr_url.txt written by
+            # pr_publisher when a PR is opened mid-run, or (b) a
+            # campaign_result.json from a previous shutdown of this workspace.
             pr_url = ""
-            if r_path.exists():
+            pr_url_file = self.workspace.root / "pr_url.txt"
+            if pr_url_file.exists():
                 try:
-                    pr_url = json.loads(r_path.read_text()).get("pr_url", "")
+                    pr_url = pr_url_file.read_text(encoding="utf-8").strip()
                 except Exception:
                     pass
             if not pr_url:
-                return  # nothing to ingest
+                r_path = self.workspace.root / "campaign_result.json"
+                if r_path.exists():
+                    try:
+                        pr_url = json.loads(r_path.read_text()).get("pr_url", "")
+                    except Exception:
+                        pass
+            if not pr_url:
+                return  # no PR published yet
             await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: ingest_pr_feedback(
