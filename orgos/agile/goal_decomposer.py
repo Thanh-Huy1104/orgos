@@ -114,7 +114,22 @@ RULES:
    Use this for dependencies: e.g. "implement POST /notes" depends on
    "add Note data model". Field is optional; default is no dependencies.
 
-8. Output the JSON array. If you wrap in an envelope (your persona may
+8. **DEFINITION OF DONE (mandatory):** Every story of type `architecture`,
+   `feature`, or `security` that ships production code MUST be paired with
+   an immediately-following `test` story with `depends_on: [<parent-index>]`.
+   The test story's title starts with "Add tests for " followed by the
+   parent story's title. This mirrors real Scrum where a story is not
+   "done" without tests — so the parent's implementation must land before
+   its test story can be pulled. Docs stories do not require a paired test.
+   Example pairing:
+     [
+       {{"title": "Add count() to NotesStore", "type": "feature",
+         "priority": 80, "depends_on": []}},
+       {{"title": "Add tests for Add count() to NotesStore", "type": "test",
+         "priority": 79, "depends_on": [0]}},
+     ]
+
+9. Output the JSON array. If you wrap in an envelope (your persona may
    push you to), put the ARRAY inside the `payload` field. Either of these
    is accepted:
 

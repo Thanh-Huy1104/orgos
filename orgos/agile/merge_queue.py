@@ -138,11 +138,17 @@ async def run_merge_worker(
 
         if ok:
             try:
-                board.transition(request.story_id, "done", actor="merge_worker")
+                # Handoff to PO acceptance gate (real Scrum DoD) — story is
+                # NOT done until PO accepts. PO's heartbeat runs the
+                # acceptance ceremony and transitions to done or blocked.
+                board.transition(
+                    request.story_id, "pending_acceptance",
+                    actor="merge_worker",
+                )
             except Exception as e:
                 emitter.emit(
                     "merge_state_error", story_id=request.story_id,
-                    summary=f"failed to transition to done: {e}",
+                    summary=f"failed to transition to pending_acceptance: {e}",
                 )
             emitter.emit(
                 "merge_completed", story_id=request.story_id,

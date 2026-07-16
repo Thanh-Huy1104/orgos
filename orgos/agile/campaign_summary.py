@@ -80,7 +80,7 @@ def write_campaign_result(
 
     # ── story counts from the authoritative board ───────────────────────
     all_states = ("draft", "refinement", "ready", "in_progress",
-                  "review", "done", "blocked")
+                  "review", "pending_acceptance", "done", "blocked")
     counts = {s: len(list(board.list_state(s))) for s in all_states}
     stories_created = sum(counts.values())
     stories_done = counts["done"]
@@ -93,7 +93,18 @@ def write_campaign_result(
     except Exception:
         pass
 
+    # Sprint metadata (if the run went through real sprints)
+    sprint_summary: list[dict] = []
+    sprints_dir = root / "sprints"
+    if sprints_dir.exists():
+        for f in sorted(sprints_dir.glob("*.json")):
+            try:
+                sprint_summary.append(json.loads(f.read_text()))
+            except json.JSONDecodeError:
+                continue
+
     payload = {
+        "sprints":               sprint_summary,
         "team_id":               getattr(m, "team_id", "") if m else "",
         "goal":                  getattr(m, "goal", "") if m else "",
         "model":                 getattr(m, "model", "") if m else "",

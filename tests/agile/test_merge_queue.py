@@ -103,7 +103,9 @@ class TestMergeWorker:
 
         # Integration branch should now contain the app.py file
         assert (team_repo / "app.py").exists()
-        assert board.read("S1").state == "done"
+        # Merge worker hands off to PO acceptance gate — story is
+        # pending_acceptance, not done, until PO's ceremony accepts it.
+        assert board.read("S1").state == "pending_acceptance"
 
 
 class TestMergeWorkerConflict:

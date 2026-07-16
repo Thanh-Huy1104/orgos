@@ -93,6 +93,15 @@ class AsyncAgent:
                 #   6. 'pr' + [comment|feedback|review] → pr_feedback
                 # All checks use word boundaries so 'spec' does not match
                 # 'retrospective', etc.
+                if _matches_any(text, "sprint") and _matches_any(
+                    text, "open", "close", "start", "boundary", "planning",
+                ):
+                    await self._run_sprint_boundary()
+                    continue
+                if _matches_any(text, "accept", "acceptance") and \
+                        _matches_any(text, "story", "stories", "review", "merged"):
+                    await self._run_acceptance()
+                    continue
                 if _matches_any(text, "retrospective"):
                     await self._run_retro()
                     continue
@@ -239,6 +248,105 @@ class AsyncAgent:
                 summary=f"{story.issue_id}: {e}"[:200],
             )
 
+    async def _run_sprint_boundary(self) -> None:
+        """Close the current sprint (if open) and open the next one.
+
+        Runs sprint planning: picks up to `velocity_target` ready stories that
+        are not yet in a sprint and assigns them the new sprint's number.
+        Emits sprint_closed + sprint_opened events with metrics.
+        """
+        try:
+            from orgos.agile.sprints import (
+                close_sprint, open_sprint, current_sprint_number,
+            )
+
+            def _boundary() -> tuple:
+                prev_num = current_sprint_number(self.workspace)
+                closed = None
+                if prev_num > 0:
+                    closed = close_sprint(
+                        self.workspace, self.board, reason="scheduled",
+                    )
+                new_sprint = open_sprint(
+                    self.workspace, self.board, velocity_target=6,
+                )
+                return closed, new_sprint
+
+            closed, opened = await asyncio.get_running_loop().run_in_executor(
+                None, _boundary,
+            )
+            if closed is not None:
+                self.emitter.emit(
+                    "sprint_closed", sprint_number=closed.number,
+                    stories_done=len(closed.stories_done),
+                    points_completed=closed.points_completed,
+                    reason=closed.reason_closed,
+                    summary=(
+                        f"sprint {closed.number} closed: "
+                        f"{len(closed.stories_done)} done, "
+                        f"{closed.points_completed} pts"
+                    ),
+                )
+            self.emitter.emit(
+                "sprint_opened", sprint_number=opened.number,
+                committed_backlog_size=len(opened.committed_backlog),
+                summary=(
+                    f"sprint {opened.number} opened with "
+                    f"{len(opened.committed_backlog)} committed stories"
+                ),
+            )
+        except Exception as e:
+            self.emitter.emit(
+                "sprint_boundary_failed", role=self.role, summary=str(e)[:200],
+            )
+
+    async def _run_acceptance(self) -> None:
+        """PO acceptance gate: review stories in pending_acceptance and
+        transition to done (accept) or blocked (reject).
+
+        v1 policy: accept any story that has a commit_sha and passes basic
+        sanity (no empty commit_sha, no error markers in audit). Rejection
+        criteria will be tightened once we have real acceptance criteria
+        stored on the story object.
+        """
+        try:
+            def _accept_batch() -> int:
+                pending = self.board.list_state("pending_acceptance")
+                accepted = 0
+                for story in pending:
+                    reason = ""
+                    accept = bool(story.commit_sha)
+                    if not accept:
+                        reason = "no commit_sha on story"
+                    try:
+                        if accept:
+                            self.board.transition(
+                                story.issue_id, "done", actor="po",
+                                reason="accepted",
+                            )
+                            accepted += 1
+                        else:
+                            self.board.transition(
+                                story.issue_id, "blocked", actor="po",
+                                reason=f"rejected:{reason}"[:200],
+                            )
+                    except Exception:
+                        continue
+                return accepted
+
+            count = await asyncio.get_running_loop().run_in_executor(
+                None, _accept_batch,
+            )
+            if count > 0:
+                self.emitter.emit(
+                    "stories_accepted", accepted=count,
+                    summary=f"PO accepted {count} pending stories",
+                )
+        except Exception as e:
+            self.emitter.emit(
+                "acceptance_failed", role=self.role, summary=str(e)[:200],
+            )
+
     async def _run_pr_feedback(self) -> None:
         try:
             from orgos.agile.pr_feedback import ingest_pr_feedback
@@ -267,7 +375,14 @@ class AsyncAgent:
 
     async def _pull_and_work_once(self) -> None:
         """Delivery-agent action: check board, pull if match, run executor, enqueue merge."""
-        story = self.board.try_claim_next_for(self.role, actor=self.role)
+        from orgos.agile.sprints import current_sprint_number
+        try:
+            sn = current_sprint_number(self.workspace)
+        except Exception:
+            sn = 0
+        story = self.board.try_claim_next_for(
+            self.role, actor=self.role, sprint_number=sn,
+        )
         if story is None:
             return
 

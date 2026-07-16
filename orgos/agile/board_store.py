@@ -46,18 +46,25 @@ from pathlib import Path
 from typing import Optional
 
 
-VALID_STATES = ("draft", "refinement", "ready", "in_progress", "review", "done", "blocked")
+VALID_STATES = (
+    "draft", "refinement", "ready", "in_progress",
+    "review", "pending_acceptance", "done", "blocked",
+)
 VALID_TYPES = ("architecture", "test", "security", "feature", "docs")
 
-# state machine — key = current state, value = allowed next states
+# state machine — key = current state, value = allowed next states.
+# `review` → `pending_acceptance` is the merge-clean handoff to PO.
+# PO's acceptance ceremony transitions `pending_acceptance` → `done` (accept)
+# or → `blocked` (reject with reason).
 TRANSITIONS: dict[str, tuple[str, ...]] = {
-    "draft":       ("refinement", "blocked"),
-    "refinement":  ("ready", "draft", "blocked"),
-    "ready":       ("in_progress", "blocked"),
-    "in_progress": ("review", "blocked", "ready"),   # ready → return-to-queue
-    "review":      ("done", "in_progress", "blocked"),
-    "done":        (),   # terminal
-    "blocked":     ("draft", "refinement", "ready", "in_progress", "review"),
+    "draft":              ("refinement", "blocked"),
+    "refinement":         ("ready", "draft", "blocked"),
+    "ready":              ("in_progress", "blocked"),
+    "in_progress":        ("review", "blocked", "ready"),   # ready → return-to-queue
+    "review":             ("pending_acceptance", "done", "in_progress", "blocked"),
+    "pending_acceptance": ("done", "blocked", "review"),    # PO's gate
+    "done":               (),
+    "blocked":            ("draft", "refinement", "ready", "in_progress", "review", "pending_acceptance"),
 }
 
 
@@ -87,6 +94,7 @@ class Story:
     commit_sha: str = ""
     files_to_touch: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
+    sprint_number: int = 0   # 0 = unassigned (not in any sprint yet)
     created_at: str = ""
     updated_at: str = ""
 
@@ -250,8 +258,24 @@ class BoardStore:
             return True
         return [s for s in ready if s.type in allowed and _deps_satisfied(s)]
 
+    def list_ready_for_sprint(
+        self, worker_type: str, *, sprint_number: int,
+    ) -> list[Story]:
+        """Sprint-filtered variant of list_ready_for_type.
+
+        If `sprint_number == 0`: fall back to the un-filtered set (pre-sprint
+        bootstrap — the team hasn't opened sprint 1 yet, board can still be
+        worked). Once a sprint is open, only stories committed to THAT sprint
+        are pullable — this enforces Scrum's Sprint Backlog commitment.
+        """
+        candidates = self.list_ready_for_type(worker_type)
+        if sprint_number == 0:
+            return candidates
+        return [s for s in candidates if s.sprint_number == sprint_number]
+
     def try_claim_next_for(
         self, role: str, *, actor: str,
+        sprint_number: int = 0,
     ) -> Optional[Story]:
         """Atomically pull the top matching READY story for `role` and move it
         to in_progress. Skips stories whose files_to_touch overlaps with any
@@ -264,7 +288,7 @@ class BoardStore:
         drives all agents).
         """
         with self._claim_lock:
-            candidates = self.list_ready_for_type(role)
+            candidates = self.list_ready_for_sprint(role, sprint_number=sprint_number)
             if not candidates:
                 return None
 
@@ -391,6 +415,13 @@ class BoardStore:
         story.points = points
         self._write_story(story)
         self._audit(issue_id, actor, "set_points", points=points)
+        return story
+
+    def set_sprint_number(self, issue_id: str, sprint_number: int, actor: str) -> Story:
+        story = self.read(issue_id)
+        story.sprint_number = sprint_number
+        self._write_story(story)
+        self._audit(issue_id, actor, "set_sprint_number", sprint_number=sprint_number)
         return story
 
     def increment_refinement_round(self, issue_id: str) -> Story:

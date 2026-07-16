@@ -68,6 +68,11 @@ _EVENT_META: dict[str, tuple[str, str]] = {
     "scheduled_noop":       ("💤", "unrouted scheduled task"),
     "poker_failed":         ("⚠️ ", "poker failed"),
     "story_refined":        ("🃏", "story refined to ready"),
+    "sprint_opened":        ("🚀", "sprint opened"),
+    "sprint_closed":        ("🏁", "sprint closed"),
+    "sprint_boundary_failed": ("⚠️ ", "sprint boundary failed"),
+    "stories_accepted":     ("✅", "PO accepted stories"),
+    "acceptance_failed":    ("⚠️ ", "acceptance ceremony failed"),
 }
 
 

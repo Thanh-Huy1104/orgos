@@ -12,6 +12,7 @@ on any: architect / test / devsecops each vote, discuss if divergent,
 converge on story points. Move refined stories to `ready`.
 
 ## Every 4 hours
-Run the sprint retrospective. Write a retro entry to wiki/RETRO.md capturing:
-what went well, what went wrong, one action item for next sprint. Then trigger
-PO's replan.
+Sprint boundary: close the current sprint and open the next one. This runs
+sprint planning — pick up to velocity_target ready stories and commit them
+to the new sprint's backlog. Then write a retrospective entry to
+wiki/RETRO.md capturing what went well, what went wrong, one action item.
