@@ -22,7 +22,7 @@ v2 fixes both:
 
 - **True Scrum runtime**: each role becomes an independent asyncio task with an internal heartbeat.
   The board is the *only* coordination mechanism.
-- **Pluggable coding executor**: default OpenCode + DeepSeek. Fallbacks: Aider, Claude Code.
+- **Coding executor**: OpenCode + DeepSeek. Behind a `CodingExecutor` protocol so alternatives (Aider, Claude Code) can be added later without changing agent code — but v2 ships with only the OpenCode implementation.
 
 ## 2. Goals and non-goals
 
@@ -30,7 +30,7 @@ v2 fixes both:
 
 1. Remove the synchronous dispatcher; each of the 5 roles runs as an independent async agent.
 2. Board becomes the only coordination surface. Agents self-organize by pulling.
-3. Coding is delegated to a pluggable `CodingExecutor` (OpenCode default).
+3. Coding is delegated to a `CodingExecutor` protocol (OpenCode implementation shipped in v2; interface leaves room to add others later).
 4. Multi-sprint behavior falls out naturally from continuous operation — no explicit sprint loop.
 5. Ceremonies (poker, retro, replan) become scheduled tasks on the responsible agents' HEARTBEAT.md.
 6. Preserve the demoable claim: **drop-in spec → end-to-end working app + draft PR**.
@@ -104,7 +104,7 @@ teams/<team_id>/
 | Module | Purpose |
 |---|---|
 | `agile/agent_loop.py` | The `AsyncAgent` class. One instance per role. Owns: heartbeat timer, pull-and-work loop, MEMORY.md update, session persistence. |
-| `agile/coding_executor.py` | `CodingExecutor` Protocol + `OpenCodeExecutor` (default), `AiderExecutor`, `ClaudeCodeExecutor`. Every executor exposes `run_story()` and `spawn_subagent()`. |
+| `agile/coding_executor.py` | `CodingExecutor` Protocol + `OpenCodeExecutor` (only implementation in v2). Exposes `run_story()` and `spawn_subagent()`. Protocol shape allows a second implementation later without touching agent code. |
 | `agile/heartbeat_scheduler.py` | Parses HEARTBEAT.md's natural-language schedule into asyncio timers. |
 | `agile/merge_queue.py` | FIFO merge queue. Agents enqueue "merge-me" requests. A merge worker serializes under `git_op_lock`, tries rebase-before-merge, escalates blocked stories on failure. |
 | `agile/supervisor.py` | Team supervisor. Watches 5 async agent tasks; restarts on crash with exponential backoff; persists task state (`agents/<role>/task_state.json`) so restart resumes cleanly. |
@@ -155,7 +155,7 @@ New flags on `orgos start`:
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--coding-executor` | `opencode` | `opencode` / `aider` / `claude-code` |
+| `--coding-executor` | `opencode` | Only `opencode` accepted in v2. Flag reserved for future implementations. |
 | `--sprint-duration` | `14400` | Sprint-boundary interval (scrum_master's retro schedule). 4h per chapter default. |
 | `--max-usd`, `--max-tokens`, `--stagnation-window` | as v1 | Stop conditions |
 | `--n-workers-per-role` | `1` | v2 ships N=1; v3 will allow >1 |
@@ -307,7 +307,7 @@ The v1 codebase gets restructured, not thrown away. Concretely:
 ## 9. Risks and open questions
 
 **Risks:**
-- OpenCode's non-interactive mode has known gaps ([issue #13851](https://github.com/anomalyco/opencode/issues/13851)) around fully hands-off file ops. Mitigation: use `opencode serve` + `opencode run` combo (warm session). Fallback: Aider (more mature for subprocess automation).
+- OpenCode's non-interactive mode has known gaps ([issue #13851](https://github.com/anomalyco/opencode/issues/13851)) around fully hands-off file ops. Mitigation: use `opencode serve` + `opencode run` combo (warm session). If OpenCode blocks us hard, the `CodingExecutor` protocol makes adding an Aider fallback ~0.5 day of work — deferred for now.
 - Async debuggability. Sync dispatcher was easy to reason about; 5 async agents are harder. Mitigation: live event feed already captures every action; per-agent task_state.json helps forensics.
 - Merge conflicts still real — even with all prevention, agents will occasionally collide. Mitigation: escalation path is clear (blocked → PO replan → human).
 - Cost. Continuous operation with per-agent LLM calls can burn tokens fast. Mitigation: `--max-usd` / `--max-tokens` caps (already in v1).
@@ -332,8 +332,7 @@ The v1 codebase gets restructured, not thrown away. Concretely:
 
 - Delete v1 dispatcher/multi_sprint/dispatcher_briefs: 0.5 day
 - Rework team_workspace for per-agent worktrees: 1 day
-- `CodingExecutor` protocol + `OpenCodeExecutor` (default): 1.5 days
-- `AiderExecutor` + `ClaudeCodeExecutor`: 0.5 day
+- `CodingExecutor` protocol + `OpenCodeExecutor` (only impl): 1.5 days
 - `HeartbeatScheduler`: 0.5 day
 - `AsyncAgent` + supervisor: 2 days
 - `merge_queue` with rebase-before-merge: 1 day
@@ -343,7 +342,7 @@ The v1 codebase gets restructured, not thrown away. Concretely:
 - Update `team_report.py` for per-agent status: 0.5 day
 - New regression tests: 1 day
 - End-to-end smoke on Flask target: 0.5 day
-- **Total: ~10-11 days of focused work**
+- **Total: ~9-10 days of focused work**
 
 ## 12. References
 
