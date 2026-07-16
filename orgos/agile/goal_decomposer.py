@@ -101,15 +101,20 @@ RULES:
 4. Story titles are ≤ 80 chars, imperative form ("Add X", "Extract Y",
    "Modify Y"). If a story targets an existing file, make that explicit:
    "Add greet() to orgos/agile/greeting.py" rather than "Create greeting.py".
-5. Body is a mini-spec: what to add, where, what tests to write, what
+5. Every story MUST include `files_to_touch: [<paths>]` — the specific files
+   the story will create or modify. Be exact. This is used to prevent
+   concurrent stories from stepping on each other's code. Example:
+   `"files_to_touch": ["app.py", "tests/test_auth.py"]`. If genuinely
+   unknowable (e.g., a research story), use `[]`.
+6. Body is a mini-spec: what to add, where, what tests to write, what
    'done' looks like. Include target file paths — and note whether the
    target file is expected to already exist or be newly created.
-6. Optional `depends_on`: a story can list issue indices (0-based, into
+7. Optional `depends_on`: a story can list issue indices (0-based, into
    your OWN output array) that must complete before this story is workable.
    Use this for dependencies: e.g. "implement POST /notes" depends on
    "add Note data model". Field is optional; default is no dependencies.
 
-7. Output the JSON array. If you wrap in an envelope (your persona may
+8. Output the JSON array. If you wrap in an envelope (your persona may
    push you to), put the ARRAY inside the `payload` field. Either of these
    is accepted:
 
@@ -308,6 +313,11 @@ def decompose_goal(
             raw_deps = []
         dep_specs.append(raw_deps)
 
+        raw_ftt = s.get("files_to_touch") or []
+        if not isinstance(raw_ftt, list):
+            raw_ftt = []
+        files_to_touch = [str(p).strip() for p in raw_ftt if str(p).strip()]
+
         issue_id = f"{id_prefix}-{i:02d}-{_slugify(title)}"
         while board.exists(issue_id):
             issue_id = f"{issue_id}-{len(created)}"
@@ -319,6 +329,7 @@ def decompose_goal(
             story_type=story_type,
             priority=priority,
             actor="po",
+            files_to_touch=files_to_touch,
         )
         created.append(issue_id)
 

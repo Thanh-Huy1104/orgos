@@ -122,6 +122,63 @@ class TestOverlapDetection:
         assert len(warnings) >= 0  # heuristic-level check
 
 
+class TestFilesToTouchExtraction:
+    """PO output → files_to_touch on the drafted story."""
+
+    def test_files_to_touch_populated(self, tmp_path, monkeypatch):
+        # Patch decompose_goal's spawn call to return a fixed PO output
+        from orgos.agile.board_store import BoardStore
+        from orgos.agile import goal_decomposer as gd
+
+        fake_stories = [{
+            "title": "Add auth",
+            "body": "Implement JWT auth in app.py",
+            "type": "feature",
+            "priority": 90,
+            "files_to_touch": ["app.py", "tests/test_auth.py"],
+            "depends_on": [],
+        }]
+
+        class FakeTaskOutput:
+            raw = '[{"title": "Add auth", "body": "Implement JWT auth in app.py", '\
+                  '"type": "feature", "priority": 90, '\
+                  '"files_to_touch": ["app.py", "tests/test_auth.py"], '\
+                  '"depends_on": []}]'
+
+        class FakeResult:
+            tasks_output = [FakeTaskOutput()]
+            token_usage = None
+
+        def fake_spawn(role, brief, **kwargs):
+            return FakeResult()
+
+        monkeypatch.setattr(gd, "spawn", fake_spawn)
+        b = BoardStore(tmp_path)
+        ids = gd.decompose_goal(
+            goal="add auth", repo_root=tmp_path, board=b, model="mock",
+        )
+        assert len(ids) == 1
+        story = b.read(ids[0])
+        assert story.files_to_touch == ["app.py", "tests/test_auth.py"]
+
+    def test_files_to_touch_defaults_empty_when_missing(self, tmp_path, monkeypatch):
+        from orgos.agile.board_store import BoardStore
+        from orgos.agile import goal_decomposer as gd
+
+        class FakeTaskOutput:
+            raw = '[{"title": "t", "body": "b", "type": "feature", "priority": 5}]'
+        class FakeResult:
+            tasks_output = [FakeTaskOutput()]
+            token_usage = None
+        monkeypatch.setattr(gd, "spawn", lambda role, brief, **kw: FakeResult())
+
+        b = BoardStore(tmp_path)
+        ids = gd.decompose_goal(
+            goal="t", repo_root=tmp_path, board=b, model="mock",
+        )
+        assert b.read(ids[0]).files_to_touch == []
+
+
 class TestEnvironmentDetection:
     def test_python_pip(self, tmp_path):
         (tmp_path / "requirements.txt").write_text("flask")
