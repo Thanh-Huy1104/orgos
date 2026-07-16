@@ -217,6 +217,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
     from orgos.agile.agent_loop import AsyncAgent
     from orgos.agile.board_store import BoardStore
     from orgos.agile.coding_executor import OpenCodeExecutor
+    from orgos.agile.spawn_executor import SpawnCodingExecutor
     from orgos.agile.live_events import EventEmitter
     from orgos.agile.merge_queue import MergeQueue, run_merge_worker
     from orgos.agile.supervisor import TeamSupervisor
@@ -252,7 +253,11 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
     board = BoardStore(ws.root / "board")
     emitter = EventEmitter(ws.root)
-    executor = OpenCodeExecutor(model=args.model)
+    if args.executor == "opencode":
+        executor = OpenCodeExecutor(model=args.model)
+    else:
+        executor = SpawnCodingExecutor(model=args.model)
+    print(f"[cli] coding executor: {args.executor}", flush=True)
     merge_queue = MergeQueue(ws)
 
     # Seed the board on first start (PO decomposes the goal into stories).
@@ -518,6 +523,11 @@ def main(argv: list[str] | None = None) -> int:
     start_p.add_argument("--goal", type=str, default="")
     start_p.add_argument("--spec-file", type=str, default=None)
     start_p.add_argument("--model", type=str, default="deepseek/deepseek-chat")
+    start_p.add_argument(
+        "--executor", type=str, choices=("spawn", "opencode"), default="spawn",
+        help="Coding executor. 'spawn' (default) uses orgos.spawn + BashTool "
+             "(no external deps). 'opencode' shells out to the opencode CLI.",
+    )
     start_p.add_argument("--fresh", action="store_true")
     start_p.set_defaults(func=_cmd_start)
 
