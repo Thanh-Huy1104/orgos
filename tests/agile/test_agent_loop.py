@@ -144,6 +144,52 @@ class TestAsyncAgentCeremonies:
         asyncio.run(scenario())
         assert called["retro"] >= 1
 
+    def test_po_replan_text_routes_to_replan_not_retro(self, tmp_path, real_repo, monkeypatch):
+        """Regression: PO's HEARTBEAT text mentions RETRO.md but must route to replan."""
+        board = BoardStore(tmp_path / "board")
+        ws = _make_ws(tmp_path, real_repo)
+        ws.team_id = "t1"
+        ws.source_repo = real_repo
+        ws.manifest = MagicMock(return_value=MagicMock(
+            goal="test", model="m", baseline_sha="", created_at="2024-01-01T00:00:00Z"))
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(ws)
+        executor = MagicMock()
+
+        called = {"retro": 0, "replan": 0}
+        def fake_retro(**kwargs):
+            called["retro"] += 1
+            return {"went_well": [], "went_wrong": [], "action_item": ""}
+        def fake_replan(**kwargs):
+            called["replan"] += 1
+            return []
+        from orgos.agile import retrospective as _retro_mod
+        from orgos.agile import replan as _replan_mod
+        monkeypatch.setattr(_retro_mod, "run_retrospective", fake_retro)
+        monkeypatch.setattr(_replan_mod, "run_replan", fake_replan)
+
+        # Verbatim text from agents/po/HEARTBEAT.md
+        heartbeat_md = (
+            "## Every 1 seconds\n"
+            "invoke replan(): read the SPEC.md and RETRO.md, draft new stories.\n"
+        )
+        agent = AsyncAgent(
+            role="po", workspace=ws, board=board,
+            executor=executor, merge_queue=queue, emitter=emitter,
+            heartbeat_md=heartbeat_md,
+            is_delivery_agent=False,
+        )
+
+        async def scenario():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+
+        asyncio.run(scenario())
+        assert called["replan"] >= 1
+        assert called["retro"] == 0
+
 
 class TestAsyncAgentCoordination:
     def test_coordination_agent_skips_board(self, tmp_path, real_repo):

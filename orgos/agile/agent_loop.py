@@ -14,9 +14,15 @@ provides the pull-and-work loop + the tick-per-schedule mechanic.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+
+def _matches_any(text: str, *words: str) -> bool:
+    """Word-boundary match — 'spec' matches 'the spec' but not 'retrospective'."""
+    return any(re.search(rf"\b{re.escape(w)}\b", text) for w in words)
 
 from orgos.agile.board_store import BoardStore
 from orgos.agile.coding_executor import CodingExecutor, ExecutionResult
@@ -70,17 +76,35 @@ class AsyncAgent:
                    and ("board" in text or "story" in text or "check" in text):
                     await self._pull_and_work_once()
                     continue
-                # Ceremony routing by keyword
-                if "retro" in text or "retrospective" in text:
+                # Ceremony routing. Order matters because persona text may
+                # mention several action nouns; the most-specific-first order:
+                #   1. 'retrospective' → retro (SM's primary verb)
+                #   2. 'replan' → replan (PO's primary verb; overrides bare
+                #      'RETRO.md' filename references in PO's text)
+                #   3. bare 'retro' → retro (fallback)
+                #   4. 'backlog'/'spec' → replan
+                #   5. 'poker'/'refinement' → poker
+                #   6. 'pr' + [comment|feedback|review] → pr_feedback
+                # All checks use word boundaries so 'spec' does not match
+                # 'retrospective', etc.
+                if _matches_any(text, "retrospective"):
                     await self._run_retro()
                     continue
-                if "replan" in text or "backlog" in text or "spec" in text:
+                if _matches_any(text, "replan"):
                     await self._run_replan()
                     continue
-                if "poker" in text or "refinement" in text:
+                if _matches_any(text, "retro"):
+                    await self._run_retro()
+                    continue
+                if _matches_any(text, "backlog", "spec"):
+                    await self._run_replan()
+                    continue
+                if _matches_any(text, "poker", "refinement"):
                     await self._run_poker()
                     continue
-                if "pr" in text and ("comment" in text or "feedback" in text or "review" in text):
+                if _matches_any(text, "pr") and _matches_any(
+                    text, "comment", "comments", "feedback", "review",
+                ):
                     await self._run_pr_feedback()
                     continue
                 # Otherwise: no-op (unknown scheduled task; log for the retro to notice)
@@ -99,7 +123,7 @@ class AsyncAgent:
         try:
             from orgos.agile.retrospective import run_retrospective
             m = self.workspace.manifest()
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: run_retrospective(
                     workspace=self.workspace, board=self.board,
@@ -117,7 +141,7 @@ class AsyncAgent:
             from orgos.agile.replan import run_replan
             from orgos.agile.sprint_history import read_history
             m = self.workspace.manifest()
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: run_replan(
                     workspace=self.workspace, board=self.board,
@@ -134,7 +158,7 @@ class AsyncAgent:
             m = self.workspace.manifest()
             for state in ("draft", "refinement"):
                 for story in self.board.list_state(state):
-                    await asyncio.get_event_loop().run_in_executor(
+                    await asyncio.get_running_loop().run_in_executor(
                         None,
                         lambda s=story: run_poker_round(
                             story=s, board=self.board, model=m.model,
@@ -157,7 +181,7 @@ class AsyncAgent:
                     pass
             if not pr_url:
                 return  # nothing to ingest
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: ingest_pr_feedback(
                     workspace=self.workspace, pr_url=pr_url,
