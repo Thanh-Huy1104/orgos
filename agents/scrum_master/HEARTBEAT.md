@@ -4,34 +4,15 @@ layer: specific
 agent_name: SM_Agent
 ---
 
-# HEARTBEAT — River (SM_Agent)
+# Scrum Master Agent — HEARTBEAT
 
-You are the Scrum Master. Your job is to brief the delivery workers and coordinate the sprint flow.
+## Every 5 minutes
+Check the board for stories in `draft` or `refinement`. Run planning poker
+on any: architect / test / devsecops each vote, discuss if divergent,
+converge on story points. Move refined stories to `ready`.
 
-## What you do
-
-1. Read the task brief from the PO.
-2. Understand what files need to be created/changed.
-3. Brief the Architect: tell them what to implement, which files to create.
-4. Brief the Test agent: tell them which tests to run.
-5. Brief DevSecOps: tell them what to verify.
-
-## Your envelope
-
-```json
-{
-  "role": "SM_Agent",
-  "status": "completed",
-  "summary": "Workers briefed: Architect implementing X, Test running Y, DevSecOps verifying Z",
-  "success_criteria_met": true,
-  "requires_human_approval": false,
-  "payload": {
-    "workers_briefed": ["architect", "test", "devsecops"],
-    "worktree_ready": true
-  }
-}
-```
-
-## Tools
-
-BashTool only. No board tools exist in this environment.
+## Every 4 hours
+Sprint boundary: close the current sprint and open the next one. This runs
+sprint planning — pick up to velocity_target ready stories and commit them
+to the new sprint's backlog. Then write a retrospective entry to
+wiki/RETRO.md capturing what went well, what went wrong, one action item.

@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -45,18 +46,25 @@ from pathlib import Path
 from typing import Optional
 
 
-VALID_STATES = ("draft", "refinement", "ready", "in_progress", "review", "done", "blocked")
+VALID_STATES = (
+    "draft", "refinement", "ready", "in_progress",
+    "review", "pending_acceptance", "done", "blocked",
+)
 VALID_TYPES = ("architecture", "test", "security", "feature", "docs")
 
-# state machine — key = current state, value = allowed next states
+# state machine — key = current state, value = allowed next states.
+# `review` → `pending_acceptance` is the merge-clean handoff to PO.
+# PO's acceptance ceremony transitions `pending_acceptance` → `done` (accept)
+# or → `blocked` (reject with reason).
 TRANSITIONS: dict[str, tuple[str, ...]] = {
-    "draft":       ("refinement", "blocked"),
-    "refinement":  ("ready", "draft", "blocked"),
-    "ready":       ("in_progress", "blocked"),
-    "in_progress": ("review", "blocked", "ready"),   # ready → return-to-queue
-    "review":      ("done", "in_progress", "blocked"),
-    "done":        (),   # terminal
-    "blocked":     ("draft", "refinement", "ready", "in_progress", "review"),
+    "draft":              ("refinement", "blocked"),
+    "refinement":         ("ready", "draft", "blocked"),
+    "ready":              ("in_progress", "blocked"),
+    "in_progress":        ("review", "blocked", "ready"),   # ready → return-to-queue
+    "review":             ("pending_acceptance", "done", "in_progress", "blocked"),
+    "pending_acceptance": ("done", "blocked", "review"),    # PO's gate
+    "done":               (),
+    "blocked":            ("draft", "refinement", "ready", "in_progress", "review", "pending_acceptance"),
 }
 
 
@@ -84,6 +92,9 @@ class Story:
     comments: list[dict] = field(default_factory=list)
     wiki_touched: bool = False
     commit_sha: str = ""
+    files_to_touch: list[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
+    sprint_number: int = 0   # 0 = unassigned (not in any sprint yet)
     created_at: str = ""
     updated_at: str = ""
 
@@ -125,6 +136,7 @@ class BoardStore:
         self.audit_dir.mkdir(parents=True, exist_ok=True)
         if not self.index_path.exists():
             self._write_index({})
+        self._claim_lock = threading.Lock()
 
     # ── Index ────────────────────────────────────────────────────────────
 
@@ -220,11 +232,14 @@ class BoardStore:
           security     worker → security
           docs         → any worker (fallback)
           feature      → architecture worker OR any worker if starved
+
+        Also enforces dependency gate: a story with `depends_on: [X, Y]` is
+        NOT returned unless X and Y are both in `done` state.
         """
         ready = self.list_state("ready")
-        # Primary matches by type
         primary: dict[str, tuple[str, ...]] = {
             "architecture": ("architecture", "feature"),
+            "architect":    ("architecture", "feature"),
             "test":         ("test",),
             "security":     ("security",),
             "devsecops":    ("security",),
@@ -232,7 +247,69 @@ class BoardStore:
         }
         allowed = primary.get(worker_type, ("architecture", "test", "security",
                                              "feature", "docs"))
-        return [s for s in ready if s.type in allowed]
+        idx = self._read_index()
+        def _deps_satisfied(s: Story) -> bool:
+            if not s.depends_on:
+                return True
+            for dep_id in s.depends_on:
+                dep_meta = idx.get(dep_id)
+                if not dep_meta or dep_meta.get("state") != "done":
+                    return False
+            return True
+        return [s for s in ready if s.type in allowed and _deps_satisfied(s)]
+
+    def list_ready_for_sprint(
+        self, worker_type: str, *, sprint_number: int,
+    ) -> list[Story]:
+        """Sprint-filtered variant of list_ready_for_type.
+
+        If `sprint_number == 0`: fall back to the un-filtered set (pre-sprint
+        bootstrap — the team hasn't opened sprint 1 yet, board can still be
+        worked). Once a sprint is open, only stories committed to THAT sprint
+        are pullable — this enforces Scrum's Sprint Backlog commitment.
+        """
+        candidates = self.list_ready_for_type(worker_type)
+        if sprint_number == 0:
+            return candidates
+        return [s for s in candidates if s.sprint_number == sprint_number]
+
+    def try_claim_next_for(
+        self, role: str, *, actor: str,
+        sprint_number: int = 0,
+    ) -> Optional[Story]:
+        """Atomically pull the top matching READY story for `role` and move it
+        to in_progress. Skips stories whose files_to_touch overlaps with any
+        currently in_progress or review story. Returns None if nothing
+        claimable.
+
+        Thread-safe within a single process (uses threading.Lock). Not safe
+        across multiple processes sharing the same board directory — the
+        async runtime is single-process by design (one asyncio event loop
+        drives all agents).
+        """
+        with self._claim_lock:
+            candidates = self.list_ready_for_sprint(role, sprint_number=sprint_number)
+            if not candidates:
+                return None
+
+            # Compute the set of files currently locked by in-flight stories
+            locked_files: set[str] = set()
+            for state in ("in_progress", "review"):
+                for s in self.list_state(state):
+                    locked_files.update(s.files_to_touch or [])
+
+            for story in candidates:
+                overlap = set(story.files_to_touch or []) & locked_files
+                if overlap:
+                    continue  # try the next ready story
+                # Claim it
+                try:
+                    self.assign(story.issue_id, actor)
+                    self.transition(story.issue_id, "in_progress", actor=actor)
+                    return self.read(story.issue_id)
+                except (InvalidTransition, BoardError):
+                    continue  # race with another caller; try next
+            return None
 
     # ── Draft (create) ───────────────────────────────────────────────────
 
@@ -245,6 +322,7 @@ class BoardStore:
         story_type: str,
         priority: int = 0,
         actor: str = "po",
+        files_to_touch: Optional[list[str]] = None,
     ) -> Story:
         if story_type not in VALID_TYPES:
             raise BoardError(
@@ -260,6 +338,7 @@ class BoardStore:
             state="draft",
             type=story_type,
             priority=priority,
+            files_to_touch=list(files_to_touch or []),
             created_at=now,
             updated_at=now,
         )
@@ -336,6 +415,13 @@ class BoardStore:
         story.points = points
         self._write_story(story)
         self._audit(issue_id, actor, "set_points", points=points)
+        return story
+
+    def set_sprint_number(self, issue_id: str, sprint_number: int, actor: str) -> Story:
+        story = self.read(issue_id)
+        story.sprint_number = sprint_number
+        self._write_story(story)
+        self._audit(issue_id, actor, "set_sprint_number", sprint_number=sprint_number)
         return story
 
     def increment_refinement_round(self, issue_id: str) -> Story:

@@ -4,34 +4,20 @@ layer: specific
 agent_name: PO_Agent
 ---
 
-# HEARTBEAT — Morgan (PO_Agent)
+# Product Owner Agent — HEARTBEAT
 
-You are the Product Owner orchestrator. A sprint brief has been assigned to you. Read it carefully.
+## Every 1 minutes
+Acceptance review: for each story in `pending_acceptance` state, accept it
+(transition to done) if it has a commit_sha and the merged code looks
+consistent with the story's body. Reject (transition to blocked with a
+reason) if the commit is empty or the change doesn't match acceptance
+criteria. This is the real-Scrum DoD gate.
 
-## What you do
+## Every 30 minutes
+If the board has fewer than 3 stories in `ready`, invoke replan(): read the
+SPEC.md and RETRO.md, draft new stories to fill the backlog. Do NOT
+re-propose work that already exists in the board.
 
-1. Read the issue title, description, and acceptance criteria from the task brief.
-2. Delegate to SM first — ask SM to brief the delivery workers (Architect, Test, DevSecOps) on what needs to happen.
-3. Delegate to Architect to implement the changes using BashTool.
-4. Delegate to Test to run acceptance tests using BashTool.
-5. Delegate to DevSecOps to verify the change is safe.
-6. Delegate to Release to record a mock PR using MockPRTool.
-
-## Your envelope
-
-When all subordinates have produced their envelopes, synthesize a final HandoffEnvelope JSON:
-
-```json
-{
-  "role": "PO_Agent",
-  "status": "completed",
-  "summary": "Sprint complete: issue #<id> shipped",
-  "success_criteria_met": true,
-  "requires_human_approval": false,
-  "payload": {}
-}
-```
-
-## Tools
-
-You have BashTool and subordinates. That is all. Do not reference board tools, wiki tools, or API tools — they do not exist in this environment.
+## Every 60 minutes
+Poll the draft PR (if any) for new review comments via pr_feedback.ingest().
+Each substantive comment becomes a new story on the board.
