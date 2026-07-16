@@ -280,11 +280,15 @@ class AsyncAgent:
                     "sprint_closed", sprint_number=closed.number,
                     stories_done=len(closed.stories_done),
                     points_completed=closed.points_completed,
+                    spe=closed.spe,
+                    final_commit=closed.final_commit,
+                    duration_hours=closed.duration_hours,
                     reason=closed.reason_closed,
                     summary=(
                         f"sprint {closed.number} closed: "
                         f"{len(closed.stories_done)} done, "
-                        f"{closed.points_completed} pts"
+                        f"{closed.points_completed} pts, "
+                        f"SPE {closed.spe:.0%}"
                     ),
                 )
             self.emitter.emit(
@@ -300,24 +304,55 @@ class AsyncAgent:
                 "sprint_boundary_failed", role=self.role, summary=str(e)[:200],
             )
 
+    def _architecture_decision_recorded(self, issue_id: str) -> bool:
+        """DoD check: an architecture story may only be accepted once it has
+        recorded its decision in wiki/DECISIONS.md with the mandatory three
+        fields (author, timestamp, source) citing this story's issue_id.
+
+        Returns False (blocking acceptance) if the wiki is unreadable or the
+        story is not cited — fabricated/undocumented decisions must not pass.
+        """
+        from orgos.mcps.wiki_mcp import decisions_cite_source
+        try:
+            p = self.workspace.source_repo / "wiki" / "DECISIONS.md"
+            if not p.exists():
+                return False
+            content = p.read_text(encoding="utf-8")
+        except (OSError, TypeError, AttributeError):
+            return False
+        return decisions_cite_source(content, issue_id)
+
     async def _run_acceptance(self) -> None:
         """PO acceptance gate: review stories in pending_acceptance and
         transition to done (accept) or blocked (reject).
 
-        v1 policy: accept any story that has a commit_sha and passes basic
-        sanity (no empty commit_sha, no error markers in audit). Rejection
-        criteria will be tightened once we have real acceptance criteria
-        stored on the story object.
+        Acceptance policy:
+          - Every story must carry a commit_sha (proof of work).
+          - DoD wiki gate: architecture stories must additionally have
+            recorded their decision in wiki/DECISIONS.md (author, timestamp,
+            source citing the story). This enforces the brief's rule that any
+            story introducing/changing a technical decision updates the wiki
+            with the three mandatory fields before it can be marked done.
         """
         try:
-            def _accept_batch() -> int:
+            def _accept_batch() -> tuple[int, int]:
                 pending = self.board.list_state("pending_acceptance")
                 accepted = 0
+                rejected_dod = 0
                 for story in pending:
                     reason = ""
                     accept = bool(story.commit_sha)
                     if not accept:
                         reason = "no commit_sha on story"
+                    elif story.type == "architecture" and \
+                            not self._architecture_decision_recorded(story.issue_id):
+                        accept = False
+                        reason = (
+                            "DoD: architecture story missing a compliant "
+                            "wiki/DECISIONS.md entry (author, timestamp, "
+                            "source) citing this story"
+                        )
+                        rejected_dod += 1
                     try:
                         if accept:
                             self.board.transition(
@@ -330,11 +365,16 @@ class AsyncAgent:
                                 story.issue_id, "blocked", actor="po",
                                 reason=f"rejected:{reason}"[:200],
                             )
+                            if reason.startswith("DoD:"):
+                                self.emitter.emit(
+                                    "story_blocked_dod", story_id=story.issue_id,
+                                    summary=reason,
+                                )
                     except Exception:
                         continue
-                return accepted
+                return accepted, rejected_dod
 
-            count = await asyncio.get_running_loop().run_in_executor(
+            count, rejected_dod = await asyncio.get_running_loop().run_in_executor(
                 None, _accept_batch,
             )
             if count > 0:

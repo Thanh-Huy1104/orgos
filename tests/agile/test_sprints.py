@@ -70,6 +70,35 @@ class TestSprintLifecycle:
         assert closed.stories_done == ["S1"]
         assert closed.points_completed == 5  # only S1 done, S2 still in ready
 
+    def test_close_sprint_computes_spe(self, tmp_path):
+        board = BoardStore(tmp_path / "board")
+        ws = _fake_workspace(tmp_path)
+        for iid in ("S1", "S2"):
+            board.draft_story(issue_id=iid, title=iid, body="b",
+                              story_type="feature", priority=50, files_to_touch=[])
+            board.transition(iid, "refinement", actor="sm")
+            board.transition(iid, "ready", actor="sm")
+        open_sprint(ws, board, velocity_target=2)
+        board.set_points("S1", 5, actor="sm")
+        board.set_points("S2", 3, actor="sm")
+        # S1 completes; S2 stays in ready (incomplete)
+        board.transition("S1", "in_progress", actor="arch")
+        board.transition("S1", "review", actor="arch")
+        board.transition("S1", "pending_acceptance", actor="merge_worker")
+        board.transition("S1", "done", actor="po", reason="accepted")
+
+        closed = close_sprint(ws, board, reason="scheduled")
+        # final_commit = committed non-dropped points = 5 (S1) + 3 (S2) = 8
+        assert closed.final_commit == 8
+        assert closed.duration_hours >= 0.0
+        # S1 is done with real activated/closed timestamps → PE > 0 → SPE > 0.
+        # S2 incomplete contributes PE 0. SPE is finite and non-negative.
+        assert closed.spe >= 0.0
+        # Round-trips through JSON with the new fields intact.
+        reread = read_sprint(ws, 1)
+        assert reread.final_commit == 8
+        assert reread.spe == closed.spe
+
     def test_open_next_sprint_after_close(self, tmp_path):
         board = BoardStore(tmp_path / "board")
         ws = _fake_workspace(tmp_path)

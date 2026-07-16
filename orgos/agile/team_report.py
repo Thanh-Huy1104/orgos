@@ -657,6 +657,7 @@ function renderSprintTimeline() {
         '<div class="bar">' +
           '<span class="done">✓ ' + (r.stories_done || 0) + '</span>' +
           '<span class="blocked">⛔ ' + (r.stories_blocked || 0) + '</span>' +
+          (r.spe ? '<span class="spe">⚡ SPE ' + Math.round(r.spe * 100) + '%</span>' : '') +
         '</div>' +
         '<div class="action">' + esc(r.retro_action_item || "(no action item)") + '</div>' +
         '<div class="meta">' + esc(stop || "?") + '</div>' +

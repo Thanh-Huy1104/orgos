@@ -29,6 +29,8 @@ Story fields:
   comments      : list[{author, timestamp, body}]
   wiki_touched  : bool — set True when architect writes wiki during work
   commit_sha    : set when the story lands a commit
+  activated_at  : ISO — set on the FIRST in_progress transition (never reset)
+  closed_at     : ISO — set when the story transitions to done
   created_at    : ISO
   updated_at    : ISO
 """
@@ -92,6 +94,8 @@ class Story:
     comments: list[dict] = field(default_factory=list)
     wiki_touched: bool = False
     commit_sha: str = ""
+    activated_at: str = ""   # first in_progress (for SPE timing; never reset)
+    closed_at: str = ""      # set on done
     files_to_touch: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     sprint_number: int = 0   # 0 = unassigned (not in any sprint yet)
@@ -368,6 +372,13 @@ class BoardStore:
             )
         old = story.state
         story.state = new_state
+        # SPE timing: stamp activated_at on the FIRST in_progress (never reset,
+        # so spillover→re-activation preserves the true first-touch time) and
+        # closed_at on done.
+        if new_state == "in_progress" and not story.activated_at:
+            story.activated_at = _now_iso()
+        elif new_state == "done" and not story.closed_at:
+            story.closed_at = _now_iso()
         self._write_story(story)
         self._audit(issue_id, actor, "transition",
                     from_state=old, to_state=new_state, reason=reason)

@@ -72,6 +72,7 @@ _EVENT_META: dict[str, tuple[str, str]] = {
     "sprint_closed":        ("🏁", "sprint closed"),
     "sprint_boundary_failed": ("⚠️ ", "sprint boundary failed"),
     "stories_accepted":     ("✅", "PO accepted stories"),
+    "story_blocked_dod":    ("📚", "blocked: decision not in wiki"),
     "acceptance_failed":    ("⚠️ ", "acceptance ceremony failed"),
 }
 

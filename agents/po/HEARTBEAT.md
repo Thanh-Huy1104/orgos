@@ -11,7 +11,11 @@ Acceptance review: for each story in `pending_acceptance` state, accept it
 (transition to done) if it has a commit_sha and the merged code looks
 consistent with the story's body. Reject (transition to blocked with a
 reason) if the commit is empty or the change doesn't match acceptance
-criteria. This is the real-Scrum DoD gate.
+criteria. Additionally, an `architecture` story may only be accepted once it
+has recorded its decision in `wiki/DECISIONS.md` with the three mandatory
+fields (author, timestamp, source) citing the story's issue_id — an
+undocumented or unsourced decision must be rejected. This is the real-Scrum
+DoD gate.
 
 ## Every 30 minutes
 If the board has fewer than 3 stories in `ready`, invoke replan(): read the

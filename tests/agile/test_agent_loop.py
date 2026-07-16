@@ -464,6 +464,58 @@ class TestAcceptanceCeremony:
         asyncio.run(scenario())
         assert board.read("S1").state == "blocked"
 
+    def _drive_pending_architecture(self, tmp_path, real_repo):
+        """Helper: set up a board with one architecture story in
+        pending_acceptance (with commit), plus a workspace whose source_repo
+        is real_repo so the DoD wiki gate can read wiki/DECISIONS.md."""
+        board = BoardStore(tmp_path / "board")
+        board.draft_story(issue_id="ARCH-1", title="s", body="b",
+                          story_type="architecture", files_to_touch=[])
+        board.transition("ARCH-1", "refinement", actor="sm")
+        board.transition("ARCH-1", "ready", actor="sm")
+        board.transition("ARCH-1", "in_progress", actor="arch")
+        board.transition("ARCH-1", "review", actor="arch")
+        board.set_commit("ARCH-1", "abc1234", actor="arch")
+        board.transition("ARCH-1", "pending_acceptance", actor="merge_worker")
+
+        ws = _make_ws(tmp_path, real_repo)
+        ws.source_repo = real_repo
+        agent = AsyncAgent(
+            role="po", workspace=ws, board=board,
+            executor=MagicMock(), merge_queue=MergeQueue(ws),
+            emitter=EventEmitter(tmp_path),
+            heartbeat_md="## Every 1 seconds\nAcceptance review of merged stories.",
+            is_delivery_agent=False,
+        )
+        return board, agent
+
+    def _run_agent_briefly(self, agent):
+        async def scenario():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+        asyncio.run(scenario())
+
+    def test_architecture_story_blocked_without_wiki_decision(self, tmp_path, real_repo):
+        # No wiki/DECISIONS.md entry citing ARCH-1 → DoD gate blocks it.
+        board, agent = self._drive_pending_architecture(tmp_path, real_repo)
+        self._run_agent_briefly(agent)
+        assert board.read("ARCH-1").state == "blocked"
+
+    def test_architecture_story_accepted_with_wiki_decision(self, tmp_path, real_repo):
+        board, agent = self._drive_pending_architecture(tmp_path, real_repo)
+        wiki = real_repo / "wiki"
+        wiki.mkdir(parents=True, exist_ok=True)
+        (wiki / "DECISIONS.md").write_text(
+            "# Decisions\n\n## Chose worktrees — ARCH-1\n"
+            "- author: architect\n- timestamp: 2026-07-16T00:00:00Z\n"
+            "- source: ARCH-1\n- decision: isolate each team in a worktree\n",
+            encoding="utf-8",
+        )
+        self._run_agent_briefly(agent)
+        assert board.read("ARCH-1").state == "done"
+
 
 class TestPersonaHeartbeatRouting:
     """Every action_text in every shipped persona HEARTBEAT.md must route

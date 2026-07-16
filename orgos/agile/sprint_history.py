@@ -29,6 +29,7 @@ class SprintRecord:
     stories_created: int
     tokens_input: int
     tokens_output: int
+    spe: float = 0.0             # Sprint Process Efficiency (0.0 if not computed)
     pr_url: str = ""
     retro_action_item: str = ""  # extracted from the sprint's retro
     retro_went_well: list[str] = field(default_factory=list)

@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from orgos.agile.spe import sprint_process_efficiency
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -42,6 +44,9 @@ class Sprint:
     committed_backlog: list[str] = field(default_factory=list)   # story issue_ids
     stories_done: list[str] = field(default_factory=list)         # populated at close
     points_completed: int = 0                                     # velocity
+    duration_hours: float = 0.0                                   # actual wall-clock, set at close
+    final_commit: int = 0                                         # Σ points of committed non-dropped stories
+    spe: float = 0.0                                              # Sprint Process Efficiency, set at close
     reason_closed: str = ""
 
     @property
@@ -156,11 +161,13 @@ def close_sprint(
     # Populate metrics from the board
     done_ids: list[str] = []
     points = 0
+    committed_stories = []
     for sid in sprint.committed_backlog:
         try:
             story = board.read(sid)
         except Exception:
             continue
+        committed_stories.append(story)
         if story.state == "done":
             done_ids.append(sid)
             points += int(getattr(story, "points", 0) or 0)
@@ -169,5 +176,29 @@ def close_sprint(
     sprint.points_completed = points
     sprint.ended_at = _now_iso()
     sprint.reason_closed = reason
+
+    # Sprint Process Efficiency — time-proportional delivery metric. Duration
+    # is the actual wall-clock the sprint ran (started_at → ended_at).
+    started = _parse_iso(sprint.started_at)
+    ended = _parse_iso(sprint.ended_at)
+    duration_hours = 0.0
+    if started is not None and ended is not None:
+        duration_hours = max((ended - started).total_seconds() / 3600.0, 0.0)
+    result = sprint_process_efficiency(
+        committed_stories, duration_hours=duration_hours,
+    )
+    sprint.duration_hours = result["duration_hours"]
+    sprint.final_commit = result["final_commit"]
+    sprint.spe = result["spe"]
+
     _write_sprint(workspace, sprint)
     return sprint
+
+
+def _parse_iso(ts: str) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None

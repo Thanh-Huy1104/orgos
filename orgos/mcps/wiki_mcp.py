@@ -142,31 +142,100 @@ def _wiki_recent(n: int = 10) -> list[dict]:
 
 _REQUIRED_FIELDS = ("author", "timestamp", "source")
 
+# Values that are technically present but convey no real provenance. Treated
+# as if the field were absent. This is the anti-fabrication guard from the
+# product brief: an entry tagged `source: TBD` is exactly the "unsourced
+# claim" the wiki forbids.
+_PLACEHOLDER_VALUES = frozenset({
+    "", "tbd", "tba", "todo", "none", "n/a", "na", "null", "nil",
+    "unknown", "?", "??", "-", "--", "fixme", "xxx", "pending", "placeholder",
+})
+
+_URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
+# A work-item id: no whitespace, starts alphanumeric, made of word chars plus
+# a few id punctuation marks (e.g. GS-00-foo, TEST-1, S-ab12, PROJ#42).
+_WORK_ITEM_ID_RE = re.compile(r"^[A-Za-z0-9][\w./#:-]*$")
+
+
+def _extract_field_value(content: str, field: str) -> Optional[str]:
+    """Return the value of `field` if present, else None.
+
+    Two supported forms (case-insensitive):
+      - inline form   ``author=Jane``      → value is the next token, so
+                                              ``author=x timestamp=y source=z``
+                                              parses into three distinct values
+      - block form    ``- author: Jane Doe`` → value is the rest of the line
+
+    A return of "" means the field marker is present but carries no value.
+    """
+    # Inline "field=value" — value is a single whitespace-delimited token.
+    m = re.search(
+        rf"(?im)(?<![\w-]){re.escape(field)}[ \t]*=[ \t]*(?P<val>\S*)", content,
+    )
+    if m:
+        return m.group("val").strip()
+    # Block/header "field: value" — value is the remainder of the line.
+    m = re.search(
+        rf"(?im)^[ \t]*(?:[-*][ \t]+)?{re.escape(field)}[ \t]*:[ \t]*(?P<val>.*?)[ \t]*$",
+        content,
+    )
+    if m:
+        return m.group("val").strip()
+    return None
+
+
+def _is_placeholder(value: str) -> bool:
+    return value.strip().lower().rstrip(".,;") in _PLACEHOLDER_VALUES
+
+
+def _valid_source_value(value: str) -> bool:
+    """A source must be a real URL or a work-item identifier — never blank or
+    a placeholder. Direct guard against unsourced claims."""
+    v = value.strip().rstrip(".,;")
+    if _is_placeholder(v):
+        return False
+    return bool(_URL_RE.match(v) or _WORK_ITEM_ID_RE.match(v))
+
 
 def _validate_three_fields(content: str) -> list[str]:
-    """Return list of missing required fields.
+    """Return the required fields that are missing OR invalid.
 
-    We accept ANY of these forms per field (case-insensitive):
-      - a markdown line starting with "- <field>:" or "* <field>:"
-      - "<field>=<value>" inline (for one-liner changelog entries)
-      - "<field>: <value>" (a header line)
-
-    Empty list means all three present. This is deliberately loose so
-    agents don't need to memorize one exact format — but strict enough
-    that "content mentions 'author' in prose" isn't a pass.
+    A field is invalid when present but empty/placeholder. `source` must
+    additionally be a URL or work-item id. Empty list = all three good.
+    This is intentionally format-flexible (block or inline) but strict about
+    *values* so agents cannot record an unsourced or fabricated decision.
     """
-    missing: list[str] = []
+    bad: list[str] = []
     for field in _REQUIRED_FIELDS:
-        # Match the field name followed by ':' or '=' after either:
-        #   - start of line + optional list marker + optional whitespace, OR
-        #   - whitespace (so inline "author=x timestamp=y source=z" works).
-        pattern = (
-            rf"(?im)(?:^[ \t]*(?:[-*][ \t]+)?|[ \t]+)"
-            rf"{re.escape(field)}[ \t]*[:=]"
-        )
-        if not re.search(pattern, content):
-            missing.append(field)
-    return missing
+        value = _extract_field_value(content, field)
+        if value is None or _is_placeholder(value):
+            bad.append(field)
+            continue
+        if field == "source" and not _valid_source_value(value):
+            bad.append(field)
+    return bad
+
+
+def decisions_cite_source(content: str, source_id: str) -> bool:
+    """True if DECISIONS.md `content` has an entry whose `source` == `source_id`.
+
+    Used by the Definition-of-Done acceptance gate to verify an architecture
+    story recorded its decision (with the mandatory three fields) before it can
+    be accepted. Because every DECISIONS.md write is validated for the three
+    fields, the presence of a matching source implies a compliant entry.
+    """
+    target = source_id.strip()
+    if not target:
+        return False
+    patterns = (
+        r"(?im)(?<![\w-])source[ \t]*=[ \t]*(?P<val>\S+)",
+        r"(?im)^[ \t]*(?:[-*][ \t]+)?source[ \t]*:[ \t]*(?P<val>.*?)[ \t]*$",
+    )
+    for pat in patterns:
+        for m in re.finditer(pat, content):
+            if m.group("val").strip().rstrip(".,;") == target:
+                return True
+    return False
 
 
 def _wiki_write(path: str, content: str, mode: str = "overwrite",
@@ -185,11 +254,14 @@ def _wiki_write(path: str, content: str, mode: str = "overwrite",
         if missing:
             return {
                 "error": (
-                    f"wiki_write rejected: {p.name} entries must include "
-                    f"the three fields (author, timestamp, source). "
-                    f"Missing: {', '.join(missing)}. "
-                    f"Include them as list items ('- author: X'), "
-                    f"header lines ('author: X'), or inline "
+                    f"wiki_write rejected: {p.name} entries must include the "
+                    f"three fields (author, timestamp, source), each with a "
+                    f"real value. Missing or invalid: {', '.join(missing)}. "
+                    f"`source` must be a URL or a work-item id — placeholders "
+                    f"like 'TBD'/'unknown' and blank values are refused "
+                    f"(unsourced claims are not acceptable). "
+                    f"Include them as list items ('- author: X'), header "
+                    f"lines ('author: X'), or inline "
                     f"('author=X timestamp=Y source=Z'). "
                     f"Legacy entries above this write are grandfathered; "
                     f"NEW writes must comply."

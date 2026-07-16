@@ -188,6 +188,93 @@ class TestWikiWrite:
         assert (wiki_dir / "nested" / "deep" / "file.md").exists()
 
 
+class TestThreeFieldValueEnforcement:
+    """The three fields must carry REAL values — the anti-fabrication guard.
+    A present-but-empty or placeholder field is treated as missing, and
+    `source` must be a URL or work-item id."""
+
+    def test_blank_source_is_rejected(self, wiki_dir):
+        result = _wiki_write(
+            "DECISIONS.md",
+            "- author: Jane\n- timestamp: 2026-07-16T00:00:00Z\n- source: ",
+            mode="append",
+        )
+        assert "error" in result
+        assert result["missing_fields"] == ["source"]
+
+    def test_placeholder_source_is_rejected(self, wiki_dir):
+        result = _wiki_write(
+            "DECISIONS.md",
+            "- author: Jane\n- timestamp: 2026-07-16T00:00:00Z\n- source: TBD",
+            mode="append",
+        )
+        assert "error" in result
+        assert result["missing_fields"] == ["source"]
+
+    def test_placeholder_author_is_rejected(self, wiki_dir):
+        result = _wiki_write(
+            "DECISIONS.md",
+            "- author: unknown\n- timestamp: 2026-07-16T00:00:00Z\n- source: S-42",
+            mode="append",
+        )
+        assert "error" in result
+        assert result["missing_fields"] == ["author"]
+
+    def test_url_source_is_accepted(self, wiki_dir):
+        result = _wiki_write(
+            "DECISIONS.md",
+            "- author: Jane\n- timestamp: 2026-07-16T00:00:00Z\n"
+            "- source: https://github.com/org/repo/issues/7\n"
+            "- decision: use worktrees",
+            mode="append",
+        )
+        assert "error" not in result
+
+    def test_work_item_id_source_is_accepted(self, wiki_dir):
+        result = _wiki_write(
+            "DECISIONS.md",
+            "- author: Jane\n- timestamp: 2026-07-16T00:00:00Z\n- source: GS-07-foo",
+            mode="append",
+        )
+        assert "error" not in result
+
+    def test_inline_form_still_validates_values(self, wiki_dir):
+        result = _wiki_write(
+            "DECISIONS.md",
+            "- author=Jane timestamp=2026-07-16T00:00:00Z source=? decision here",
+            mode="append",
+        )
+        assert "error" in result
+        assert result["missing_fields"] == ["source"]
+
+    def test_non_decisions_file_is_not_validated(self, wiki_dir):
+        # Only DECISIONS.md / decisions/ / *.decision.md are gated.
+        result = _wiki_write("NOTES.md", "just a note, no fields", mode="append")
+        assert "error" not in result
+
+
+class TestDecisionsCiteSource:
+    """decisions_cite_source powers the DoD acceptance gate."""
+
+    def test_finds_block_form_source(self):
+        from orgos.mcps.wiki_mcp import decisions_cite_source
+        content = (
+            "## Some decision — S-42\n- author: Jane\n"
+            "- timestamp: 2026-07-16T00:00:00Z\n- source: S-42\n"
+        )
+        assert decisions_cite_source(content, "S-42") is True
+        assert decisions_cite_source(content, "S-99") is False
+
+    def test_finds_inline_form_source(self):
+        from orgos.mcps.wiki_mcp import decisions_cite_source
+        content = "- author=Jane timestamp=2026-07-16T00:00:00Z source=ARCH-1 — pick db"
+        assert decisions_cite_source(content, "ARCH-1") is True
+
+    def test_empty_source_id_is_false(self):
+        from orgos.mcps.wiki_mcp import decisions_cite_source
+        assert decisions_cite_source("- source: S-1", "") is False
+
+
 class TestToolDescriptors:
     """Verify that every wiki MCP tool has a proper description.
 
