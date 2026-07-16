@@ -285,6 +285,67 @@ class TestHeartbeatSchedulerResetOnRestart:
         )
 
 
+class TestPokerRefinement:
+    """Regression: SM's poker ceremony must transition draft → ready with points."""
+
+    def test_poker_transitions_draft_to_ready_with_points(
+        self, tmp_path, real_repo, monkeypatch,
+    ):
+        board = BoardStore(tmp_path / "board")
+        board.draft_story(issue_id="S1", title="add", body="add x",
+                          story_type="feature", files_to_touch=["a.py"])
+        # Story starts in draft (its natural initial state).
+        assert board.read("S1").state == "draft"
+
+        ws = _make_ws(tmp_path, real_repo)
+        ws.team_id = "t1"
+        ws.source_repo = real_repo
+        ws.manifest = MagicMock(return_value=MagicMock(
+            goal="test", model="m", baseline_sha="",
+            created_at="2024-01-01T00:00:00Z",
+        ))
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(ws)
+        executor = MagicMock()
+
+        # Stub the LLM-facing poker vote helpers so we don't need OpenAI.
+        from orgos.agile import poker as _poker_mod
+        def fake_run_poker(*, story, board, model, token_accumulator, **kw):
+            for v in ({"voter": "architect", "points": 3, "justification": ""},
+                      {"voter": "test",      "points": 3, "justification": ""},
+                      {"voter": "devsecops", "points": 5, "justification": ""}):
+                board.add_poker_vote(
+                    story.issue_id, voter=v["voter"],
+                    points=v["points"], justification=v["justification"],
+                )
+            return [
+                {"voter": "architect", "points": 3, "justification": ""},
+                {"voter": "test",      "points": 3, "justification": ""},
+                {"voter": "devsecops", "points": 5, "justification": ""},
+            ]
+        monkeypatch.setattr(_poker_mod, "run_poker_round", fake_run_poker)
+
+        heartbeat_md = "## Every 1 seconds\nRun planning poker on refinement stories."
+        agent = AsyncAgent(
+            role="scrum_master", workspace=ws, board=board,
+            executor=executor, merge_queue=queue, emitter=emitter,
+            heartbeat_md=heartbeat_md,
+            is_delivery_agent=False,
+        )
+
+        async def scenario():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+
+        asyncio.run(scenario())
+
+        story = board.read("S1")
+        assert story.state == "ready", f"expected ready, got {story.state}"
+        assert story.points == 3, f"expected median points=3, got {story.points}"
+
+
 class TestAsyncAgentCoordination:
     def test_coordination_agent_skips_board(self, tmp_path, real_repo):
         board = BoardStore(tmp_path / "board")

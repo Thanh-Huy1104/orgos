@@ -67,6 +67,7 @@ _EVENT_META: dict[str, tuple[str, str]] = {
     "subagent_spawned":     ("👶", "subagent spawned"),
     "scheduled_noop":       ("💤", "unrouted scheduled task"),
     "poker_failed":         ("⚠️ ", "poker failed"),
+    "story_refined":        ("🃏", "story refined to ready"),
 }
 
 

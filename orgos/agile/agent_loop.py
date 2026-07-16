@@ -159,20 +159,85 @@ class AsyncAgent:
             self.emitter.emit("replan_failed", role=self.role, summary=str(e)[:200])
 
     async def _run_poker(self) -> None:
+        """Refinement ceremony: vote on each draft/refinement story, converge
+        on a point value, and transition the story to ready so delivery agents
+        can pull it.
+
+        Flow per story:
+          draft → refinement (if in draft)
+          run_poker_round → 3 votes
+          if divergent → run_discussion_and_revote
+          set_points(median of Fibonacci indices)
+          refinement → ready
+        """
         try:
-            from orgos.agile.poker import run_poker_round
+            from orgos.agile.poker import (
+                run_poker_round, discussion_needed,
+                run_discussion_and_revote, FIB,
+            )
             m = self.workspace.manifest()
-            for state in ("draft", "refinement"):
-                for story in self.board.list_state(state):
-                    await asyncio.get_running_loop().run_in_executor(
-                        None,
-                        lambda s=story: run_poker_round(
-                            story=s, board=self.board, model=m.model,
-                            token_accumulator=lambda r: (0, 0),
-                        ),
-                    )
+            # Snapshot the list — set_points/transition below would mutate what
+            # list_state returns mid-iteration otherwise.
+            stories = list(self.board.list_state("draft")) + \
+                      list(self.board.list_state("refinement"))
+            for story in stories:
+                await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda s=story: self._refine_one_story(
+                        s, m.model, run_poker_round, discussion_needed,
+                        run_discussion_and_revote, FIB,
+                    ),
+                )
         except Exception as e:
             self.emitter.emit("poker_failed", role=self.role, summary=str(e)[:200])
+
+    def _refine_one_story(
+        self, story, model, run_poker_round, discussion_needed,
+        run_discussion_and_revote, FIB,
+    ) -> None:
+        """Blocking helper — called from _run_poker's executor thread."""
+        # 1. draft → refinement (skip if already there)
+        if story.state == "draft":
+            try:
+                self.board.transition(
+                    story.issue_id, "refinement", actor=self.role,
+                )
+            except Exception:
+                return  # already moved by another actor; skip
+
+        # 2. First-round vote
+        votes = run_poker_round(
+            story=story, board=self.board, model=model,
+            token_accumulator=lambda r: (0, 0),
+        )
+        # 3. Discussion if divergent
+        if discussion_needed(votes):
+            votes = run_discussion_and_revote(
+                story=story, board=self.board, model=model,
+                token_accumulator=lambda r: (0, 0),
+                first_votes=votes,
+            )
+        # 4. Converge — median of Fibonacci indices, snapped to a Fib value
+        pts = sorted(v["points"] for v in votes if isinstance(v.get("points"), int))
+        if not pts:
+            return  # all votes malformed; leave in refinement for retro to notice
+        median = pts[len(pts) // 2]
+        # Snap to nearest Fibonacci value if not already one
+        final_points = min(FIB, key=lambda f: abs(f - median))
+
+        # 5. set_points + transition to ready
+        try:
+            self.board.set_points(story.issue_id, final_points, actor=self.role)
+            self.board.transition(story.issue_id, "ready", actor=self.role)
+            self.emitter.emit(
+                "story_refined", story_id=story.issue_id, points=final_points,
+                summary=f"{story.issue_id} refined to {final_points} pts",
+            )
+        except Exception as e:
+            self.emitter.emit(
+                "poker_failed", role=self.role,
+                summary=f"{story.issue_id}: {e}"[:200],
+            )
 
     async def _run_pr_feedback(self) -> None:
         try:
