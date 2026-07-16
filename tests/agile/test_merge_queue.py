@@ -101,3 +101,58 @@ class TestMergeWorker:
         # Integration branch should now contain the app.py file
         assert (team_repo / "app.py").exists()
         assert board.read("S1").state == "done"
+
+
+class TestMergeWorkerConflict:
+    def test_transitions_to_blocked_on_conflict(self, team_repo, tmp_path):
+        # Create a conflicting change on integration branch
+        subprocess.run(["git", "checkout", "integration"], cwd=team_repo, check=True)
+        (team_repo / "app.py").write_text("integration side\n")
+        subprocess.run(["git", "add", "-A"], cwd=team_repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t",
+             "commit", "-qm", "integration change"],
+            cwd=team_repo, check=True,
+        )
+        # agent/arch branch already wrote "hello\n" to app.py in a prior commit
+        # (see team_repo fixture). Rebase will conflict with integration's app.py.
+
+        board = BoardStore(tmp_path / "board")
+        board.draft_story(issue_id="S1", title="t", body="b",
+                          story_type="feature", files_to_touch=["app.py"])
+        board.transition("S1", "refinement", actor="sm")
+        board.transition("S1", "ready", actor="sm")
+        board.transition("S1", "in_progress", actor="arch")
+        board.transition("S1", "review", actor="arch")
+
+        ws = MagicMock()
+        ws.integration_worktree = team_repo
+        ws.integration_branch = "integration"
+        ws.source_repo = team_repo
+
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(workspace=ws)
+
+        async def scenario():
+            await queue.enqueue(MergeRequest(
+                story_id="S1", from_branch="agent/arch",
+                files_touched=["app.py"],
+            ))
+            worker = asyncio.create_task(run_merge_worker(
+                queue, ws, board, emitter, stop_when_empty=True,
+            ))
+            await asyncio.wait_for(worker, timeout=10.0)
+
+        asyncio.run(scenario())
+
+        story = board.read("S1")
+        assert story.state == "blocked"
+        # reason is stored in the audit trail, not on the story object
+        audit = board.audit_trail("S1")
+        transition_entry = next(
+            (e for e in reversed(audit)
+             if e.get("action") == "transition" and e.get("to_state") == "blocked"),
+            None,
+        )
+        assert transition_entry is not None, "No blocked transition found in audit"
+        assert transition_entry.get("reason", "").startswith("merge_conflict:")

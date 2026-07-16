@@ -59,6 +59,7 @@ _EVENT_META: dict[str, tuple[str, str]] = {
     "merge_queued":         ("📮", "merge request queued"),
     "merge_completed":      ("🔗", "merge completed"),
     "merge_conflict":       ("💥", "merge conflict"),
+    "merge_state_error":    ("⚠️ ", "merge post-transition failed"),
 }
 
 

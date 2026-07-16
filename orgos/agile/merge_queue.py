@@ -2,7 +2,14 @@
 
 Agents enqueue a MergeRequest after completing a story. A single MergeWorker
 async task drains the queue, taking a global git_op_lock for each merge.
-On conflict: transitions story to blocked with reason 'merge_conflict:<paths>'.
+
+Merge sequence (§5 spec — linear integration history):
+  1. In the SOURCE repo: rebase from_branch onto the integration branch.
+     On rebase conflict → abort and transition story to blocked.
+  2. In the INTEGRATION worktree: checkout the integration branch.
+  3. Fast-forward-only merge of from_branch into integration.
+
+On conflict: transitions story to blocked with reason 'merge_conflict:<stderr>'.
 """
 
 from __future__ import annotations
@@ -10,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 
@@ -44,7 +50,7 @@ class MergeQueue:
 git_op_lock = asyncio.Lock()
 
 
-def _run_git(args: list[str], cwd: Path, timeout: int = 60) -> tuple[int, str, str]:
+def _run_git(args: list[str], cwd: Any, timeout: int = 60) -> tuple[int, str, str]:
     r = subprocess.run(
         ["git", *args], cwd=str(cwd),
         capture_output=True, text=True, timeout=timeout,
@@ -55,25 +61,38 @@ def _run_git(args: list[str], cwd: Path, timeout: int = 60) -> tuple[int, str, s
 def _attempt_merge(
     workspace: Any, from_branch: str,
 ) -> tuple[bool, str]:
-    """Rebase from_branch on integration, then fast-forward integration.
+    """Rebase from_branch onto integration branch, then fast-forward integration.
+
+    Sequence (§5 spec — keeps integration history linear):
+      1. In SOURCE repo: rebase from_branch onto integration_branch.
+         On failure: abort rebase and return (False, 'merge_conflict:<err>').
+      2. In INTEGRATION worktree: checkout integration_branch (explicit).
+      3. Fast-forward-only merge of from_branch.
+         On failure: return (False, 'merge_ff_failed:<err>').
+
     Returns (ok, message_or_error).
     """
+    source = workspace.source_repo
     integ = workspace.integration_worktree
     integ_branch = workspace.integration_branch
 
-    # 1. In the integration worktree, make sure we're on the integration branch.
+    # 1. Rebase from_branch onto the integration branch in the source repo.
+    rc, out, err = _run_git(["rebase", integ_branch, from_branch], source)
+    if rc != 0:
+        _run_git(["rebase", "--abort"], source)
+        return False, f"merge_conflict:{err.strip() or out.strip()}"
+
+    # 2. Ensure integration worktree is on the integration branch.
     rc, out, err = _run_git(["checkout", integ_branch], integ)
     if rc != 0:
         return False, f"checkout integration: {err.strip()}"
 
-    # 2. Merge from_branch (fast-forward or --no-ff, up to git config)
-    rc, out, err = _run_git(["merge", "--no-edit", from_branch], integ)
+    # 3. Fast-forward-only merge (guaranteed to succeed after clean rebase).
+    rc, out, err = _run_git(["merge", "--ff-only", from_branch], integ)
     if rc == 0:
         return True, "merged clean"
 
-    # Conflict detected; abort the merge and report
-    _run_git(["merge", "--abort"], integ)
-    return False, f"merge_conflict:{err.strip() or out.strip()}"
+    return False, f"merge_ff_failed:{err.strip() or out.strip()}"
 
 
 async def run_merge_worker(
@@ -102,15 +121,18 @@ async def run_merge_worker(
         )
 
         async with git_op_lock:
-            ok, msg = await asyncio.get_event_loop().run_in_executor(
+            ok, msg = await asyncio.get_running_loop().run_in_executor(
                 None, _attempt_merge, workspace, request.from_branch,
             )
 
         if ok:
             try:
                 board.transition(request.story_id, "done", actor="merge_worker")
-            except Exception:
-                pass
+            except Exception as e:
+                emitter.emit(
+                    "merge_state_error", story_id=request.story_id,
+                    summary=f"failed to transition to done: {e}",
+                )
             emitter.emit(
                 "merge_completed", story_id=request.story_id,
                 branch=request.from_branch, summary=msg,
@@ -121,8 +143,11 @@ async def run_merge_worker(
                     request.story_id, "blocked", actor="merge_worker",
                     reason=msg[:200],
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                emitter.emit(
+                    "merge_state_error", story_id=request.story_id,
+                    summary=f"failed to transition to blocked: {e}",
+                )
             emitter.emit(
                 "merge_conflict", story_id=request.story_id,
                 branch=request.from_branch, summary=msg[:200],
