@@ -341,6 +341,20 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
     print(f"[cli] team {args.team_id} started with roles {roles}", flush=True)
     asyncio.run(_run_all())
+
+    # Write campaign_result.json so scrum runs have parity with waterfall for
+    # downstream comparison harnesses.
+    try:
+        from orgos.agile.campaign_summary import write_campaign_result
+        reason = "timeout" if args.timeout_seconds else "sigint"
+        out = write_campaign_result(
+            ws, board, executor=choice, reason_stopped=reason,
+        )
+        print(f"[cli] wrote {out}", flush=True)
+    except Exception as e:
+        print(f"[cli] WARNING: could not write campaign_result.json: {e}",
+              file=sys.stderr, flush=True)
+
     print(f"[cli] team {args.team_id} stopped", flush=True)
     return 0
 

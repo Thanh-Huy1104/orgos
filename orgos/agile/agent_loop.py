@@ -306,7 +306,11 @@ class AsyncAgent:
             )
             self.emitter.emit(
                 "story_no_commit", story_id=story.issue_id,
-                worker=self.role, summary=result.error[:200],
+                worker=self.role,
+                tokens_in=result.tokens_input,
+                tokens_out=result.tokens_output,
+                wall_seconds=result.wall_seconds,
+                summary=result.error[:200],
             )
             return
 
@@ -316,6 +320,9 @@ class AsyncAgent:
         self.emitter.emit(
             "commit_landed", story_id=story.issue_id,
             commit_sha=result.commit_sha[:7], worker=self.role,
+            tokens_in=result.tokens_input,
+            tokens_out=result.tokens_output,
+            wall_seconds=result.wall_seconds,
             summary=f"{self.role} committed {result.commit_sha[:7]}",
         )
         await self.merge_queue.enqueue(MergeRequest(

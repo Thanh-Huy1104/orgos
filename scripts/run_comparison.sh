@@ -207,4 +207,21 @@ for r in rows:
         print(f"\n[{r['team']}] MISSING workspace — did the run fail before writing?")
 PY
 
-echo "==> Done. Logs at /tmp/orgos-cmp-waterfall.log and /tmp/orgos-cmp-scrum.log"
+echo ""
+echo "==> Building HTML comparison report"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+HTML_OUT="/tmp/orgos-comparison.html"
+python3 "$HERE/build_comparison_html.py" \
+    --repo "$REPO" \
+    --waterfall-team "$WATERFALL_TEAM" \
+    --scrum-team     "$SCRUM_TEAM" \
+    --goal "$GOAL" --model "$MODEL" --executor "$EXECUTOR" \
+    --out "$HTML_OUT"
+
+echo ""
+echo "==> Done."
+echo "    logs:    /tmp/orgos-cmp-waterfall.log  /tmp/orgos-cmp-scrum.log"
+echo "    html:    $HTML_OUT"
+if command -v open >/dev/null 2>&1; then
+    echo "    (open in browser: open $HTML_OUT)"
+fi

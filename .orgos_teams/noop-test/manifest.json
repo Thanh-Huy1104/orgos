@@ -1,9 +1,0 @@
-{
-  "team_id": "noop-test",
-  "goal": "Add orgos/agile/ping.py with ping() returning 'pong' and a test at tests/agile/test_ping.py asserting ping() == 'pong'.",
-  "source_repo": "/Users/th/Documents/Github/orgos",
-  "model": "deepseek/deepseek-chat",
-  "created_at": "2026-07-15T19:46:50.457823+00:00",
-  "branch": "team/noop-test",
-  "baseline_sha": "440c57b512249365e7c313eda8b1eb46c6e947c7"
-}

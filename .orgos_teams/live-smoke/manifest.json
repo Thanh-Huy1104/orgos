@@ -1,9 +1,0 @@
-{
-  "team_id": "live-smoke",
-  "goal": "Add orgos/agile/wave.py exposing wave(name)->str that returns f'wave to {name}' plus tests/agile/test_wave.py asserting wave('sun') == 'wave to sun'.",
-  "source_repo": "/Users/th/Documents/Github/orgos",
-  "model": "deepseek/deepseek-chat",
-  "created_at": "2026-07-15T19:30:59.121557+00:00",
-  "branch": "team/live-smoke",
-  "baseline_sha": "24fb74bc9bdd87edcf5e94003a337f1abdbfcb2e"
-}
