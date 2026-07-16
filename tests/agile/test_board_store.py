@@ -36,6 +36,17 @@ class TestDraft:
             board.draft_story(issue_id="A", title="t2", body="b",
                                story_type="feature")
 
+    def test_files_to_touch_default_empty(self, board):
+        s = board.draft_story(issue_id="A", title="t", body="b",
+                               story_type="feature")
+        assert s.files_to_touch == []
+
+    def test_files_to_touch_persists(self, board):
+        s = board.draft_story(issue_id="A", title="t", body="b",
+                               story_type="feature",
+                               files_to_touch=["app.py", "tests/test_app.py"])
+        assert board.read("A").files_to_touch == ["app.py", "tests/test_app.py"]
+
 
 class TestTransitions:
     def test_full_happy_path(self, board):
@@ -189,3 +200,61 @@ class TestCounters:
         assert counts["draft"] == 1
         assert counts["ready"] == 1
         assert counts["done"] == 0
+
+
+class TestTryClaim:
+    def test_claim_transitions_to_in_progress(self, board):
+        board.draft_story(issue_id="A", title="arch", body="b",
+                          story_type="architecture")
+        board.transition("A", "refinement", actor="sm")
+        board.transition("A", "ready", actor="sm")
+        story = board.try_claim_next_for("architect", actor="arch_agent")
+        assert story is not None
+        assert story.issue_id == "A"
+        assert board.read("A").state == "in_progress"
+        assert board.read("A").assignee == "arch_agent"
+
+    def test_claim_returns_none_when_no_ready_stories(self, board):
+        assert board.try_claim_next_for("architect", actor="arch_agent") is None
+
+    def test_claim_respects_type_filter(self, board):
+        board.draft_story(issue_id="A", title="test", body="b",
+                          story_type="test")
+        board.transition("A", "refinement", actor="sm")
+        board.transition("A", "ready", actor="sm")
+        # architect worker only pulls architecture+feature, not test
+        assert board.try_claim_next_for("architect", actor="arch_agent") is None
+        # test worker pulls test-typed story
+        story = board.try_claim_next_for("test", actor="test_agent")
+        assert story is not None and story.issue_id == "A"
+
+    def test_claim_blocks_on_files_to_touch_overlap(self, board):
+        # Story A is in_progress touching app.py
+        board.draft_story(issue_id="A", title="a", body="b",
+                          story_type="architecture",
+                          files_to_touch=["app.py"])
+        board.transition("A", "refinement", actor="sm")
+        board.transition("A", "ready", actor="sm")
+        s = board.try_claim_next_for("architect", actor="arch_agent")
+        assert s.issue_id == "A"
+        # Story B is ready and would also touch app.py — must NOT be claimable
+        board.draft_story(issue_id="B", title="b", body="b",
+                          story_type="architecture",
+                          files_to_touch=["app.py", "other.py"])
+        board.transition("B", "refinement", actor="sm")
+        board.transition("B", "ready", actor="sm")
+        assert board.try_claim_next_for("architect", actor="arch_agent2") is None
+
+    def test_claim_allows_non_overlapping_parallel(self, board):
+        board.draft_story(issue_id="A", title="a", body="b",
+                          story_type="architecture",
+                          files_to_touch=["app.py"])
+        board.draft_story(issue_id="B", title="b", body="b",
+                          story_type="architecture",
+                          files_to_touch=["util.py"])
+        for iid in ("A", "B"):
+            board.transition(iid, "refinement", actor="sm")
+            board.transition(iid, "ready", actor="sm")
+        s1 = board.try_claim_next_for("architect", actor="arch1")
+        s2 = board.try_claim_next_for("architect", actor="arch2")
+        assert {s1.issue_id, s2.issue_id} == {"A", "B"}

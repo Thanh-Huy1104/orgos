@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -84,6 +85,7 @@ class Story:
     comments: list[dict] = field(default_factory=list)
     wiki_touched: bool = False
     commit_sha: str = ""
+    files_to_touch: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
@@ -126,6 +128,7 @@ class BoardStore:
         self.audit_dir.mkdir(parents=True, exist_ok=True)
         if not self.index_path.exists():
             self._write_index({})
+        self._claim_lock = threading.Lock()
 
     # ── Index ────────────────────────────────────────────────────────────
 
@@ -247,6 +250,41 @@ class BoardStore:
             return True
         return [s for s in ready if s.type in allowed and _deps_satisfied(s)]
 
+    def try_claim_next_for(
+        self, role: str, *, actor: str,
+    ) -> Optional[Story]:
+        """Atomically pull the top matching READY story for `role` and move it
+        to in_progress. Skips stories whose files_to_touch overlaps with any
+        currently in_progress or review story. Returns None if nothing
+        claimable.
+
+        Thread-safe: multiple concurrent callers will each get a different
+        story (or None).
+        """
+        with self._claim_lock:
+            candidates = self.list_ready_for_type(role)
+            if not candidates:
+                return None
+
+            # Compute the set of files currently locked by in-flight stories
+            locked_files: set[str] = set()
+            for state in ("in_progress", "review"):
+                for s in self.list_state(state):
+                    locked_files.update(s.files_to_touch or [])
+
+            for story in candidates:
+                overlap = set(story.files_to_touch or []) & locked_files
+                if overlap:
+                    continue  # try the next ready story
+                # Claim it
+                try:
+                    self.assign(story.issue_id, actor)
+                    self.transition(story.issue_id, "in_progress", actor=actor)
+                    return self.read(story.issue_id)
+                except (InvalidTransition, BoardError):
+                    continue  # race with another caller; try next
+            return None
+
     # ── Draft (create) ───────────────────────────────────────────────────
 
     def draft_story(
@@ -258,6 +296,7 @@ class BoardStore:
         story_type: str,
         priority: int = 0,
         actor: str = "po",
+        files_to_touch: Optional[list[str]] = None,
     ) -> Story:
         if story_type not in VALID_TYPES:
             raise BoardError(
@@ -273,6 +312,7 @@ class BoardStore:
             state="draft",
             type=story_type,
             priority=priority,
+            files_to_touch=list(files_to_touch or []),
             created_at=now,
             updated_at=now,
         )
