@@ -1,0 +1,133 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>orgos comparison</title>
+<style>
+* { box-sizing: border-box; }
+body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       color: #1a1a1a; background: #f7f7f5; margin: 0; padding: 24px; }
+h1, h2, h3 { color: #0b0b0b; margin-top: 32px; margin-bottom: 12px; }
+h1 { margin-top: 0; font-size: 22px; }
+h2 { font-size: 17px; border-bottom: 1px solid #d0d0d0; padding-bottom: 4px; }
+h3 { font-size: 14px; color: #444; }
+.wrap { max-width: 1160px; margin: 0 auto; }
+.meta { color: #666; font-size: 12.5px; margin-bottom: 20px; }
+.meta code { background: #ececec; padding: 1px 6px; border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; background: #fff;
+        border-radius: 4px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e5e5e5;
+         font-size: 13px; }
+th { background: #f0f0ee; color: #333; font-weight: 600; font-size: 12px;
+     text-transform: uppercase; letter-spacing: 0.03em; }
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: #fafaf8; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.winner { background: #e8f5e9 !important; font-weight: 600; }
+.loser  { color: #888; }
+.tag    { display: inline-block; padding: 1px 8px; border-radius: 10px;
+          font-size: 11px; font-weight: 600; }
+.tag.done      { background: #dcedc8; color: #33691e; }
+.tag.blocked   { background: #ffcdd2; color: #b71c1c; }
+.tag.ready     { background: #b3e5fc; color: #01579b; }
+.tag.refinement{ background: #fff9c4; color: #827717; }
+.tag.draft     { background: #eeeeee; color: #444; }
+.tag.in_progress{background: #ffe0b2; color: #e65100; }
+.tag.review    { background: #d1c4e9; color: #4527a0; }
+.mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+.sub { color: #666; font-size: 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 12px 0; }
+.card { background: #fff; padding: 14px 18px; border-radius: 4px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.card h3 { margin-top: 0; }
+.pass { color: #2e7d32; font-weight: 600; }
+.fail { color: #c62828; font-weight: 600; }
+</style></head>
+<body><div class="wrap">
+<h1>orgos: waterfall vs scrum</h1>
+<div class="meta">
+  repo <code>/private/tmp/flask-target</code> &middot;
+  model <code>deepseek/deepseek-chat</code> &middot;
+  executor <code>spawn</code>
+  <br>goal: Implement full CRUD for Notes: POST /notes to create a note (body: {text}), GET /notes to list all, GET /notes/&lt;id&gt; to fetch one, PATCH /notes/&lt;id&gt; to update text, DELETE /notes/&lt;id&gt; to remove. Add a Project model with POST /projects (body: {name}), GET /projects, and POST /projects/&lt;id&gt;/notes/&lt;note_id&gt; to associate a note with a project. Add pytest integration tests covering: create+list, create+get, update, delete, project creation, and note-to-project association. Reuse the existing NotesStore where possible.
+</div>
+
+<h2>Head-to-head</h2>
+<table>
+<thead><tr><th>metric</th><th class="num">waterfall</th><th class="num">scrum</th></tr></thead>
+<tbody>
+<tr><td>stories drafted</td><td class="num ">10</td><td class="num ">10</td></tr>
+<tr><td>stories done</td><td class="num winner">7</td><td class="num loser">3</td></tr>
+<tr><td>stories blocked</td><td class="num ">3</td><td class="num ">3</td></tr>
+<tr><td>tokens (in)</td><td class="num loser">1,687,688</td><td class="num winner">710,122</td></tr>
+<tr><td>tokens (out)</td><td class="num loser">46,005</td><td class="num winner">25,140</td></tr>
+<tr><td>est. cost (USD)</td><td class="num loser">0.5063</td><td class="num winner">0.2194</td></tr>
+<tr><td>integration tests</td><td><span class="pass">✓ 36 passed in 0.09s</span></td><td><span class="pass">✓ 23 passed in 0.09s</span></td></tr>
+</tbody>
+</table>
+<div class="sub">
+  Cost estimate uses input=$0.2700/1M output=$1.1000/1M
+  (DeepSeek Chat defaults). Green cell = winner on that metric.
+  For "blocked / tokens / cost", lower is better; for "drafted / done", higher.
+  Test outcomes are informational, not scored.
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h3>Waterfall run</h3>
+    <div class="sub">
+      team_id: <code>cmp-waterfall</code><br>
+      started: 2026-07-16T15:37:44.494890+00:00<br>
+      ended:   2026-07-16T15:47:09.275926+00:00<br>
+      reason:  backlog_empty
+    </div>
+  </div>
+  <div class="card">
+    <h3>Scrum run</h3>
+    <div class="sub">
+      team_id: <code>cmp-scrum</code><br>
+      started: 2026-07-16T15:47:27.321315+00:00<br>
+      ended:   2026-07-16T15:59:28.334483+00:00<br>
+      reason:  timeout
+    </div>
+  </div>
+</div>
+
+<h2>Stories — waterfall (10)</h2>
+<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-add-note-model-to-existing-notesstore</td><td>Add Note model to existing NotesStore</td><td>architecture</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">31e0216</td></tr>
+<tr><td class="mono">GS-01-add-tests-for-add-note-model-to-existing</td><td>Add tests for Add Note model to existing NotesStore</td><td>test</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">cdfe0ae</td></tr>
+<tr><td class="mono">GS-02-implement-post-notes-and-get-notes-endpo</td><td>Implement POST /notes and GET /notes endpoints</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">641742d</td></tr>
+<tr><td class="mono">GS-03-add-tests-for-post-notes-and-get-notes-e</td><td>Add tests for POST /notes and GET /notes endpoints</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-04-implement-get-notes-id-and-patch-notes-i</td><td>Implement GET /notes/&lt;id&gt; and PATCH /notes/&lt;id&gt; endpoints</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">e213734</td></tr>
+<tr><td class="mono">GS-05-add-tests-for-get-notes-id-and-patch-not</td><td>Add tests for GET /notes/&lt;id&gt; and PATCH /notes/&lt;id&gt;</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-06-implement-delete-notes-id-endpoint</td><td>Implement DELETE /notes/&lt;id&gt; endpoint</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">878f3e6</td></tr>
+<tr><td class="mono">GS-07-add-tests-for-delete-notes-id-endpoint</td><td>Add tests for DELETE /notes/&lt;id&gt; endpoint</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-08-add-project-model-post-projects-get-proj</td><td>Add Project model, POST /projects, GET /projects, and note-association</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">5f8f65c</td></tr>
+<tr><td class="mono">GS-09-add-tests-for-project-model-and-endpoint</td><td>Add tests for Project model and endpoints including note association</td><td>test</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">7d304a2</td></tr></tbody></table>
+
+<h2>Stories — scrum (10)</h2>
+<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-add-note-data-model-and-notesstore-query</td><td>Add Note data model and NotesStore query methods</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">d9cd470</td></tr>
+<tr><td class="mono">GS-01-add-tests-for-note-data-model-and-notess</td><td>Add tests for Note data model and NotesStore query methods</td><td>test</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono">c24589a</td></tr>
+<tr><td class="mono">GS-02-add-post-notes-and-get-notes-routes</td><td>Add POST /notes and GET /notes routes</td><td>feature</td><td class="num">2</td><td><span class="tag done">done</span></td><td class="mono">5419f19</td></tr>
+<tr><td class="mono">GS-03-add-tests-for-post-notes-and-get-notes-r</td><td>Add tests for POST /notes and GET /notes routes</td><td>test</td><td class="num">2</td><td><span class="tag blocked">blocked</span></td><td class="mono">fc1fc81</td></tr>
+<tr><td class="mono">GS-04-add-get-notes-id-patch-notes-id-delete-n</td><td>Add GET /notes/&lt;id&gt;, PATCH /notes/&lt;id&gt;, DELETE /notes/&lt;id&gt; routes</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">8e1894a</td></tr>
+<tr><td class="mono">GS-05-add-tests-for-get-patch-delete-notes-id-</td><td>Add tests for GET/PATCH/DELETE /notes/&lt;id&gt; routes</td><td>test</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-06-add-project-data-model-and-projectstore</td><td>Add Project data model and ProjectStore</td><td>architecture</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-07-add-tests-for-project-data-model-and-pro</td><td>Add tests for Project data model and ProjectStore</td><td>test</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-08-add-post-projects-get-projects-and-post-</td><td>Add POST /projects, GET /projects, and POST /projects/&lt;id&gt;/notes/&lt;note</td><td>feature</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-09-add-tests-for-post-projects-get-projects</td><td>Add tests for POST /projects, GET /projects, and note-to-project assoc</td><td>test</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr></tbody></table>
+
+<h2>Scrum event histogram</h2>
+<table><thead><tr><th>event</th><th>count</th></tr></thead><tbody><tr><td class='mono'>story_refined</td><td class='num'>10</td></tr>
+<tr><td class='mono'>story_pulled</td><td class='num'>6</td></tr>
+<tr><td class='mono'>agent_started</td><td class='num'>5</td></tr>
+<tr><td class='mono'>commit_landed</td><td class='num'>5</td></tr>
+<tr><td class='mono'>merge_queued</td><td class='num'>5</td></tr>
+<tr><td class='mono'>agent_stopped</td><td class='num'>5</td></tr>
+<tr><td class='mono'>scheduled_noop</td><td class='num'>3</td></tr>
+<tr><td class='mono'>merge_completed</td><td class='num'>3</td></tr>
+<tr><td class='mono'>stories_accepted</td><td class='num'>3</td></tr>
+<tr><td class='mono'>merge_conflict</td><td class='num'>2</td></tr>
+<tr><td class='mono'>replan_started</td><td class='num'>1</td></tr>
+<tr><td class='mono'>replan_done</td><td class='num'>1</td></tr>
+<tr><td class='mono'>sprint_opened</td><td class='num'>1</td></tr>
+<tr><td class='mono'>story_no_commit</td><td class='num'>1</td></tr></tbody></table>
+
+</div></body></html>

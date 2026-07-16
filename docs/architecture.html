@@ -1,0 +1,443 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>orgos — architecture</title>
+<style>
+* { box-sizing: border-box; }
+body { font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       color: #1a1a1a; background: #f7f7f5; margin: 0; padding: 24px; }
+h1, h2, h3, h4 { color: #0b0b0b; margin-top: 34px; margin-bottom: 10px; }
+h1 { margin-top: 0; font-size: 24px; }
+h2 { font-size: 18px; border-bottom: 1px solid #d0d0d0; padding-bottom: 4px; }
+h3 { font-size: 15px; color: #333; }
+h4 { font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
+p { margin: 8px 0; }
+.wrap { max-width: 960px; margin: 0 auto; }
+.meta { color: #666; font-size: 12.5px; margin: 4px 0 20px 0; }
+code, kbd { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px;
+            background: #ececec; padding: 1px 6px; border-radius: 3px; }
+pre { background: #1e1e1e; color: #e8e8e8; padding: 14px 18px; overflow-x: auto;
+      border-radius: 4px; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; }
+pre code { background: transparent; color: inherit; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; background: #fff;
+        border-radius: 4px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid #e5e5e5; font-size: 13px; vertical-align: top; }
+th { background: #f0f0ee; color: #333; font-weight: 600; font-size: 12px;
+     text-transform: uppercase; letter-spacing: 0.03em; }
+tr:last-child td { border-bottom: 0; }
+ul, ol { margin: 6px 0 6px 18px; }
+li { margin: 3px 0; }
+.card { background: #fff; padding: 16px 20px; border-radius: 4px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05); margin: 12px 0; }
+.callout { background: #fff9e0; border-left: 4px solid #f2c14e;
+           padding: 10px 14px; margin: 12px 0; font-size: 13px; border-radius: 0 3px 3px 0; }
+.diagram-caption { color: #666; font-size: 12px; margin: -2px 0 12px 4px; font-style: italic; }
+nav.toc { background: #fff; padding: 12px 16px; border-radius: 4px;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05); margin: 16px 0 24px 0; font-size: 13px; }
+nav.toc a { color: #1976d2; text-decoration: none; }
+nav.toc a:hover { text-decoration: underline; }
+nav.toc ol { margin: 4px 0 4px 24px; }
+</style></head>
+<body><div class="wrap">
+
+<h1>orgos — architecture</h1>
+<div class="meta">
+  v2 async scrum team + spawn/governance substrate &middot;
+  <a href="comparison.html">latest waterfall vs scrum comparison</a> &middot;
+  <a href="RESULTS.md">results report</a>
+</div>
+
+<nav class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#overview">Overview — two layers, three topologies</a></li>
+    <li><a href="#agile-runtime">Agile runtime (v2 async scrum)</a></li>
+    <li><a href="#executors">Coding executors — pluggable LLM backend</a></li>
+    <li><a href="#board">Board — filesystem-backed state machine</a></li>
+    <li><a href="#merge">Merge queue — rebase-before-merge, blocked on conflict</a></li>
+    <li><a href="#sprints">Sprints, DoD, PO acceptance — the real-Scrum layer</a></li>
+    <li><a href="#ceremonies">Ceremonies — heartbeat-scheduled meetings</a></li>
+    <li><a href="#supervisor">Supervisor — crash recovery</a></li>
+    <li><a href="#spawn">Spawn/governance substrate — permission tiers, audit, rubric</a></li>
+    <li><a href="#waterfall">Waterfall topology — the comparison baseline</a></li>
+    <li><a href="#files">Where things live on disk</a></li>
+  </ol>
+</nav>
+
+<h2 id="overview">1. Overview — two layers, three topologies</h2>
+
+<p>orgos is two software layers:</p>
+
+<ul>
+  <li><strong>Agile team (top layer, <code>orgos/agile/</code>)</strong> — the topology that runs against a goal. Two implementations ship: async <strong>Scrum</strong> (v2, default) and sequential <strong>Waterfall</strong> (baseline for comparison).</li>
+  <li><strong>Spawn/governance substrate (bottom layer, <code>orgos/spawn/</code>)</strong> — how individual agents are actually invoked, tier-enforced, tool-gated, audited, and rubric-graded. This layer is OFF-LIMITS to changes made by agents themselves — it's the platform's safety fabric.</li>
+</ul>
+
+<pre><code>          ┌──────────────────────────────────────────────────────┐
+          │              AGILE TEAM (orgos/agile/)                │
+          │                                                       │
+          │   SCRUM (v2 async)         WATERFALL (baseline)       │
+          │   ─────────────────        ────────────────────       │
+          │   AsyncAgent × 5           PO → Architect →           │
+          │   Board + Merge Queue      Test → DevSecOps →         │
+          │   Sprints, DoD, PO Accept  Release  (one story        │
+          │   ClaudeCode/Copilot/spawn  at a time, linear)        │
+          │   Sprint-level ceremonies                             │
+          │                                                       │
+          └───────────────────────┬───────────────────────────────┘
+                                  │
+                                  ▼   both call `spawn(role, brief)`
+          ┌──────────────────────────────────────────────────────┐
+          │           SPAWN / GOVERNANCE (orgos/spawn/)          │
+          │                                                       │
+          │   RoleSpec ──► permission tier enforcement            │
+          │   TaskBrief ──► success criteria + budget             │
+          │   GatedToolBase ──► publisher tools need approval_fn  │
+          │   HandoffEnvelope validation                          │
+          │   Rubric-graded retry (fail-closed after max)         │
+          │   Audit trail — every tool call → JSONL               │
+          │                                                       │
+          └──────────────────────────────────────────────────────┘</code></pre>
+
+<p>The three topologies orgos can run:</p>
+
+<table>
+<thead><tr><th>Topology</th><th>How</th><th>Use</th></tr></thead>
+<tbody>
+  <tr><td>Scrum (v2 async)</td><td><code>orgos start</code></td><td>Recommended. Async agents, board, sprints, DoD.</td></tr>
+  <tr><td>Waterfall (v1 sequential)</td><td><code>orgos run --waterfall</code></td><td>Comparison baseline. What an LLM defaults to.</td></tr>
+  <tr><td>(scrum via v1 dispatcher)</td><td><em>removed in v2</em></td><td>The v1 synchronous scrum dispatcher was deleted — <code>orgos run --scrum</code> now prints a pointer to <code>orgos start</code>.</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="agile-runtime">2. Agile runtime (v2 async scrum)</h2>
+
+<p>Five roles run as independent <code>asyncio.Task</code>s under a shared <code>TeamSupervisor</code>. No dispatcher. Each agent reads its own <code>HEARTBEAT.md</code> for a natural-language schedule ("Every 30 seconds", "Every 4 hours") and either <strong>pulls</strong> from the board (delivery agents) or <strong>runs scheduled ceremonies</strong> (coordination agents).</p>
+
+<pre><code>                        TeamSupervisor  (restart w/ backoff)
+                               │
+        ┌──────────────┬──────┴────────┬─────────────┬─────────────┐
+        ▼              ▼               ▼             ▼             ▼
+   AsyncAgent      AsyncAgent      AsyncAgent    AsyncAgent    AsyncAgent
+    (po)          (scrum_master)   (architect)    (test)       (devsecops)
+    │             │                │              │             │
+    │             │                └──── delivery ─┴─────────────┘
+    │             │                       │
+    │             │                       ▼   pull → executor → commit → enqueue
+    │             │                    Board  ←──────────────────────────── MergeQueue
+    │             │                       │                                     │
+    │             │                       │                                     ▼
+    │             │                       │                          rebase-in-agent-worktree
+    │             │                       │                          then ff-only into integration
+    │             │                       │                                     │
+    ▼             ▼                       ▼                                     ▼
+  ceremonies:  ceremonies:            board_store.py                       merge_queue.py
+  replan        poker                                                       (git_op_lock)
+  acceptance    retrospective
+                sprint_boundary
+                                                                       ──► integration branch</code></pre>
+
+<div class="card">
+<h4>Roles by type</h4>
+<ul>
+  <li><strong>Delivery</strong> (pulls board work): <code>architect</code>, <code>test</code>, <code>devsecops</code>.</li>
+  <li><strong>Coordination</strong> (only ceremonies, no board pulls): <code>po</code>, <code>scrum_master</code>.</li>
+</ul>
+</div>
+
+<p>Each agent's persona lives in <code>agents/&lt;role&gt;/</code> as five files:</p>
+
+<table>
+<thead><tr><th>File</th><th>Contents</th><th>Who writes</th></tr></thead>
+<tbody>
+  <tr><td><code>SOUL.md</code></td><td>identity, purpose, values</td><td>human (this repo)</td></tr>
+  <tr><td><code>BRAIN.md</code></td><td>domain knowledge, reasoning patterns</td><td>human</td></tr>
+  <tr><td><code>HABITS.md</code></td><td>routine behaviors, tool preferences</td><td>human</td></tr>
+  <tr><td><code>MEMORY.md</code></td><td>past decisions, learnings</td><td><strong>agent</strong> (only agent-writable file)</td></tr>
+  <tr><td><code>HEARTBEAT.md</code></td><td>natural-language schedule ("Every N seconds")</td><td>human</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="executors">3. Coding executors — pluggable LLM backend</h2>
+
+<p>Actual coding is delegated behind a <code>CodingExecutor</code> Protocol so the async runtime doesn't hard-code any LLM vendor. Three implementations ship. The CLI auto-picks in this order.</p>
+
+<table>
+<thead><tr><th>Executor</th><th>How</th><th>Auth</th></tr></thead>
+<tbody>
+  <tr>
+    <td><code>ClaudeCodeExecutor</code></td>
+    <td>Shells to <code>claude -p &lt;prompt&gt;</code> (Claude Code print mode)</td>
+    <td>User's Claude subscription. No API key handled by orgos.</td>
+  </tr>
+  <tr>
+    <td><code>CopilotCliExecutor</code></td>
+    <td>Shells to <code>copilot -p &lt;prompt&gt;</code> (GitHub Copilot CLI)</td>
+    <td>User's GitHub Copilot subscription. No API key handled by orgos.</td>
+  </tr>
+  <tr>
+    <td><code>SpawnCodingExecutor</code></td>
+    <td>Uses <code>orgos.spawn</code> + LiteLLM (CrewAI-based worker + BashTool)</td>
+    <td>Whatever API key or OpenAI-compatible URL you point LiteLLM at (DeepSeek is the cheapest).</td>
+  </tr>
+</tbody>
+</table>
+
+<p>Success criterion for any executor: <strong>HEAD advanced past the pre-run baseline inside the given worktree</strong>. If not, the story transitions to <code>blocked</code> and the executor's <code>.error</code> field records why.</p>
+
+<div class="callout">
+<strong>Design note:</strong> The <code>SpawnCodingExecutor</code> path is deliberately <em>not</em> feature parity with Claude Code / Copilot — it uses only <code>BashTool</code> (no native Read/Edit/Grep tools). For bite-sized stories that's sufficient. If you want the vendor's full agentic tool suite, use the vendor's executor.
+</div>
+
+<hr>
+
+<h2 id="board">4. Board — filesystem-backed state machine</h2>
+
+<p>All coordination happens through <code>&lt;workspace&gt;/board/</code>. No shared memory, no queues in RAM. Two files matter per story:</p>
+
+<ul>
+  <li><code>board/stories/&lt;issue_id&gt;.json</code> — the story: state, points, votes, assignee, commit_sha, files_to_touch, depends_on, sprint_number.</li>
+  <li><code>board/audit/&lt;issue_id&gt;.jsonl</code> — append-only trail of every state transition and decision.</li>
+</ul>
+
+<p>State machine:</p>
+
+<pre><code>  draft ──► refinement ──► ready ──► in_progress ──► review ──► pending_acceptance ──► done
+                                                        │              │                  │
+                                                        └─────────► blocked ◄─────────────┘</code></pre>
+
+<div class="card">
+<h4>Concurrency</h4>
+<p><code>BoardStore.try_claim_next_for(role, actor, sprint_number)</code> is atomic under a <code>threading.Lock</code>. It filters candidates by:</p>
+<ol>
+  <li>state == <code>ready</code></li>
+  <li>type matches worker (architect ← architecture/feature; test ← test; devsecops ← security)</li>
+  <li>all <code>depends_on</code> stories are <code>done</code> (real Scrum DoD)</li>
+  <li>if <code>sprint_number &gt; 0</code>: story's <code>sprint_number</code> matches (Sprint Backlog commitment)</li>
+  <li><code>files_to_touch</code> doesn't overlap with any in-flight story's files (prevents parallel-work collisions)</li>
+</ol>
+<p>Single-process safety only — the whole async runtime is one asyncio loop. Cross-process sharing isn't supported by design.</p>
+</div>
+
+<hr>
+
+<h2 id="merge">5. Merge queue — rebase-before-merge, blocked on conflict</h2>
+
+<p>Every successful commit an agent lands is <strong>enqueued</strong>, not merged directly. A single <code>run_merge_worker</code> coroutine drains the FIFO queue serially under an <code>asyncio.Lock</code>.</p>
+
+<pre><code>  agent's worktree              integration worktree
+  (branch: team/X/agent/Y)      (branch: team/X/integration)
+      │                                  │
+      │  agent commits new SHA           │
+      ├──► MergeQueue.enqueue(request) ──┤
+      │                                  │
+      │                              worker:
+      │                              1. rebase agent branch onto integration
+      │                                 (inside AGENT worktree — that's where the
+      │                                 branch is checked out; git refuses to
+      │                                 check it out twice)
+      │                              2. checkout integration
+      │                              3. merge --ff-only agent branch
+      │                              4. transition story → pending_acceptance
+      │
+      │  on conflict during rebase:
+      │  → abort rebase
+      │  → transition story → blocked
+      │  → reason: "merge_conflict:&lt;git stderr&gt;"</code></pre>
+
+<p><code>git rerere</code> is enabled in every worktree so recurring conflict resolutions carry forward. There's <em>no</em> LLM-based conflict auto-resolution — a real conflict is genuine ambiguity that the human PO should resolve.</p>
+
+<hr>
+
+<h2 id="sprints">6. Sprints, DoD, PO acceptance — the real-Scrum layer</h2>
+
+<p>Three additions that separate v2 from "just Kanban with ceremonies":</p>
+
+<h3>Definition of Done — paired test subtasks</h3>
+<p>The PO decomposer prompt requires every <code>feature</code>/<code>architecture</code>/<code>security</code> story that ships production code to be paired with a <code>test</code> story with <code>depends_on: [parent_index]</code>. The test can't be pulled until the parent is done — enforcing that testing is part of the story's DoD.</p>
+
+<h3>Sprints — commitment + boundary</h3>
+<pre><code>  sprint 0 (bootstrap)     — first backlog decomposed, no sprint yet
+    │
+    ▼   SM's sprint_boundary ceremony fires
+  sprint 1 opens:
+    - PO selects up to velocity_target ready stories
+    - each gets sprint_number = 1
+    - other ready stories stay sprint_number = 0 (not pullable)
+    │
+    ▼   next boundary fires
+  sprint 2 opens:
+    - previous sprint auto-closes (populates stories_done, points_completed)
+    - PO selects next N ready stories → sprint_number = 2
+    - and so on</code></pre>
+<p>Each sprint is a JSON file at <code>&lt;workspace&gt;/sprints/&lt;n&gt;.json</code> with started_at, ended_at, committed_backlog, stories_done, points_completed.</p>
+
+<h3>PO Acceptance gate — the DoD checkpoint</h3>
+<p>Merge worker no longer transitions merged stories directly to <code>done</code>. Instead → <code>pending_acceptance</code>. The PO's 1-minute HEARTBEAT action <code>_run_acceptance</code> reviews pending stories and either accepts (→ done) or rejects (→ blocked with reason). Mirrors real Scrum where PO is the single voice deciding whether work meets acceptance criteria.</p>
+
+<hr>
+
+<h2 id="ceremonies">7. Ceremonies — heartbeat-scheduled meetings</h2>
+
+<p>No standups. No calendar. Each agent's <code>HEARTBEAT.md</code> declares its own schedule, parsed by <code>HeartbeatScheduler</code>:</p>
+
+<pre><code># PO HEARTBEAT.md
+## Every 1 minutes
+Acceptance review: for each story in pending_acceptance state, accept or reject.
+
+## Every 30 minutes
+If ready backlog &lt; 3 stories, invoke replan(): read SPEC.md and RETRO.md.
+
+## Every 60 minutes
+Poll PR comments via pr_feedback.ingest().</code></pre>
+
+<p>The scheduler emits <code>ScheduledTask(cadence_seconds, action_text)</code>s at their cadence. <code>AsyncAgent.loop</code> routes each task's <code>action_text</code> to the matching ceremony method via word-boundary keyword match — <code>replan</code> → <code>_run_replan</code>, <code>retrospective</code> → <code>_run_retro</code>, <code>sprint + open/close/planning</code> → <code>_run_sprint_boundary</code>, <code>accept/acceptance</code> → <code>_run_acceptance</code>, <code>poker/refinement</code> → <code>_run_poker</code>, <code>pr + comment/review</code> → <code>_run_pr_feedback</code>.</p>
+
+<hr>
+
+<h2 id="supervisor">8. Supervisor — crash recovery</h2>
+
+<p><code>TeamSupervisor</code> spawns all 5 agents as tasks and watches for exceptions. Exponential backoff on restart: 5s → 30s → 5min → 30min → 60min. Emits <code>agent_crashed</code>/<code>agent_restarted</code> events. Restart preserves the same agent instance (state carries across). Scheduler markers are reset on loop re-entry so long-cadence tasks don't freeze after a crash.</p>
+
+<hr>
+
+<h2 id="spawn">9. Spawn/governance substrate — permission tiers, audit, rubric</h2>
+
+<p>Everything above delegates <em>individual agent invocations</em> to <code>orgos.spawn.spawn(role, brief)</code>. Spawn is the safety fabric — it's what prevents a Worker-tier agent from silently gaining publish-class tools, what makes malformed output → <code>needs_revision</code>, what writes the audit trail every tool call lands in.</p>
+
+<pre><code>             ┌─────────────── SPAWN LAYER ───────────────┐
+             │                                            │
+             │  RoleSpec ──► tier enforcement ──► tools   │
+             │  TaskBrief ──► boundaries + budget ──► task│
+             │                                            │
+             │  ┌─────────────────────────────────────┐  │
+             │  │  PERMISSION TIERS (enforced in code) │  │
+             │  │  ─────────────────────────────────── │  │
+             │  │  worker      compute only, no publish│  │
+             │  │  validator   review + gate           │  │
+             │  │  publisher   external actions (gated)│  │
+             │  │  orchestrator manage subordinates    │  │
+             │  └─────────────────────────────────────┘  │
+             │                                            │
+             │  ┌─────────────────────────────────────┐  │
+             │  │  AUDIT TRAIL (every run)             │  │
+             │  │  _audit_logs/&lt;run_id&gt;.jsonl          │  │
+             │  │  every tool call with I/O            │  │
+             │  └─────────────────────────────────────┘  │
+             │                                            │
+             └───────────────────────────────────────────┘</code></pre>
+
+<div class="card">
+<h4>Key guarantees (from <code>docs/spawn-rubric.md</code>)</h4>
+<table>
+<thead><tr><th>Guarantee</th><th>Enforced by</th></tr></thead>
+<tbody>
+  <tr><td>Worker can't publish</td><td><code>_enforce_tier</code> rejects publish-category tools at load time (no tokens spent)</td></tr>
+  <tr><td>Publisher needs human gate</td><td><code>_wire_gates</code> — no <code>approval_fn</code> → <code>_TierViolation</code></td></tr>
+  <tr><td>Bad output ≠ accepted</td><td><code>_read_envelope</code>: non-JSON / empty / missing criteria → <code>needs_revision</code></td></tr>
+  <tr><td>Worker never grades itself</td><td>Rubric grader is a separate function or agent</td></tr>
+  <tr><td>Max attempts = fail closed</td><td><code>_exhausted</code> overrides envelope to <code>needs_revision</code></td></tr>
+  <tr><td>Everything is logged</td><td><code>_audit_logs/&lt;run_id&gt;.jsonl</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<strong>Off-limits:</strong> agents cannot modify <code>orgos/spawn/</code> — this is enforced by the platform, not by prompting. This is the trust boundary that lets us hand a coding agent significant power without giving it the power to change its own governance.
+</div>
+
+<hr>
+
+<h2 id="waterfall">10. Waterfall topology — the comparison baseline</h2>
+
+<p>Same PO decomposition. But there is no board, no refinement, no wiki. Every story runs through Architect → Test → DevSecOps sequentially on the shared integration worktree.</p>
+
+<pre><code>  PO decomposes → list of stories
+       │
+       ▼
+  for each story (in priority order):
+    Architect  → writes code → commits
+    Test       → verifies commit → runs pytest
+    DevSecOps  → reads diff → checks for secrets / oversized diff / governance violations
+    Release manager  → optional PR publisher
+       │
+       ▼
+  → campaign_result.json (stories_done, tokens, wall time, ...)</code></pre>
+
+<p>This is the topology an LLM produces by default when you ask it for "an agentic dev team." Included as the baseline to beat — see <a href="comparison.html">comparison.html</a> for the head-to-head.</p>
+
+<hr>
+
+<h2 id="files">11. Where things live on disk</h2>
+
+<h3>Per-team runtime state</h3>
+<pre><code>&lt;target-repo&gt;/.orgos_teams/&lt;team-id&gt;/
+├── manifest.json                team_id, goal, model, branch, baseline SHA
+├── integration/                 merged worktree (branch team/&lt;id&gt;/integration)
+├── agents/                      per-agent worktree + state (scrum only)
+│   ├── architect/worktree/      branch team/&lt;id&gt;/agent/architect
+│   ├── test/worktree/           branch team/&lt;id&gt;/agent/test
+│   ├── devsecops/worktree/      branch team/&lt;id&gt;/agent/devsecops
+│   ├── po/worktree/             branch team/&lt;id&gt;/agent/po
+│   └── scrum_master/worktree/   branch team/&lt;id&gt;/agent/scrum_master
+├── board/
+│   ├── stories/*.json           one JSON per story (state + audit)
+│   ├── audit/*.jsonl            append-only trail per story
+│   └── index.json               fast state/type lookup
+├── sprints/&lt;n&gt;.json             sprint N (scrum only, real Scrum layer)
+├── current_sprint.txt           marker (just the sprint number)
+├── wiki/                        team wiki (DECISIONS.md, RETRO.md, SPEC.md if any)
+├── live.jsonl                   event stream (scrum only) — one JSON per line
+├── baseline_tests.json          pytest snapshot at workspace creation
+├── campaign_result.json         final summary — written on shutdown
+└── report.html                  self-contained live report</code></pre>
+
+<h3>Source tree</h3>
+<pre><code>orgos/
+  cli.py                          entry point (`orgos`)
+  agile/
+    agent_loop.py                 AsyncAgent — per-role async runtime
+    supervisor.py                 TeamSupervisor — crash-restart with backoff
+    heartbeat_scheduler.py        parses HEARTBEAT.md
+    merge_queue.py                FIFO queue, rebase-in-agent + ff-only merge
+    coding_executor.py            CodingExecutor Protocol + Claude + Copilot
+    spawn_executor.py             SpawnCodingExecutor (LiteLLM path)
+    board_store.py                filesystem state machine
+    goal_decomposer.py            PO decomposition (with DoD subtask rules)
+    poker.py                      voting + discussion + convergence
+    sprints.py                    Sprint model, planning, boundary
+    team_workspace.py             per-team worktrees (integration + one per agent)
+    team_report.py                self-contained HTML live report
+    live_events.py                event emitter + registered types
+    campaign_summary.py           writes campaign_result.json on scrum shutdown
+    waterfall_runner.py           baseline comparison topology
+    retrospective.py              SM retro ceremony
+    replan.py                     PO replan ceremony
+    pr_publisher.py               push + open draft PR
+    pr_feedback.py                ingest PR comments as new stories
+  spawn/                          governance substrate (OFF-LIMITS to agents)
+  subagents/scrum_team.py         role factories (architect, test, devsecops, po, sm)
+  mcps/                           wiki MCP (read/grep/write with 3-field validation)
+  tools/                          BashTool + mock PR tool
+
+agents/&lt;role&gt;/                    5-file persona per role
+tests/                            pytest suite (194 tests as of this doc)
+docs/
+  architecture.html               (this file)
+  comparison.html                 latest waterfall vs scrum comparison
+  RESULTS.md                      results + direction report
+  spawn-rubric.md                 governance layer deep dive
+  superpowers/                    v2 spec + implementation plan</code></pre>
+
+<hr>
+
+<div class="meta" style="text-align: center; margin: 40px 0 0 0;">
+  See also: <a href="comparison.html">comparison.html</a> &middot;
+  <a href="RESULTS.md">RESULTS.md</a> &middot;
+  <a href="spawn-rubric.md">spawn-rubric.md</a> &middot;
+  <a href="superpowers/specs/2026-07-16-orgos-v2-async-scrum-team.md">v2 design spec</a>
+</div>
+
+</div></body></html>
