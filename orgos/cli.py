@@ -191,6 +191,139 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_goal_and_spec(repo: Path, args) -> tuple[str, str]:
+    """Extract goal + optionally load a spec file."""
+    goal = args.goal or ""
+    spec_text = ""
+    if getattr(args, "spec_file", None):
+        spec_path = Path(args.spec_file).resolve()
+        if spec_path.exists():
+            spec_text = spec_path.read_text(encoding="utf-8")
+            wiki_dir = repo / "wiki"
+            wiki_dir.mkdir(parents=True, exist_ok=True)
+            (wiki_dir / "SPEC.md").write_text(spec_text, encoding="utf-8")
+            goal = (
+                (goal + "\n\n" if goal else "")
+                + f"See wiki/SPEC.md for the full spec. Contents:\n\n"
+                + f"--- BEGIN SPEC ---\n{spec_text}\n--- END SPEC ---"
+            )
+    return goal, spec_text
+
+
+def _cmd_start(args: argparse.Namespace) -> int:
+    """Start the async agent team. Runs until stopped by SIGINT or `orgos stop`."""
+    import asyncio
+    import signal
+    from orgos.agile.agent_loop import AsyncAgent
+    from orgos.agile.board_store import BoardStore
+    from orgos.agile.coding_executor import OpenCodeExecutor
+    from orgos.agile.live_events import EventEmitter
+    from orgos.agile.merge_queue import MergeQueue, run_merge_worker
+    from orgos.agile.supervisor import TeamSupervisor
+    from orgos.agile.team_workspace import (
+        TeamWorkspace, TeamWorkspaceExists,
+    )
+
+    repo = Path(args.repo).resolve()
+    _load_dotenv(repo)
+
+    if not (repo / ".git").exists():
+        print(f"ERROR: {repo} is not a git repo", file=sys.stderr)
+        return 2
+
+    goal, _spec_text = _resolve_goal_and_spec(repo, args)
+    if not goal.strip():
+        print("ERROR: provide --goal or --spec-file", file=sys.stderr)
+        return 2
+    try:
+        ws = TeamWorkspace.create(args.team_id, repo, goal=goal, model=args.model)
+        print(f"[cli] created workspace {ws.root}", flush=True)
+    except TeamWorkspaceExists:
+        if args.fresh:
+            TeamWorkspace.open(args.team_id, repo).reset()
+            ws = TeamWorkspace.create(args.team_id, repo, goal=goal, model=args.model)
+        else:
+            ws = TeamWorkspace.open(args.team_id, repo)
+            print(f"[cli] resuming existing workspace {args.team_id}", flush=True)
+
+    roles = ["po", "scrum_master", "architect", "test", "devsecops"]
+    for r in roles:
+        ws.ensure_agent_workspace(r)
+
+    board = BoardStore(ws.root / "board")
+    emitter = EventEmitter(ws.root)
+    executor = OpenCodeExecutor(model=args.model)
+    merge_queue = MergeQueue(ws)
+
+    def _load_heartbeat(role: str) -> str:
+        p = repo / "agents" / role / "HEARTBEAT.md"
+        return p.read_text(encoding="utf-8") if p.exists() else "## Every 30 seconds\nCheck board."
+
+    delivery_roles = {"architect", "test", "devsecops"}
+    agents = {}
+    for r in roles:
+        agents[r] = AsyncAgent(
+            role=r, workspace=ws, board=board, executor=executor,
+            merge_queue=merge_queue, emitter=emitter,
+            heartbeat_md=_load_heartbeat(r),
+            is_delivery_agent=(r in delivery_roles),
+        )
+
+    supervisor = TeamSupervisor(agents, emitter)
+
+    async def _run_all():
+        merge_task = asyncio.create_task(run_merge_worker(merge_queue, ws, board, emitter))
+        sup_task = asyncio.create_task(supervisor.run())
+        try:
+            await sup_task
+        finally:
+            merge_task.cancel()
+
+    def _handle_sigint(sig, frame):
+        print("\n[cli] shutting down team", flush=True)
+        supervisor.stop()
+    signal.signal(signal.SIGINT, _handle_sigint)
+
+    print(f"[cli] team {args.team_id} started with roles {roles}", flush=True)
+    asyncio.run(_run_all())
+    print(f"[cli] team {args.team_id} stopped", flush=True)
+    return 0
+
+
+def _cmd_stop(args: argparse.Namespace) -> int:
+    """Signal a running team to stop. Sends SIGINT to matching orgos start process(es)."""
+    import subprocess
+    r = subprocess.run(
+        ["pgrep", "-f", f"orgos.cli.*start.*--team-id.*{args.team_id}"],
+        capture_output=True, text=True,
+    )
+    pids = [p for p in r.stdout.strip().splitlines() if p]
+    if not pids:
+        print(f"ERROR: no running team found with team-id {args.team_id}", file=sys.stderr)
+        return 2
+    for pid in pids:
+        subprocess.run(["kill", "-INT", pid], check=False)
+    print(f"[cli] sent SIGINT to {len(pids)} process(es) for team {args.team_id}", flush=True)
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    from orgos.agile.team_workspace import TeamWorkspace, TeamWorkspaceMissing
+    from orgos.agile.team_report import collect_agent_statuses
+    repo = Path(args.repo).resolve()
+    try:
+        ws = TeamWorkspace.open(args.team_id, repo)
+    except TeamWorkspaceMissing as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    for a in collect_agent_statuses(ws):
+        mark = "●" if a["is_alive"] else "○"
+        story = a["current_story"] or "(idle)"
+        restarts = f" ↺{a['restart_count']}" if a["restart_count"] else ""
+        print(f"  {mark} {a['role']:14s} {story:36s} last:{a['last_event_at'][:19]}{restarts}")
+    return 0
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     from orgos.agile.team_workspace import TeamWorkspace, TeamWorkspaceMissing
     from orgos.agile.team_report import render_team_report
@@ -357,6 +490,36 @@ def main(argv: list[str] | None = None) -> int:
     rst_p.add_argument("--repo", type=str, default=".")
     rst_p.add_argument("--team-id", type=str, required=True)
     rst_p.set_defaults(func=_cmd_reset)
+
+    # start
+    start_p = sub.add_parser(
+        "start",
+        help="Start the async agent team (runs until stopped by SIGINT).",
+    )
+    start_p.add_argument("--repo", type=str, required=True)
+    start_p.add_argument("--team-id", type=str, required=True)
+    start_p.add_argument("--goal", type=str, default="")
+    start_p.add_argument("--spec-file", type=str, default=None)
+    start_p.add_argument("--model", type=str, default="deepseek/deepseek-chat")
+    start_p.add_argument("--fresh", action="store_true")
+    start_p.set_defaults(func=_cmd_start)
+
+    # stop
+    stop_p = sub.add_parser(
+        "stop",
+        help="Signal a running team to shut down (SIGINT). Team finishes current stories then exits.",
+    )
+    stop_p.add_argument("--team-id", type=str, required=True)
+    stop_p.set_defaults(func=_cmd_stop)
+
+    # status
+    status_p = sub.add_parser(
+        "status",
+        help="Print per-agent status for a team.",
+    )
+    status_p.add_argument("--repo", type=str, default=".")
+    status_p.add_argument("--team-id", type=str, required=True)
+    status_p.set_defaults(func=_cmd_status)
 
     # serve
     srv_p = sub.add_parser(
