@@ -1,7 +1,14 @@
-"""CodingExecutor — abstracts the coding-agent subprocess (default: OpenCode).
+"""CodingExecutor Protocol + implementations.
 
-Only OpenCodeExecutor is implemented in v2. The Protocol shape leaves room
-for AiderExecutor / ClaudeCodeExecutor without touching agent_loop.
+Executors are chosen by preference in the CLI:
+  1. ClaudeCodeExecutor  — if the `claude` CLI is on PATH (uses the user's
+                           Claude subscription; no API key visible to orgos)
+  2. SpawnCodingExecutor — fallback that uses orgos.spawn + LiteLLM (see
+                           orgos/agile/spawn_executor.py)
+
+Success criterion for any executor: HEAD advanced past the pre-run baseline
+inside the given worktree. Executor may return failure with a `.error`
+message otherwise.
 """
 
 from __future__ import annotations
@@ -67,51 +74,49 @@ class CodingExecutor(Protocol):
     ) -> ExecutionResult: ...
 
 
-class OpenCodeExecutor:
-    """Invokes OpenCode as a subprocess. v2's only implementation.
+class ClaudeCodeExecutor:
+    """Invokes Claude Code as a headless subprocess (`claude -p <prompt>`).
 
-    Assumes `opencode` is on PATH. Uses `opencode run` non-interactive mode.
-    The `baseline_sha_provider` lets tests inject a known baseline; real
-    callers get a default that reads HEAD.
+    Assumes the `claude` CLI is on PATH and already authenticated (the user
+    logged in once with `claude login`). No API key is passed by orgos —
+    the user's Claude subscription handles billing/auth.
+
+    Success = HEAD advanced past the pre-run baseline in the given worktree.
     """
 
     def __init__(
         self,
-        model: str,
         *,
-        opencode_binary: str = "opencode",
+        claude_binary: str = "claude",
         timeout_seconds: int = 900,
         baseline_sha_provider: Optional[Callable[[], str]] = None,
     ):
-        self.model = model
-        self.opencode_binary = opencode_binary
+        self.claude_binary = claude_binary
         self.timeout_seconds = timeout_seconds
         self._baseline_sha_provider = baseline_sha_provider
 
     def _baseline_sha(self, worktree: Path) -> str:
         if self._baseline_sha_provider is not None:
             return self._baseline_sha_provider()
-        return self._current_head(worktree)
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(worktree),
+            capture_output=True, text=True, timeout=10,
+        )
+        return (r.stdout or "").strip()
 
     def _current_head(self, worktree: Path) -> str:
-        try:
-            out = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=str(worktree),
-                stderr=subprocess.DEVNULL, timeout=10,
-            )
-            return out.decode().strip()
-        except Exception:
-            return ""
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(worktree),
+            capture_output=True, text=True, timeout=10,
+        )
+        return (r.stdout or "").strip()
 
     def _files_touched(self, worktree: Path, since_sha: str) -> list[str]:
-        try:
-            out = subprocess.check_output(
-                ["git", "diff", f"{since_sha}..HEAD", "--name-only"],
-                cwd=str(worktree), stderr=subprocess.DEVNULL, timeout=10,
-            )
-            return [l.strip() for l in out.decode().splitlines() if l.strip()]
-        except Exception:
-            return []
+        r = subprocess.run(
+            ["git", "diff", f"{since_sha}..HEAD", "--name-only"],
+            cwd=str(worktree), capture_output=True, text=True, timeout=10,
+        )
+        return [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
 
     def _build_prompt(self, story: Any, persona_scaffold: str) -> str:
         files_hint = ", ".join(getattr(story, "files_to_touch", []) or []) or "(inferred from story)"
@@ -126,8 +131,9 @@ class OpenCodeExecutor:
             f"═══ BODY ═══\n"
             f"{getattr(story, 'body', '')}\n\n"
             f"═══ INSTRUCTIONS ═══\n"
-            f"Do the work described above in the current directory. When done, commit "
-            f"your changes with a descriptive message. Run any relevant tests first."
+            f"Do the work described above in the current working directory. "
+            f"When done, commit your changes with a descriptive message. "
+            f"Run any relevant tests first."
         )
 
     def run_story(
@@ -143,17 +149,12 @@ class OpenCodeExecutor:
 
         try:
             cp = subprocess.run(
-                [
-                    self.opencode_binary, "run",
-                    "--model", self.model,
-                    "--session", session_id,
-                    prompt,
-                ],
+                [self.claude_binary, "-p", prompt],
                 cwd=str(worktree),
                 capture_output=True, text=True,
                 timeout=self.timeout_seconds,
             )
-        except subprocess.TimeoutExpired as e:
+        except subprocess.TimeoutExpired:
             return ExecutionResult(
                 success=False,
                 error=f"timeout after {self.timeout_seconds}s",
@@ -162,7 +163,7 @@ class OpenCodeExecutor:
         except FileNotFoundError:
             return ExecutionResult(
                 success=False,
-                error=f"opencode binary not found: {self.opencode_binary}",
+                error=f"claude binary not found: {self.claude_binary}",
                 wall_seconds=round(time.time() - t0, 2),
             )
         except Exception as e:
@@ -185,7 +186,7 @@ class OpenCodeExecutor:
         if cp.returncode != 0:
             return ExecutionResult(
                 success=False,
-                error=f"opencode exit code {cp.returncode}",
+                error=f"claude exit code {cp.returncode}",
                 commit_sha=head,
                 files_touched=self._files_touched(worktree, baseline),
                 wall_seconds=wall,
@@ -210,20 +211,13 @@ class OpenCodeExecutor:
         prompt: str,
         timeout_seconds: int = 300,
     ) -> ExecutionResult:
-        """Run a subagent (fresh session) for a specialized subtask.
-        Returns whatever the subagent said as `learnings`; doesn't require
-        a git commit.
+        """Run a subagent (fresh headless Claude) for a specialized subtask.
+        Returns whatever Claude said as `learnings`; no git commit required.
         """
         t0 = time.time()
-        sub_session = f"{parent_session_id}:sub:{int(time.time())}"
         try:
             cp = subprocess.run(
-                [
-                    self.opencode_binary, "run",
-                    "--model", self.model,
-                    "--session", sub_session,
-                    prompt,
-                ],
+                [self.claude_binary, "-p", prompt],
                 cwd=str(worktree),
                 capture_output=True, text=True, timeout=timeout_seconds,
             )

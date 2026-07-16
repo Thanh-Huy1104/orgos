@@ -216,8 +216,9 @@ def _cmd_start(args: argparse.Namespace) -> int:
     import signal
     from orgos.agile.agent_loop import AsyncAgent
     from orgos.agile.board_store import BoardStore
-    from orgos.agile.coding_executor import OpenCodeExecutor
+    from orgos.agile.coding_executor import ClaudeCodeExecutor
     from orgos.agile.spawn_executor import SpawnCodingExecutor
+    import shutil
     from orgos.agile.live_events import EventEmitter
     from orgos.agile.merge_queue import MergeQueue, run_merge_worker
     from orgos.agile.supervisor import TeamSupervisor
@@ -253,11 +254,18 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
     board = BoardStore(ws.root / "board")
     emitter = EventEmitter(ws.root)
-    if args.executor == "opencode":
-        executor = OpenCodeExecutor(model=args.model)
+
+    # Pick coding executor. 'auto' prefers claude if installed, else spawn.
+    choice = args.executor
+    if choice == "auto":
+        choice = "claude" if shutil.which("claude") else "spawn"
+    if choice == "claude":
+        executor = ClaudeCodeExecutor()
+        exec_label = "claude (Claude Code CLI, user's subscription)"
     else:
         executor = SpawnCodingExecutor(model=args.model)
-    print(f"[cli] coding executor: {args.executor}", flush=True)
+        exec_label = f"spawn (LiteLLM backend, model={args.model})"
+    print(f"[cli] coding executor: {exec_label}", flush=True)
     merge_queue = MergeQueue(ws)
 
     # Seed the board on first start (PO decomposes the goal into stories).
@@ -524,9 +532,14 @@ def main(argv: list[str] | None = None) -> int:
     start_p.add_argument("--spec-file", type=str, default=None)
     start_p.add_argument("--model", type=str, default="deepseek/deepseek-chat")
     start_p.add_argument(
-        "--executor", type=str, choices=("spawn", "opencode"), default="spawn",
-        help="Coding executor. 'spawn' (default) uses orgos.spawn + BashTool "
-             "(no external deps). 'opencode' shells out to the opencode CLI.",
+        "--executor", type=str, choices=("auto", "claude", "spawn"),
+        default="auto",
+        help="Coding executor. 'auto' (default) prefers 'claude' if the "
+             "Claude Code CLI is on PATH, else falls back to 'spawn'. "
+             "'claude' uses `claude -p` (the user's Claude subscription — "
+             "no API key visible to orgos). 'spawn' uses orgos.spawn + "
+             "LiteLLM (needs a model API key from .env or the model "
+             "provider's default env var).",
     )
     start_p.add_argument("--fresh", action="store_true")
     start_p.set_defaults(func=_cmd_start)
