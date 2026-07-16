@@ -11,6 +11,8 @@ from orgos.agile.team_workspace import (
     TeamWorkspace, TeamWorkspaceExists, TeamWorkspaceMissing, list_team_ids,
 )
 
+ROLES = ("po", "scrum_master", "architect", "test", "devsecops")
+
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
@@ -39,7 +41,7 @@ class TestCreate:
     def test_creates_branch_off_head(self, repo):
         ws = TeamWorkspace.create("t1", repo, goal="test", model="m")
         m = ws.manifest()
-        assert m.branch == "team/t1"
+        assert m.branch == "team/t1/integration"
         assert m.baseline_sha  # should be captured
 
     def test_baseline_gitignore_committed(self, repo):
@@ -103,3 +105,43 @@ class TestListAndReset:
         ws.reset()
         ws2 = TeamWorkspace.create("t1", repo, goal="g2", model="m")
         assert ws2.manifest().goal == "g2"
+
+
+class TestPerAgentWorktrees:
+    def test_agent_dir_shape(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        for role in ROLES:
+            ws.ensure_agent_workspace(role)
+            assert ws.agent_dir(role).exists()
+            assert ws.agent_worktree(role).exists()
+
+    def test_integration_worktree_created(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        assert ws.integration_worktree.exists()
+        assert ws.integration_branch == "team/t1/integration"
+
+    def test_each_agent_has_own_branch(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        for role in ROLES:
+            ws.ensure_agent_workspace(role)
+            branches = subprocess.run(
+                ["git", "branch", "--format=%(refname:short)"],
+                cwd=repo, capture_output=True, text=True,
+            ).stdout.strip().splitlines()
+            assert f"team/t1/agent/{role}" in branches
+
+    def test_rerere_enabled_in_agent_worktree(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        ws.ensure_agent_workspace("architect")
+        result = subprocess.run(
+            ["git", "config", "--get", "rerere.enabled"],
+            cwd=ws.agent_worktree("architect"),
+            capture_output=True, text=True,
+        )
+        assert result.stdout.strip() == "true"
+
+    def test_baseline_test_result_recorded(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        # Even if there are no tests to run, baseline is a dict with a status
+        assert isinstance(ws.baseline_test_result, dict)
+        assert "status" in ws.baseline_test_result

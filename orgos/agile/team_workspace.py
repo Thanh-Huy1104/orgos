@@ -69,15 +69,83 @@ class TeamWorkspaceMissing(RuntimeError):
 class TeamWorkspace:
     """Persistent codebase + board + wiki for one team instance."""
 
+    ROLE_NAMES = ("po", "scrum_master", "architect", "test", "devsecops")
+
     def __init__(self, team_id: str, source_repo: Path):
         self.team_id = team_id
         self.source_repo = Path(source_repo).resolve()
         self.root = self.source_repo / TEAMS_ROOT / team_id
-        self.worktree = self.root / "worktree"
         self.board_dir = self.root / "board"
         self.wiki_dir = self.root / "wiki"
         self.audit_dir = self.root / "audit"
         self.manifest_path = self.root / "manifest.json"
+        self.baseline_test_result: dict = {}
+
+    # ── Per-agent workspace layout (v2 async runtime) ─────────────────
+
+    @property
+    def agents_root(self) -> Path:
+        return self.root / "agents"
+
+    def agent_dir(self, role: str) -> Path:
+        return self.agents_root / role
+
+    def agent_worktree(self, role: str) -> Path:
+        return self.agent_dir(role) / "worktree"
+
+    def agent_branch(self, role: str) -> str:
+        return f"team/{self.team_id}/agent/{role}"
+
+    @property
+    def integration_worktree(self) -> Path:
+        return self.root / "integration"
+
+    @property
+    def integration_branch(self) -> str:
+        return f"team/{self.team_id}/integration"
+
+    @property
+    def worktree(self) -> Path:
+        """Legacy alias for integration_worktree — kept so v1 modules don't break."""
+        return self.integration_worktree
+
+    def ensure_agent_workspace(self, role: str) -> None:
+        """Idempotent: create the per-agent dir + worktree + branch. Enable
+        git rerere in the worktree.
+        """
+        agent_dir = self.agent_dir(role)
+        agent_dir.mkdir(parents=True, exist_ok=True)
+
+        worktree = self.agent_worktree(role)
+        if not worktree.exists():
+            branch = self.agent_branch(role)
+            subprocess.run(
+                ["git", "worktree", "add", "-b", branch,
+                 str(worktree), self.integration_branch],
+                cwd=self.source_repo, check=True, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "rerere.enabled", "true"],
+                cwd=worktree, check=True, capture_output=True,
+            )
+
+    def _capture_baseline_tests(self) -> dict:
+        """Run pytest in the integration worktree to establish a baseline.
+        Never raises — records status even on error.
+        """
+        try:
+            result = subprocess.run(
+                ["pytest", "--collect-only", "-q"],
+                cwd=self.integration_worktree,
+                capture_output=True, text=True, timeout=60,
+            )
+            return {
+                "status": "ok" if result.returncode == 0 else "no_tests_or_error",
+                "returncode": result.returncode,
+                "stdout_tail": result.stdout[-500:],
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
     # ── Creation / lookup ────────────────────────────────────────────────
 
@@ -104,31 +172,35 @@ class TeamWorkspace:
         ws.wiki_dir.mkdir(parents=True, exist_ok=True)
         ws.audit_dir.mkdir(parents=True, exist_ok=True)
 
-        branch = f"team/{team_id}"
-        # `git worktree add -b <branch> <path> HEAD` fails if the path exists.
-        # Since we just made ws.root and ws.worktree doesn't exist yet, we're fine.
+        # Integration branch (the "main" working branch for this team)
+        integration_branch = f"team/{team_id}/integration"
         subprocess.run(
-            ["git", "worktree", "add", "-b", branch, str(ws.worktree), "HEAD"],
+            ["git", "worktree", "add", "-b", integration_branch,
+             str(ws.integration_worktree), "HEAD"],
             cwd=ws.source_repo, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "rerere.enabled", "true"],
+            cwd=ws.integration_worktree, check=True, capture_output=True,
         )
 
         # Baseline .gitignore so scratch never leaks into the agent's diff.
         # (Same rationale as sprint._make_worktree — per-worktree info/exclude
         # is dead code in git 2.5+, .gitignore is the reliable path.)
-        (ws.worktree / ".gitignore").write_text(_BASELINE_GITIGNORE)
+        (ws.integration_worktree / ".gitignore").write_text(_BASELINE_GITIGNORE)
         subprocess.run(
             ["git", "add", ".gitignore"],
-            cwd=ws.worktree, check=True, capture_output=True,
+            cwd=ws.integration_worktree, check=True, capture_output=True,
         )
         subprocess.run(
             ["git", "-c", "user.name=orgos-team", "-c", "user.email=team@orgos.local",
              "commit", "-m", f"chore(team-{team_id}): baseline .gitignore"],
-            cwd=ws.worktree, check=True, capture_output=True,
+            cwd=ws.integration_worktree, check=True, capture_output=True,
         )
 
         baseline_sha = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=ws.worktree, capture_output=True, text=True, timeout=10,
+            cwd=ws.integration_worktree, capture_output=True, text=True, timeout=10,
         ).stdout.strip()
 
         manifest = TeamManifest(
@@ -137,10 +209,17 @@ class TeamWorkspace:
             source_repo=str(ws.source_repo),
             model=model,
             created_at=datetime.now(timezone.utc).isoformat(),
-            branch=branch,
+            branch=integration_branch,
             baseline_sha=baseline_sha,
         )
         ws.manifest_path.write_text(json.dumps(manifest.__dict__, indent=2))
+
+        # Record a baseline pytest result so post-work failures are attributable
+        ws.baseline_test_result = ws._capture_baseline_tests()
+        (ws.root / "baseline_tests.json").write_text(
+            json.dumps(ws.baseline_test_result), encoding="utf-8"
+        )
+
         return ws
 
     @classmethod
@@ -151,6 +230,12 @@ class TeamWorkspace:
             raise TeamWorkspaceMissing(
                 f"no workspace for team_id={team_id!r} at {ws.root}"
             )
+        p = ws.root / "baseline_tests.json"
+        if p.exists():
+            try:
+                ws.baseline_test_result = json.loads(p.read_text())
+            except Exception:
+                ws.baseline_test_result = {}
         return ws
 
     # ── Access ───────────────────────────────────────────────────────────
@@ -188,6 +273,19 @@ class TeamWorkspace:
 
         Destructive. Only call when you want a clean re-create.
         """
+        # Remove per-agent worktrees first
+        for role in self.ROLE_NAMES:
+            aw = self.agent_worktree(role)
+            if aw.exists():
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(aw)],
+                    cwd=self.source_repo, check=False, capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "branch", "-D", self.agent_branch(role)],
+                    cwd=self.source_repo, check=False, capture_output=True,
+                )
+
         if self.worktree.exists():
             # Try `git worktree remove --force`; fall back to rmtree + prune.
             try:
