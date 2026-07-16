@@ -255,8 +255,25 @@ def _cmd_start(args: argparse.Namespace) -> int:
     executor = OpenCodeExecutor(model=args.model)
     merge_queue = MergeQueue(ws)
 
+    # Seed the board on first start (PO decomposes the goal into stories).
+    # PO's replan ceremony tops up the backlog later; this call bootstraps it.
+    from orgos.agile.goal_decomposer import decompose_goal
+    existing = list(board.list_state("draft")) + list(board.list_state("refinement")) \
+             + list(board.list_state("ready")) + list(board.list_state("in_progress"))
+    if not existing:
+        print("[cli] decomposing goal into initial stories...", flush=True)
+        try:
+            ids = decompose_goal(
+                goal=goal, repo_root=repo, board=board, model=args.model,
+            )
+            print(f"[cli] drafted {len(ids)} stories", flush=True)
+        except Exception as e:
+            print(f"[cli] WARNING: goal decomposition failed: {e}", file=sys.stderr, flush=True)
+
     def _load_heartbeat(role: str) -> str:
-        p = repo / "agents" / role / "HEARTBEAT.md"
+        # Personas live in the orgos repo (source of truth), not the target.
+        orgos_root = Path(__file__).resolve().parent.parent
+        p = orgos_root / "agents" / role / "HEARTBEAT.md"
         return p.read_text(encoding="utf-8") if p.exists() else "## Every 30 seconds\nCheck board."
 
     delivery_roles = {"architect", "test", "devsecops"}
