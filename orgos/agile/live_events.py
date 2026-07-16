@@ -60,6 +60,11 @@ _EVENT_META: dict[str, tuple[str, str]] = {
     "merge_completed":      ("🔗", "merge completed"),
     "merge_conflict":       ("💥", "merge conflict"),
     "merge_state_error":    ("⚠️ ", "merge post-transition failed"),
+    "agent_started":        ("🟢", "agent online"),
+    "agent_stopped":        ("🔴", "agent stopped"),
+    "agent_crashed":        ("💀", "agent crashed"),
+    "agent_restarted":      ("♻️ ", "agent restarted"),
+    "subagent_spawned":     ("👶", "subagent spawned"),
 }
 
 
