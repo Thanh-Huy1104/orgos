@@ -302,6 +302,18 @@ _HTML = r"""<!doctype html>
     color:var(--good); font-weight:500; margin-top:4px; }
   .retro-block .header { color:var(--muted); font-size:11px; margin-bottom:12px;
     padding-bottom:8px; border-bottom:1px solid #21262d; }
+
+  .agent-row {
+    display: grid; grid-template-columns: 120px 80px 1fr 120px 80px;
+    gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+  }
+  .agent-row .role { font-weight: 500; }
+  .agent-row .status.alive { color: var(--good); }
+  .agent-row .status.dead { color: var(--bad); }
+  .agent-row .story { color: var(--muted); font-family: "SF Mono", monospace; }
+  .agent-row .last { color: var(--muted); font-size: 11px; }
+  .agent-row .restarts { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 </style>
 </head>
 <body>
@@ -321,6 +333,11 @@ _HTML = r"""<!doctype html>
 <section>
   <h2>Totals</h2>
   <div class="cards" id="cards"></div>
+</section>
+
+<section>
+  <h2>Agents</h2>
+  <div id="agent-statuses"></div>
 </section>
 
 <section>
@@ -386,6 +403,7 @@ let WIKI = __WIKI_TAIL__;
 let RESULTS_BY_STORY = __RESULTS_BY_STORY__;
 let EVENTS = __EVENTS__;
 let SPRINT_HISTORY = __SPRINT_HISTORY__;
+let AGENT_STATUSES = __AGENT_STATUSES__;
 
 const STATE_ORDER = ["draft", "refinement", "ready", "in_progress", "review", "done"];
 // Blocked is shown as an extra column when non-empty.
@@ -399,6 +417,21 @@ function pricingCost(model, tin, tout) {
               "deepseek/deepseek-reasoner":{i:0.55,o:2.19},
               "unknown":{i:0.50,o:1.50}})[model] || {i:0.50,o:1.50};
   return (tin/1e6)*p.i + (tout/1e6)*p.o;
+}
+
+function renderAgents() {
+  const el = document.getElementById("agent-statuses");
+  if (!el) return;
+  const rows = AGENT_STATUSES || [];
+  el.innerHTML = rows.map(a => `
+    <div class="agent-row">
+      <div class="role">${esc(a.role)}</div>
+      <div class="status ${a.is_alive ? 'alive' : 'dead'}">${a.is_alive ? '● live' : '○ down'}</div>
+      <div class="story">${esc(a.current_story || '(idle)')}</div>
+      <div class="last">${esc((a.last_event_at || '').slice(11, 19))}</div>
+      <div class="restarts">${a.restart_count > 0 ? '↺' + a.restart_count : ''}</div>
+    </div>
+  `).join("");
 }
 
 function renderHeader() {
@@ -820,6 +853,7 @@ async function pollOnce() {
     RESULT = j.result || RESULT;
     RESULTS_BY_STORY = j.results_by_story || RESULTS_BY_STORY;
     SPRINT_HISTORY = j.sprint_history || SPRINT_HISTORY;
+    AGENT_STATUSES = j.agent_statuses || AGENT_STATUSES;
     // Tail events since last seen
     const evUrl = "/live/tail" + (lastEventTs ? ("?since=" + encodeURIComponent(lastEventTs)) : "");
     const er = await fetch(evUrl, {cache: "no-store"});
@@ -832,6 +866,7 @@ async function pollOnce() {
       }
     }
     renderTotals();
+    renderAgents();
     renderKanban();
     renderSprintTimeline();
     renderStoryTable();
@@ -855,6 +890,7 @@ function scheduleNextPoll() {
 // ── Initial render ───────────────────────────────────────────────────
 renderHeader();
 renderTotals();
+renderAgents();
 renderKanban();
 renderActivity(false);
 renderWiki();
@@ -868,6 +904,42 @@ tryEnterLiveMode();
 </body>
 </html>
 """
+
+
+def collect_agent_statuses(workspace) -> list[dict]:
+    """Read each agent's current status from disk. Best-effort.
+
+    Returns a list of dicts: {role, is_alive, current_story, last_event_at, restart_count}.
+    Sourced from live.jsonl events (agent_started, agent_stopped, story_pulled, agent_crashed).
+    """
+    events = read_events(workspace.root)
+    roles = ("po", "scrum_master", "architect", "test", "devsecops")
+    status = {r: {"role": r, "is_alive": False,
+                  "current_story": "", "last_event_at": "",
+                  "restart_count": 0}
+              for r in roles}
+    for e in events:
+        r = e.get("role") or e.get("worker") or ""
+        # Peel off any '#N' suffix from worker labels
+        base = r.split("#", 1)[0] if r else ""
+        if base not in status:
+            continue
+        s = status[base]
+        s["last_event_at"] = e.get("timestamp", s["last_event_at"])
+        action = e.get("action", "")
+        if action == "agent_started":
+            s["is_alive"] = True
+        elif action in ("agent_stopped", "agent_crashed"):
+            s["is_alive"] = False
+        elif action == "agent_restarted":
+            s["is_alive"] = True
+            s["restart_count"] += 1
+        elif action == "story_pulled":
+            s["current_story"] = e.get("story_id", "")
+        elif action in ("commit_landed", "story_done_noop",
+                        "story_no_commit", "story_review_pass"):
+            s["current_story"] = ""
+    return [status[r] for r in roles]
 
 
 def render_team_report(workspace: TeamWorkspace) -> Path:
@@ -902,6 +974,7 @@ def render_team_report(workspace: TeamWorkspace) -> Path:
         "__EVENTS__": json.dumps(events),
         "__RESULTS_BY_STORY__": json.dumps(results_by_story),
         "__SPRINT_HISTORY__": json.dumps(history),
+        "__AGENT_STATUSES__": json.dumps(collect_agent_statuses(workspace)),
     }
     for k, v in replacements.items():
         html_content = html_content.replace(k, v)
@@ -935,4 +1008,5 @@ def build_state_payload(workspace: TeamWorkspace) -> dict:
         "wiki": wiki_tail,
         "results_by_story": results_by_story,
         "sprint_history": history,
+        "agent_statuses": collect_agent_statuses(workspace),
     }
