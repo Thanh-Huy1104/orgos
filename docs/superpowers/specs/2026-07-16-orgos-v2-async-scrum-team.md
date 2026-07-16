@@ -70,8 +70,9 @@ teams/<team_id>/
 │   │   └── task_state.json     supervisor-owned; last-known-good agent state
 │   ├── test/         (same shape)
 │   ├── devsecops/    (same shape)
-│   ├── po/           (same shape; PO's worktree is essentially unused)
-│   └── scrum_master/ (same shape)
+│   ├── po/           (same shape; worktree exists but only used for reading
+│   │                  the source repo — PO writes to wiki, not code)
+│   └── scrum_master/ (same shape; worktree used similarly for reading only)
 ├── board/                      atomic-write JSON per story; audit trail
 ├── wiki/                       shared knowledge (SPEC.md, DECISIONS.md, RETRO.md)
 ├── merge_queue.jsonl           FIFO queue of pending merges
@@ -241,11 +242,13 @@ async def merge_worker():
 
 ### 4.4 Ceremonies
 
-Ceremonies are HEARTBEAT-scheduled tasks on the responsible agent:
+Two kinds of agents:
 
-- **PO** — "every 30 min, if board has < 3 READY stories, run replan()"; "every 60 min, poll PR for feedback, ingest new comments"
-- **Scrum Master** — "every 4 hours, run retrospective(), then trigger PO's replan"; "every 5 min, run poker on any draft/refinement stories"
-- **Architect/Test/DevSecOps** — no ceremonies; just the pull-and-work loop
+- **Delivery agents** (architect, test, devsecops) — run the pull-and-work loop. Their HEARTBEAT.md is dominated by the "every N seconds: check board, work if match" task. They also do minor scheduled reading of shared wiki updates.
+- **Coordination agents** (po, scrum_master) — do NOT pull stories from the board (no story type belongs to them). Their HEARTBEAT.md is *entirely* scheduled ceremony tasks:
+
+  - **PO** — "every 30 min, if board has < 3 READY stories, run `replan()`"; "every 60 min, poll PR for feedback via `pr_feedback.ingest()`, add new stories"
+  - **Scrum Master** — "every 4 hours, run `retrospective()` and trigger PO's `replan()`"; "every 5 min, run `poker()` on any draft/refinement stories"
 
 **No explicit sprint boundary**. A sprint boundary is whenever scrum_master runs retro. The 4h timer creates the "sprint" cadence.
 
