@@ -64,30 +64,41 @@ def _attempt_merge(
     """Rebase from_branch onto integration branch, then fast-forward integration.
 
     Sequence (§5 spec — keeps integration history linear):
-      1. In SOURCE repo: rebase from_branch onto integration_branch.
-         On failure: abort rebase and return (False, 'merge_conflict:<err>').
-      2. In INTEGRATION worktree: checkout integration_branch (explicit).
-      3. Fast-forward-only merge of from_branch.
-         On failure: return (False, 'merge_ff_failed:<err>').
+      1. In the AGENT worktree that already has from_branch checked out:
+         `git rebase <integration_branch>`. On failure: abort rebase and
+         return (False, 'merge_conflict:<err>').
+
+         (We cannot rebase in the source repo — the branch is already
+         checked out in the agent worktree, and git refuses to check out
+         the same branch in a second place.)
+
+      2. In INTEGRATION worktree: `git checkout <integration_branch>`,
+         then `git merge --ff-only <from_branch>`. Fast-forward is
+         guaranteed after a clean rebase.
 
     Returns (ok, message_or_error).
     """
-    source = workspace.source_repo
     integ = workspace.integration_worktree
     integ_branch = workspace.integration_branch
 
-    # 1. Rebase from_branch onto the integration branch in the source repo.
-    rc, out, err = _run_git(["rebase", integ_branch, from_branch], source)
+    # from_branch is 'team/<team_id>/agent/<role>' → role is the last segment
+    role = from_branch.rsplit("/", 1)[-1]
+    try:
+        agent_worktree = workspace.agent_worktree(role)
+    except Exception as e:
+        return False, f"merge_setup:cannot resolve agent worktree for {role}: {e}"
+
+    # 1. Rebase inside the agent's worktree (where from_branch is checked out).
+    rc, out, err = _run_git(["rebase", integ_branch], agent_worktree)
     if rc != 0:
-        _run_git(["rebase", "--abort"], source)
+        _run_git(["rebase", "--abort"], agent_worktree)
         return False, f"merge_conflict:{err.strip() or out.strip()}"
 
-    # 2. Ensure integration worktree is on the integration branch.
+    # 2. Fast-forward integration onto from_branch's new tip.
     rc, out, err = _run_git(["checkout", integ_branch], integ)
     if rc != 0:
         return False, f"checkout integration: {err.strip()}"
 
-    # 3. Fast-forward-only merge (guaranteed to succeed after clean rebase).
     rc, out, err = _run_git(["merge", "--ff-only", from_branch], integ)
     if rc == 0:
         return True, "merged clean"

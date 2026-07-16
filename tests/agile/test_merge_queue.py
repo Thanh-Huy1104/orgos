@@ -82,6 +82,9 @@ class TestMergeWorker:
         ws.integration_worktree = team_repo
         ws.integration_branch = "integration"
         ws.source_repo = team_repo
+        # In this single-repo fixture, the "agent worktree" is the same path;
+        # the branch is already checked out here (see team_repo fixture below).
+        ws.agent_worktree = lambda role: team_repo
 
         emitter = EventEmitter(tmp_path)
         queue = MergeQueue(workspace=ws)
@@ -105,7 +108,15 @@ class TestMergeWorker:
 
 class TestMergeWorkerConflict:
     def test_transitions_to_blocked_on_conflict(self, team_repo, tmp_path):
-        # Create a conflicting change on integration branch
+        # Put agent/arch into its own worktree (like production layout).
+        agent_wt = tmp_path / "agent_wt"
+        subprocess.run(
+            ["git", "worktree", "add", str(agent_wt), "agent/arch"],
+            cwd=team_repo, check=True, capture_output=True,
+        )
+
+        # Create a conflicting change on integration branch (in team_repo,
+        # which is on integration).
         subprocess.run(["git", "checkout", "integration"], cwd=team_repo, check=True)
         (team_repo / "app.py").write_text("integration side\n")
         subprocess.run(["git", "add", "-A"], cwd=team_repo, check=True)
@@ -114,8 +125,8 @@ class TestMergeWorkerConflict:
              "commit", "-qm", "integration change"],
             cwd=team_repo, check=True,
         )
-        # agent/arch branch already wrote "hello\n" to app.py in a prior commit
-        # (see team_repo fixture). Rebase will conflict with integration's app.py.
+        # agent/arch (in agent_wt) already wrote "hello\n" to app.py; rebase
+        # will conflict with integration's version.
 
         board = BoardStore(tmp_path / "board")
         board.draft_story(issue_id="S1", title="t", body="b",
@@ -129,6 +140,7 @@ class TestMergeWorkerConflict:
         ws.integration_worktree = team_repo
         ws.integration_branch = "integration"
         ws.source_repo = team_repo
+        ws.agent_worktree = lambda role: agent_wt
 
         emitter = EventEmitter(tmp_path)
         queue = MergeQueue(workspace=ws)
