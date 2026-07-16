@@ -372,36 +372,44 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 def _cmd_stop(args: argparse.Namespace) -> int:
     """Signal a running team to stop. Reads the PID file `orgos start` wrote."""
+    import signal
     import subprocess
     from orgos.agile.team_workspace import TeamWorkspace, TeamWorkspaceMissing
 
     repo = Path(getattr(args, "repo", ".")).resolve()
-    pids: list[str] = []
+    pids: list[int] = []
     try:
         ws = TeamWorkspace.open(args.team_id, repo)
         pid_file = ws.root / "pid.txt"
         if pid_file.exists():
-            pid = pid_file.read_text(encoding="utf-8").strip()
-            if pid.isdigit():
-                pids = [pid]
+            pid_str = pid_file.read_text(encoding="utf-8").strip()
+            if pid_str.isdigit():
+                pids = [int(pid_str)]
     except TeamWorkspaceMissing:
         pass
 
-    # Fallback: fragile pgrep substring match (for legacy workspaces that
-    # predate pid.txt). Uses exact-boundary matching to avoid team-id
-    # substring collisions.
-    if not pids:
+    # POSIX fallback for legacy workspaces predating pid.txt.
+    # Windows: skip fallback — pgrep isn't available.
+    if not pids and sys.platform != "win32":
         r = subprocess.run(
             ["pgrep", "-f", f"orgos.cli.*start.*--team-id[= ]{args.team_id}( |$)"],
             capture_output=True, text=True,
         )
-        pids = [p for p in r.stdout.strip().splitlines() if p]
+        pids = [int(p) for p in r.stdout.strip().splitlines() if p.isdigit()]
     if not pids:
         print(f"ERROR: no running team found with team-id {args.team_id}", file=sys.stderr)
         return 2
+
+    # Cross-platform signal: os.kill(pid, SIGINT) works on POSIX and Windows
+    # (on Windows, Python translates to a CTRL_C_EVENT for console processes).
+    sent = 0
     for pid in pids:
-        subprocess.run(["kill", "-INT", pid], check=False)
-    print(f"[cli] sent SIGINT to {len(pids)} process(es) for team {args.team_id}", flush=True)
+        try:
+            os.kill(pid, signal.SIGINT)
+            sent += 1
+        except (ProcessLookupError, PermissionError, OSError) as e:
+            print(f"[cli] failed to signal pid {pid}: {e}", file=sys.stderr)
+    print(f"[cli] sent SIGINT to {sent}/{len(pids)} process(es) for team {args.team_id}", flush=True)
     return 0
 
 
