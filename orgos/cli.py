@@ -137,50 +137,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
             max_wall_seconds=args.max_seconds,
         )
     else:
-        role_models = {
-            k: v for k, v in (
-                ("po", args.po_model),
-                ("architect", args.architect_model),
-                ("test", args.test_model),
-                ("devsecops", args.devsecops_model),
-            ) if v
-        }
-        if role_models:
-            print(f"[cli] role model overrides: {role_models}", flush=True)
-
-        if args.sprints > 1:
-            print(f"[cli] mode=scrum · MULTI-SPRINT ({args.sprints} sprints) · "
-                  f"n_workers={args.n_workers} · "
-                  f"sprint_story_cap={args.max_stories} · "
-                  f"sprint_duration={args.max_seconds}s", flush=True)
-            from orgos.agile.multi_sprint import run_multi_sprint
-            result = run_multi_sprint(
-                workspace=ws, goal=ws.manifest().goal, model=args.model,
-                role_models=role_models,
-                n_workers=args.n_workers,
-                n_sprints=args.sprints,
-                sprint_story_cap=args.max_stories,
-                sprint_duration_sec=args.max_seconds,
-                open_pr=args.open_pr, pr_base=args.pr_base,
-                stagnation_window=args.stagnation_window,
-                max_total_usd=args.max_usd,
-                max_total_tokens=args.max_tokens,
-            )
-        else:
-            print(f"[cli] mode=scrum · one sprint · n_workers={args.n_workers} · "
-                  f"sprint_story_cap={args.max_stories} · "
-                  f"sprint_duration={args.max_seconds}s", flush=True)
-            from orgos.agile.dispatcher import Dispatcher
-            d = Dispatcher(
-                workspace=ws, model=args.model,
-                role_models=role_models,
-                n_workers=args.n_workers,
-                max_stories_worked=args.max_stories,
-                max_wall_seconds=args.max_seconds,
-                open_pr=args.open_pr,
-                pr_base=args.pr_base,
-            )
-            result = d.run_campaign(goal=ws.manifest().goal)
+        print(
+            "[cli] ERROR: `orgos run` in scrum mode has been replaced by "
+            "`orgos start` (v2 async runtime). See docs/superpowers/specs/"
+            "2026-07-16-orgos-v2-async-scrum-team.md",
+            file=sys.stderr,
+        )
+        return 3
 
     # Persist result to workspace
     result_path = ws.root / "campaign_result.json"
@@ -266,115 +229,6 @@ def _cmd_reset(args: argparse.Namespace) -> int:
         return 2
     ws.reset()
     print(f"[cli] reset team {args.team_id}", flush=True)
-    return 0
-
-
-def _cmd_watch(args: argparse.Namespace) -> int:
-    """Run sprints indefinitely on an existing team, with PR-feedback ingestion.
-
-    Effectively: `while True: multi_sprint --sprints 1` on the same team.
-    Between sprints: ingest PR review comments, replan, run next sprint.
-    Stops on stagnation, budget cap, or SIGINT.
-    """
-    import signal
-    import time
-    from orgos.agile.multi_sprint import run_multi_sprint
-    from orgos.agile.team_workspace import (
-        TeamWorkspace, TeamWorkspaceMissing,
-    )
-    repo = Path(args.repo).resolve()
-    _load_dotenv(repo)
-    try:
-        ws = TeamWorkspace.open(args.team_id, repo)
-    except TeamWorkspaceMissing as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        print("Hint: run `orgos run --team-id X --goal '...'` once first, "
-              "then `orgos watch --team-id X` to keep it running.",
-              file=sys.stderr)
-        return 2
-
-    role_models = {
-        k: v for k, v in (
-            ("po", args.po_model),
-            ("architect", args.architect_model),
-            ("test", args.test_model),
-            ("devsecops", args.devsecops_model),
-        ) if v
-    }
-    if role_models:
-        print(f"[watch] role model overrides: {role_models}", flush=True)
-
-    stopped = {"flag": False}
-    def _handle_sigint(sig, frame):
-        print("\n[watch] SIGINT received — will stop after this sprint", flush=True)
-        stopped["flag"] = True
-    signal.signal(signal.SIGINT, _handle_sigint)
-
-    iteration = 0
-    total_in = 0
-    total_out = 0
-    print(f"[watch] starting on team={args.team_id} "
-          f"interval={args.interval}s (between-sprint pause) "
-          f"max_sprints={args.max_sprints or 'unbounded'}", flush=True)
-
-    while not stopped["flag"]:
-        iteration += 1
-        if args.max_sprints and iteration > args.max_sprints:
-            print(f"[watch] max_sprints {args.max_sprints} reached", flush=True)
-            break
-
-        # Budget check across iterations
-        if args.max_usd is not None:
-            from orgos.agile.pricing import cost_usd
-            spent = cost_usd(args.model, total_in, total_out)
-            if spent >= args.max_usd:
-                print(f"[watch] budget cap ${args.max_usd:.2f} reached "
-                      f"(spent ${spent:.4f}) — stopping", flush=True)
-                break
-
-        print(f"\n[watch] ── iteration {iteration} ──", flush=True)
-        result = run_multi_sprint(
-            workspace=ws, goal=ws.manifest().goal, model=args.model,
-            role_models=role_models,
-            n_workers=args.n_workers,
-            n_sprints=1,  # each watch iteration = one sprint
-            sprint_story_cap=args.max_stories,
-            sprint_duration_sec=args.max_seconds,
-            open_pr=args.open_pr, pr_base=args.pr_base,
-            stagnation_window=1,
-            max_total_usd=args.max_usd,
-            max_total_tokens=args.max_tokens,
-        )
-        total_in += result.total_tokens_input
-        total_out += result.total_tokens_output
-
-        # Check the just-finished sprint for stop conditions
-        if "goal_met" in result.stop_reason:
-            print(f"[watch] PO declared goal met — stopping", flush=True)
-            break
-        if "stagnation" in result.stop_reason:
-            print(f"[watch] stagnation detected — stopping for human review", flush=True)
-            break
-        if "budget_exhausted" in result.stop_reason:
-            print(f"[watch] budget exhausted — stopping", flush=True)
-            break
-        if result.total_stories_done == 0:
-            print(f"[watch] sprint shipped 0 stories — stopping", flush=True)
-            break
-
-        if stopped["flag"]:
-            break
-
-        if args.interval > 0:
-            print(f"[watch] sleeping {args.interval}s before next sprint "
-                  f"(Ctrl-C to stop)…", flush=True)
-            slept = 0
-            while slept < args.interval and not stopped["flag"]:
-                time.sleep(min(2, args.interval - slept))
-                slept += 2
-
-    print(f"\n[watch] done — {iteration} iterations · "
-          f"total tokens in/out={total_in}/{total_out}", flush=True)
     return 0
 
 
@@ -497,44 +351,6 @@ def main(argv: list[str] | None = None) -> int:
     ls_p = sub.add_parser("list-teams", help="List teams in a repo")
     ls_p.add_argument("--repo", type=str, default=".")
     ls_p.set_defaults(func=_cmd_list_teams)
-
-    # watch — run sprints indefinitely on an existing team
-    watch_p = sub.add_parser(
-        "watch",
-        help="Run sprints indefinitely on an existing team, with PR feedback loop.",
-        description=(
-            "Continuous mode. Runs one sprint, ingests any new PR review "
-            "comments as new stories, replans, runs the next sprint. Stops on "
-            "goal met, stagnation (zero-progress sprint), budget cap, "
-            "max_sprints, or Ctrl-C. Requires the team to already exist "
-            "(create it with `orgos run` first)."
-        ),
-    )
-    watch_p.add_argument("--repo", type=str, default=".")
-    watch_p.add_argument("--team-id", type=str, required=True)
-    watch_p.add_argument("--interval", type=int, default=0,
-                          help="Seconds to sleep between sprints (default: 0).")
-    watch_p.add_argument("--max-sprints", type=int, default=0,
-                          help="Cap on iterations (default: 0 = unbounded).")
-    watch_p.add_argument("--model", type=str, default="deepseek/deepseek-chat")
-    watch_p.add_argument("--po-model", type=str, default=None)
-    watch_p.add_argument("--architect-model", type=str, default=None)
-    watch_p.add_argument("--test-model", type=str, default=None)
-    watch_p.add_argument("--devsecops-model", type=str, default=None)
-    watch_p.add_argument("--n-workers", type=int, default=1)
-    watch_p.add_argument("--max-stories", type=int, default=20,
-                          help="Per-sprint story cap.")
-    watch_p.add_argument("--max-seconds", type=int, default=3600,
-                          help="Per-sprint wall-clock timebox.")
-    watch_p.add_argument("--open-pr", action="store_true",
-                          help="Open a draft PR after the first sprint w/ commits, "
-                               "then push subsequent sprint commits to it.")
-    watch_p.add_argument("--pr-base", type=str, default="main")
-    watch_p.add_argument("--max-usd", type=float, default=None,
-                          help="Total $ cap across the watch session.")
-    watch_p.add_argument("--max-tokens", type=int, default=None,
-                          help="Total token cap across the watch session.")
-    watch_p.set_defaults(func=_cmd_watch)
 
     # reset
     rst_p = sub.add_parser("reset", help="Wipe a team's workspace and branch")

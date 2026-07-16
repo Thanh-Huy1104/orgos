@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 from orgos.agile.board_store import BoardStore
-from orgos.agile.dispatcher import DispatchResult, WorkResult
 from orgos.agile.goal_decomposer import decompose_goal
 from orgos.agile.live_events import EventEmitter
 from orgos.agile.sprint import _extract_json_objects, _get_wiki_mcp
@@ -35,6 +34,36 @@ from orgos.subagents import (
 )
 from orgos.tools.bash import BashTool
 from orgos.tools.mock_pr_tool import MockPRTool
+
+
+@dataclass
+class WorkResult:
+    story_id: str
+    role: str
+    status: str
+    commit_sha: str = ""
+    diff_summary: str = ""
+    envelope: dict = field(default_factory=dict)
+    tokens_input: int = 0
+    tokens_output: int = 0
+    wall_seconds: float = 0.0
+    error: str = ""
+
+
+@dataclass
+class DispatchResult:
+    team_id: str
+    goal: str
+    started_at: str
+    ended_at: str
+    reason_stopped: str
+    stories_created: int
+    stories_done: int
+    stories_blocked: int
+    total_tokens_input: int = 0
+    total_tokens_output: int = 0
+    per_story_results: list = field(default_factory=list)
+    pr_url: str = ""
 
 
 _WATERFALL_ARCH_BRIEF = """You are the Architect on a WATERFALL team. The story below was handed to you by the PO.
