@@ -1,207 +1,469 @@
 # orgos — Agent Scrum Team Platform
 
-Deploy an autonomous Scrum team of AI agents against a goal. Point it at any
-local git repo, give it a paragraph describing what you want built, and the
-team decomposes the goal into typed stories, refines them via planning poker,
-pulls work by specialization, and commits to a persistent branch.
+Deploy an autonomous team of AI agents against a coding goal. Point orgos at
+any local git repo, give it a paragraph describing what you want built, and
+the team decomposes the goal into typed stories, refines them with planning
+poker, pulls work by specialization, commits, and merges to a persistent
+integration branch.
 
-Ships with a comparison mode that runs the same goal through a five-role
-**waterfall pipeline** so you can benchmark topologies side-by-side. Every run
-produces a self-contained HTML report.
+Ships with **two topologies** so you can benchmark them side-by-side on the
+same goal:
+
+- **Scrum (async v2, `orgos start`)** — a flat set of specialists running as
+  independent asyncio tasks with heartbeat schedules. Board-based
+  self-organization, planning poker for refinement, per-agent git worktrees,
+  a FIFO merge queue with rebase-before-merge. This is what you should
+  measure against.
+- **Waterfall (`orgos run --waterfall`)** — the intuitive 5-role sequential
+  pipeline (PO → Architect → Test → DevSecOps → Release), no board, no
+  refinement, no shared memory across stories. This is what an LLM will
+  build by default when you ask it for "an agentic dev team." Included as
+  the baseline to beat.
 
 ## Why this exists
 
-LLMs are structurally biased toward waterfall (see the reference chapter in
-this repo). When you ask an LLM to "build an agentic team," it produces a
-sequential pipeline of specialists with handoffs and approval gates. That
-kills throughput — expensive, slow, and no better than a solo agent on most
-tasks. This platform ships both patterns so you can measure the gap.
+LLMs are structurally biased toward waterfall. When you ask an LLM to "build
+an agentic team," it produces a sequential pipeline of specialists with
+handoffs and approval gates. That kills throughput — expensive, slow, and
+often no better than a solo agent. This repo ships both patterns so you
+can measure the gap on a real goal on a real repo.
 
-- **Scrum team** (recommended) — a flat set of interchangeable full-stack
-  workers with role-typed specialization, a shared wiki that compounds
-  knowledge across stories, self-assignment from a prioritized backlog.
-- **Waterfall team** (comparison) — the intuitive 5-role handoff pipeline
-  (PO → Architect → Test → DevSecOps → Release), no board, no shared wiki.
+---
 
-## Install
+## 1. Install
 
 ```bash
 git clone <this repo>
 cd orgos
-pip install -e ".[dev]"      # installs the `orgos` CLI + dev tools
+pip install -e ".[dev]"          # installs the `orgos` CLI + pytest
+pytest -q                        # sanity check — should print "185 passed"
 ```
 
-Set at least one LLM provider key in `.env` (auto-loaded by the CLI):
+Requirements: Python ≥ 3.11, git ≥ 2.5 (needs worktree support).
 
-```
-DEEPSEEK_API_KEY=sk-...
-# or OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY
-```
+## 2. Pick a coding executor (LLM backend)
 
-## Quick start
+The scrum team needs a coding agent behind each specialist. Three options —
+pick the one you have. `orgos start` auto-detects in this order.
 
-Each `orgos run` executes **one Scrum sprint** against the target repo. A
-sprint is timeboxed — it ends when the story cap or wall-duration is hit.
-Incomplete work rolls over conceptually to a future sprint. The team NEVER
-"stops early because it's done": at sprint end, a mandatory retrospective
-is written to `wiki/RETRO.md`.
+### Option A — Claude Code CLI (default if installed)
 
 ```bash
-# One Scrum sprint against a goal:
+# Install once: https://claude.com/product/claude-code
+claude login                     # one-time interactive auth
+which claude                     # should print a path
+```
+
+Nothing more to configure. `orgos start` will use your Claude subscription
+via `claude -p <prompt>`. **No API key is handled by orgos.**
+
+### Option B — GitHub Copilot CLI
+
+```bash
+# Install once
+npm install -g @github/copilot-cli
+copilot                          # inside, run `/login` once
+which copilot                    # should print a path
+```
+
+`orgos start --executor copilot` (or auto-detect if `claude` is absent) will
+use your Copilot subscription. **No API key is handled by orgos.**
+
+Env-var contract if you want to tune the copilot call (all optional):
+`COPILOT_MODEL`, `COPILOT_ALLOW_ALL` (default `1`; set `0` to deny shell +
+write tools), `COPILOT_EXTRA_ARGS`, `COPILOT_TIMEOUT_MS`.
+
+### Option C — `spawn` (API-key path, any OpenAI-compatible endpoint)
+
+Fallback if you have no CLI installed. Uses CrewAI + LiteLLM under the hood,
+so it works with any OpenAI-compatible URL: DeepSeek, OpenAI, Together,
+Fireworks, Groq, local Ollama or vLLM, anything.
+
+Put your key in `.env` at the target repo root (auto-loaded):
+
+```
+# Cheapest option — DeepSeek
+DEEPSEEK_API_KEY=sk-...
+
+# Or OpenAI / Anthropic / Gemini / any LiteLLM-supported provider
+# OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# Or point at any OpenAI-compatible endpoint (Together, Groq, Ollama, vLLM…)
+# OPENAI_BASE_URL=http://localhost:11434/v1
+# OPENAI_API_KEY=ollama
+```
+
+Then invoke with `--executor spawn --model <litellm-model-string>`, e.g.:
+
+```bash
+--executor spawn --model deepseek/deepseek-chat            # DeepSeek
+--executor spawn --model openai/gpt-4o-mini                # OpenAI
+--executor spawn --model openai/qwen2.5-coder:32b          # local Ollama (with OPENAI_BASE_URL)
+```
+
+---
+
+## 3. Set up a target repo
+
+Both topologies run against **any git repo**. For the comparison experiment,
+you want something small so runs finish in minutes. A minimal Flask app is a
+common choice.
+
+```bash
+mkdir /tmp/flask-target && cd /tmp/flask-target
+git init -q
+cat > app.py <<'PY'
+"""Minimal Flask target — starting point for orgos experiments."""
+from flask import Flask, jsonify
+
+class NotesStore:
+    def __init__(self): self._notes = []
+    def add(self, n): self._notes.append(n)
+
+def create_app():
+    store = NotesStore()
+    app = Flask(__name__)
+    @app.get("/health")
+    def health(): return jsonify({"status": "ok"}), 200
+    return app
+
+app = create_app()
+PY
+cat > requirements.txt <<'PY'
+Flask>=3
+PY
+cat > requirements-dev.txt <<'PY'
+-r requirements.txt
+pytest>=8
+PY
+mkdir tests && touch tests/__init__.py
+cat > tests/test_app.py <<'PY'
+from app import create_app
+def test_health():
+    c = create_app().test_client()
+    assert c.get("/health").status_code == 200
+PY
+pip install -r requirements-dev.txt
+pytest -q                        # 1 passed
+git add -A && git commit -qm "initial"
+cd -
+```
+
+---
+
+## 4. Run the comparison experiment
+
+Pick one goal and run it through BOTH topologies. Same repo, same goal, same
+model — only the topology varies.
+
+**Example goal:** *"Add a `/notes-count` GET endpoint that returns
+`{"count": N}` where N is the number of notes in the NotesStore. Reuse the
+existing NotesStore class."*
+
+### 4a. Waterfall run (baseline)
+
+```bash
 orgos run \
-  --repo /path/to/your-project \
-  --team-id auth-team \
-  --goal "Add JWT-based auth: signup, login, /me endpoint, tests" \
-  --model deepseek/deepseek-chat \
-  --sprint-story-cap 10 \
-  --sprint-duration 1800 \
-  --n-workers 3 \
-  --serve                 # open a live browser view
+  --repo /tmp/flask-target \
+  --team-id exp-waterfall \
+  --goal "Add /notes-count GET endpoint returning {count: N}, reuse NotesStore" \
+  --waterfall \
+  --model deepseek/deepseek-chat        # or the model your executor accepts
+```
 
-# Same goal, waterfall 5-role pipeline for comparison:
-orgos run --repo /path/to/your-project --team-id auth-waterfall \
-  --goal "Add JWT-based auth: signup, login, /me endpoint, tests" \
-  --waterfall
+Blocks until done. Writes:
 
-# Push the sprint branch and open a draft GitHub PR at sprint end:
-orgos run --repo /path/to/your-project --team-id auth-team \
-  --goal "..." --open-pr --pr-base main
+- `/tmp/flask-target/.orgos_teams/exp-waterfall/report.html` — full run report
+- `/tmp/flask-target/.orgos_teams/exp-waterfall/campaign_result.json` — machine-readable summary
+- Commits on branch `team/exp-waterfall/integration`
 
-# Serve a multi-team dashboard (index of every team in the repo):
-orgos serve --index --repo /path/to/your-project
+### 4b. Scrum run (async v2)
 
-# Serve one team's live report:
-orgos serve --team-id auth-team --repo /path/to/your-project
+```bash
+orgos start \
+  --repo /tmp/flask-target \
+  --team-id exp-scrum \
+  --goal "Add /notes-count GET endpoint returning {count: N}, reuse NotesStore" \
+  --executor auto                       # picks claude → copilot → spawn
+```
 
-# Re-render an HTML report (post-sprint):
-orgos report --team-id auth-team
+Runs continuously until you SIGINT (Ctrl-C) or run `orgos stop --team-id exp-scrum`
+in another terminal. Give it **~4–6 minutes** for the loop to complete a few
+stories through refinement → pull → commit → merge. Then Ctrl-C.
 
-# List teams that have workspaces:
+Writes:
+
+- `/tmp/flask-target/.orgos_teams/exp-scrum/live.jsonl` — event stream (one JSON per line)
+- `/tmp/flask-target/.orgos_teams/exp-scrum/report.html` — live HTML report
+- `/tmp/flask-target/.orgos_teams/exp-scrum/board/stories/*.json` — story states
+- Commits on branch `team/exp-scrum/integration`
+
+Live status while running:
+
+```bash
+orgos status --repo /tmp/flask-target --team-id exp-scrum
+```
+
+### 4c. What to compare
+
+Both runs write `campaign_result.json` (waterfall) and `live.jsonl`
+(scrum). Collect these metrics per run:
+
+| Metric | Waterfall source | Scrum source |
+|---|---|---|
+| Stories drafted | `campaign_result.stories_created` | `grep -c decomposition report_or_replan_done live.jsonl` |
+| Stories done | `campaign_result.stories_done` | `board/stories/*.json` where `state == "done"` |
+| Stories blocked | `campaign_result.stories_blocked` | `state == "blocked"` |
+| Tokens in | `campaign_result.total_tokens_input` | sum `tokens_in` across event log or executor stdout |
+| Tokens out | `campaign_result.total_tokens_output` | sum `tokens_out` |
+| Wall time (s) | end - start in the report | last event ts − first event ts in live.jsonl |
+| Merged code works? | `git checkout team/exp-waterfall/integration && pytest` | same but `team/exp-scrum/integration` |
+
+Concrete comparison script (POSIX shell + jq + python):
+
+```bash
+python3 - <<'PY'
+import json, subprocess, pathlib
+def load(p): return json.loads(pathlib.Path(p).read_text())
+def story_states(root):
+    d = pathlib.Path(root) / "board" / "stories"
+    return [json.loads(f.read_text())["state"] for f in d.glob("*.json")] if d.exists() else []
+def event_counts(root):
+    p = pathlib.Path(root) / "live.jsonl"
+    if not p.exists(): return {}
+    from collections import Counter
+    return Counter(json.loads(l)["action"] for l in p.read_text().splitlines() if l.strip())
+
+for team in ("exp-waterfall", "exp-scrum"):
+    root = pathlib.Path(f"/tmp/flask-target/.orgos_teams/{team}")
+    if not root.exists(): print(f"{team}: no workspace"); continue
+    r = root / "campaign_result.json"
+    print(f"\n=== {team} ===")
+    if r.exists():
+        d = load(r)
+        print(f"stories drafted: {d.get('stories_created','?')}")
+        print(f"stories done:    {d.get('stories_done','?')}")
+        print(f"stories blocked: {d.get('stories_blocked','?')}")
+        print(f"tokens in/out:   {d.get('total_tokens_input','?')} / {d.get('total_tokens_output','?')}")
+    else:
+        # scrum mode: derive from live.jsonl + board
+        states = story_states(root)
+        events = event_counts(root)
+        from collections import Counter
+        sc = Counter(states)
+        print(f"stories: {sum(sc.values())} total, done={sc['done']}, ready={sc['ready']}, blocked={sc['blocked']}, refinement={sc['refinement']}, draft={sc['draft']}")
+        print(f"events:  {dict(events)}")
+    # verify integration branch tests pass
+    branch = f"team/{team}/integration"
+    wt = root / "integration"
+    if wt.exists():
+        rc = subprocess.run(["pytest", "-q"], cwd=wt, capture_output=True, text=True)
+        print(f"tests on {branch}: rc={rc.returncode}  {rc.stdout.strip().splitlines()[-1] if rc.stdout else ''}")
+PY
+```
+
+### 4d. Cost estimate
+
+Rough numbers per run against the minimal Flask target with the example
+goal (DeepSeek, 3–8 stories):
+
+| Topology | Wall time | Cost (DeepSeek) |
+|---|---|---|
+| Waterfall | 2–4 min | ~$0.10 |
+| Scrum (5–6 min run) | 5–6 min | ~$0.15–0.30 |
+
+With `claude` or `copilot` executors: covered by the user's monthly
+subscription; no per-run charge.
+
+---
+
+## 5. CLI reference
+
+```bash
+# Scrum team (v2 async, recommended for measuring)
+orgos start   --repo PATH --team-id ID --goal "..." [--executor auto|claude|copilot|spawn] [--model M] [--fresh]
+
+# Waterfall team (v1 sequential pipeline, baseline for comparison)
+orgos run     --repo PATH --team-id ID --goal "..." --waterfall [--model M]
+
+# Live status of a running scrum team
+orgos status  --repo PATH --team-id ID
+
+# Signal a running scrum team to shut down (finishes current work first)
+orgos stop    --team-id ID
+
+# Re-render the HTML report for a team (post-run)
+orgos report  --team-id ID
+
+# Wipe a team's workspace + branches (destructive)
+orgos reset   --team-id ID
+
+# List teams that have workspaces
 orgos list-teams
 
-# Wipe a team (destroys its worktree, branch, board, wiki):
-orgos reset --team-id auth-team
+# Serve the live HTML report over HTTP (one team, or --index for all)
+orgos serve   --team-id ID --repo PATH
+orgos serve   --index      --repo PATH
 ```
 
-Every team gets its own isolated workspace under
-`<repo>/.orgos_teams/<team-id>/`:
+---
+
+## 6. What each topology does
+
+### Scrum (`orgos start`)
+
+1. **Ingest.** The Product Owner (PO) decomposes the goal into 6–12 typed
+   stories on the board (state `draft`). Each story has a title, body, type
+   (`architecture` | `feature` | `test` | `security` | `docs`), priority,
+   and a `files_to_touch` hint used to prevent parallel work colliding.
+2. **Refine.** The Scrum Master (SM) runs **planning poker** on
+   draft/refinement stories: architect / test / devsecops each vote in
+   Fibonacci points with a 2-sentence justification. Divergent votes
+   trigger a discussion round. Story moves to `ready` with points set to
+   the median (snapped to Fib), or to `blocked` for PO re-scoping.
+3. **Work.** Delivery agents (architect / test / devsecops) run
+   independently on asyncio heartbeats (default ~30 s). Each one pulls the
+   top matching `ready` story via `try_claim_next_for(role)`, invokes its
+   coding executor (Claude Code / Copilot / spawn), commits to its own
+   per-agent worktree.
+4. **Merge.** The commit is enqueued to a FIFO merge queue. A single worker
+   drains it: rebase agent branch onto integration inside the agent's
+   worktree, then `merge --ff-only` into the integration branch. `git rerere`
+   is enabled so recurring conflict resolutions carry forward. On real
+   conflict, the story transitions to `blocked` — no LLM auto-resolution.
+5. **Ceremonies.** SM runs periodic retrospectives (writes
+   `wiki/RETRO.md`). PO tops up the backlog with new stories via replan.
+   The `TeamSupervisor` watches all 5 agent tasks and restarts crashed
+   ones with exponential backoff.
+
+### Waterfall (`orgos run --waterfall`)
+
+Same PO decomposition. No refinement. No poker. No shared wiki. Every story
+runs through Architect → Test → DevSecOps sequentially, no story pulled by
+type, no shared memory across stories. This is the intuitive-but-wrong
+topology LLMs default to.
+
+---
+
+## 7. Where things live per team
 
 ```
-.orgos_teams/<team-id>/
-├── manifest.json          team_id, goal, model, branch, baseline SHA
-├── worktree/              persistent git worktree (one branch, commits accumulate)
+<repo>/.orgos_teams/<team-id>/
+├── manifest.json          team_id, goal, model, integration branch, baseline SHA
+├── integration/           the merged worktree (branch team/<id>/integration)
+├── agents/                per-agent worktree + persistent state (scrum only)
+│   ├── architect/worktree/     branch team/<id>/agent/architect
+│   ├── test/worktree/
+│   ├── devsecops/worktree/
+│   ├── po/worktree/
+│   └── scrum_master/worktree/
 ├── board/
-│   ├── stories/           one JSON per story with state + votes + audit
-│   ├── audit/             append-only trail per story
-│   └── index.json         fast state/type lookup
-├── wiki/                  per-team wiki (currently unused; shared wiki at repo/wiki/)
-├── campaign_result.json   run summary
-└── report.html            self-contained shareable report
+│   ├── stories/*.json      one JSON per story with state + votes + audit
+│   ├── audit/              append-only trail per story
+│   └── index.json          fast state/type lookup
+├── wiki/                   per-team wiki (DECISIONS.md, RETRO.md, SPEC.md if any)
+├── live.jsonl              event stream (scrum) — one JSON per line
+├── baseline_tests.json     pytest snapshot at workspace creation
+├── campaign_result.json    run summary (waterfall) — final report data
+└── report.html             self-contained shareable HTML report
 ```
 
-## What the platform does when it runs
+---
 
-**Scrum mode (default):**
-
-1. **Ingest.** The Product Owner reads the goal + a snapshot of the repo tree
-   and produces 6–12 typed stories on the board (state=`draft`). Each story
-   has a title, body, `type` (architecture | test | security | feature |
-   docs), and priority.
-2. **Refine.** For every draft story, the Architect, Test, and DevSecOps
-   agents play **planning poker** — each votes 1|2|3|5|8|13 Fibonacci points
-   with a 2-sentence justification. If votes span more than 2 Fibonacci
-   steps, a discussion round is triggered (each agent gets one turn to
-   respond, then re-vote). Story moves to `ready` on convergence; otherwise
-   to `blocked` for PO re-scoping.
-3. **Work.** Free specialists pull the top of the READY queue matching their
-   type (Architect pulls `architecture` + `feature`; Test pulls `test`;
-   DevSecOps pulls `security`). Winner works the whole story: reads the
-   shared wiki for prior conventions, writes code, runs tests, commits to
-   the persistent branch.
-4. **Review.** A different specialist verifies the diff (read-only). Pass
-   → `done`. Fail → back to `in_progress`.
-5. **Wiki compounding.** Every architect writes decisions with a mandatory
-   three-field record (author, timestamp, source) to
-   `wiki/DECISIONS.md`. Future stories in future sprints can grep the wiki
-   for prior conventions.
-
-**Waterfall mode (`--waterfall`):**
-
-Same PO decomposition. No refinement. No poker. No wiki. Every story runs
-through the full 5-role sequential pipeline (Architect writes → Test
-verifies → DevSecOps checks), no story pulled by type, no shared memory
-across stories. This is the intuitive-but-wrong topology.
-
-## Reports
-
-Every run writes a self-contained `report.html` (no CDN, no server, drop it
-in a gist or email it). The report shows:
-
-- Totals: stories done/blocked, tokens, cost (USD), wall time, reason stopped
-- Wiki decisions tail (accumulated knowledge)
-- Story list with state timeline (draft → refinement → ready → in_progress
-  → review → done)
-- Per-story drilldown: acceptance criteria, audit trail, poker votes,
-  envelope, and full diff
-
-## Repo layout
+## 8. Repo layout (source)
 
 ```
 orgos/
   cli.py                   entry point (installed as `orgos`)
   agile/
-    team_workspace.py      persistent worktree + branch per team
-    board_store.py         filesystem-backed state machine
+    agent_loop.py          AsyncAgent — per-role async runtime (v2)
+    supervisor.py          TeamSupervisor — crash-restart with backoff
+    heartbeat_scheduler.py parses "Every N seconds" HEARTBEAT.md schedules
+    merge_queue.py         FIFO merge queue, rebase + ff-only merge
+    coding_executor.py     CodingExecutor Protocol + ClaudeCode + Copilot executors
+    spawn_executor.py      SpawnCodingExecutor (LiteLLM/API-key backend)
+    board_store.py         filesystem-backed story state machine
     goal_decomposer.py     PO turns a goal into typed stories
-    dispatcher.py          orchestrates refine + work + review
-    dispatcher_briefs.py   task briefs for work and review spawns
     poker.py               vote + justify + discussion mechanic
-    waterfall_runner.py    comparison mode: no board, no ceremony
+    team_workspace.py      per-team worktrees (integration + one per agent)
     team_report.py         self-contained HTML report renderer
+    live_events.py         event stream + emitter
+    waterfall_runner.py    baseline comparison topology
+    retrospective.py       SM retro ceremony
+    replan.py              PO replan ceremony
+    pr_publisher.py        push branch + open draft PR via gh
+    pr_feedback.py         ingest PR review comments as new stories
     pricing.py             per-model USD/token pricing
-    sprint.py              legacy helpers still used by dispatcher
-    envelopes.py, intake.py, rubric.py  (indirect deps of sprint.py)
-  spawn/                   the agent execution engine (spawn(), audit, tiers)
+  spawn/                   agent execution engine (GatedToolBase, tiers, spawn())
   subagents/scrum_team.py  role factories: architect, test, devsecops, po, scrum_master
   mcps/                    wiki MCP server (read/grep/write with 3-field validation)
-  tools/                   bash + mock PR tool
-  pm.py                    PMStore (used by sprint helpers)
-agents/                    5 personas × 5 markdown files each (SOUL/BRAIN/HABITS/MEMORY/HEARTBEAT)
-tests/                     pytest suite for kept modules
+  tools/                   BashTool + mock PR tool
+agents/                    5 personas × 5 markdown files (SOUL/BRAIN/HABITS/MEMORY/HEARTBEAT)
+tests/                     pytest suite (185 tests)
 docs/                      design docs + implementation plans
 ```
 
-## Requirements
+---
 
-- Python ≥ 3.11
-- git ≥ 2.5 (for worktree support)
-- LLM API key (see `.env` above)
+## 9. FAQ for the recipient (or the LLM running this)
 
-## Testing
+**Q: Which executor should I use?**
+A: Whichever you already have installed. `orgos start --executor auto`
+picks `claude` if present, then `copilot`, then falls back to `spawn`.
+`spawn` needs a model API key in `.env`.
 
-```bash
-pytest -q
-```
+**Q: How long should I let scrum run?**
+A: The scrum team runs indefinitely (that's the point — it's an agile team).
+For a small goal on a small repo, 5–8 minutes is enough to see the full loop
+(decompose → refine → pull → commit → merge → done). SIGINT to stop. All
+work committed so far is preserved on the integration branch.
 
-## Design principles (short version)
+**Q: The scrum run started but nothing is happening.**
+A: Check `orgos status --team-id X`. If all agents show `○ (idle)`, either
+(a) PO hasn't decomposed yet (wait ~10 s), (b) all stories are still `draft`
+because SM hasn't run poker (SM's default cadence is 5 min but fires on
+tick 1 — check `live.jsonl` for `story_refined` events), or (c) the executor
+is failing silently (grep `story_no_commit` in `live.jsonl`).
+
+**Q: How do I know if the merged code actually works?**
+A: `git checkout team/<team-id>/integration && pytest` in the target repo,
+or `cd .orgos_teams/<team-id>/integration && pytest`. Both work.
+
+**Q: Do I need GitHub / a remote?**
+A: No, unless you pass `--open-pr` on waterfall runs. All work stays local
+on team branches. Cherry-pick, merge, or open a PR yourself when ready.
+
+**Q: What's the difference between `orgos run --waterfall` and `orgos start`?**
+A: `--waterfall` is one-shot: decomposes, runs every story serially through
+Architect→Test→DevSecOps, writes `campaign_result.json`, exits. `orgos start`
+is continuous: 5 agents each run their own asyncio loop indefinitely,
+pulling from a shared board with ceremonies (poker, retro, replan) firing on
+schedule. Stop with SIGINT.
+
+**Q: Governance layer — safe to modify?**
+A: No. `orgos/spawn/` (`GatedToolBase`, `PermissionTier`, `TIER_POLICY`,
+`spawn()`) is the platform's safety layer and must not be modified by
+agents or during experiments. Everything else is fair game.
+
+---
+
+## 10. Design principles
 
 - **Sutherland-style Scrum**: PO prioritizes, agents self-assign, no
   centralized dispatcher, no approval gates on work pickup.
 - **Wiki as team memory**: every substantive decision recorded with
   author/timestamp/source — no unsourced claims.
-- **Governance layer untouched**: `orgos/spawn/` (`GatedToolBase`,
-  `PermissionTier`, `TIER_POLICY`, `spawn()`) is off-limits to modifications
-  by agents — enforced by the platform, not by prompting.
-- **Persistent codebase per team**: one worktree, one branch, commits
-  accumulate. Merge/hand-over is a normal git operation.
-- **Fresh worktree per team, not per story**: the compounding advantage of
-  a team only shows up when code AND memory accumulate across stories.
+- **Governance layer untouched**: `orgos/spawn/` is off-limits to
+  modifications, enforced by the platform.
+- **Persistent codebase per team**: one integration branch, commits
+  accumulate. Merge is a normal git operation.
+- **Pluggable executor**: the coding agent is behind a `CodingExecutor`
+  Protocol. Swap Claude Code, Copilot, or any LiteLLM backend without
+  touching agent logic.
 
-## The reference chapter
+## 11. Testing
 
-`Chapter 4_ Why AIs Are Waterfall Developers — Scrum at Machine Speed.txt`
-in this repo motivates the entire platform. Read it first if you're
-evaluating whether to use this. The short version: LLM training data is
-~100:1 biased toward hierarchical/waterfall management writing, so LLMs
-default to building waterfall teams that lose to solo agents. This platform
-is the flat-team alternative, plus the comparison harness to prove the gap.
+```bash
+pytest -q          # 185 tests, ~30s
+```
