@@ -313,10 +313,26 @@ def _cmd_start(args: argparse.Namespace) -> int:
     async def _run_all():
         merge_task = asyncio.create_task(run_merge_worker(merge_queue, ws, board, emitter))
         sup_task = asyncio.create_task(supervisor.run())
+
+        # Optional wall-clock timeout — useful for CI, comparison runs, and
+        # anything driven by an LLM that can't remember to SIGINT.
+        timeout_task = None
+        if args.timeout_seconds and args.timeout_seconds > 0:
+            async def _auto_stop():
+                await asyncio.sleep(args.timeout_seconds)
+                print(
+                    f"\n[cli] --timeout-seconds={args.timeout_seconds} reached; "
+                    f"shutting down team", flush=True,
+                )
+                supervisor.stop()
+            timeout_task = asyncio.create_task(_auto_stop())
+
         try:
             await sup_task
         finally:
             merge_task.cancel()
+            if timeout_task is not None:
+                timeout_task.cancel()
 
     def _handle_sigint(sig, frame):
         print("\n[cli] shutting down team", flush=True)
@@ -554,6 +570,11 @@ def main(argv: list[str] | None = None) -> int:
              "so this is where the DeepSeek / custom-URL path lives).",
     )
     start_p.add_argument("--fresh", action="store_true")
+    start_p.add_argument(
+        "--timeout-seconds", type=int, default=0,
+        help="Auto-shutdown after N seconds (0 = run until SIGINT). Useful "
+             "for CI / benchmarking / any driver that can't send SIGINT itself.",
+    )
     start_p.set_defaults(func=_cmd_start)
 
     # stop

@@ -1,8 +1,0 @@
-
-## Flask app skeleton convention — GS-00-set-up-flask-app-skeleton-with-health-en
-- author: Architect
-- timestamp: 2026-07-16T05:40:46Z
-- source: GS-00-set-up-flask-app-skeleton-with-health-en
-- decision: Verified existing `app.py` has `create_app()` factory, GET /health returning `{"status": "ok"}`, conftest.py with client fixture, tests/__init__.py package marker, test_health.py. All requirements were already in place from prior sprints. No code changes needed.
-- rationale: The app skeleton was already fully established in previous stories. This story's AC matches the existing state exactly.
-- applies-to: Any future health endpoint or app factory changes in this API.
