@@ -24,6 +24,8 @@ MODEL="deepseek/deepseek-chat"
 EXECUTOR="auto"
 SCRUM_SECONDS=360
 SPRINT_DURATION_SECONDS=0
+WATERFALL_SECONDS=3600
+WATERFALL_STORY_CAP=20
 WATERFALL_TEAM="cmp-waterfall"
 SCRUM_TEAM="cmp-scrum"
 
@@ -35,6 +37,8 @@ while [ $# -gt 0 ]; do
         --executor)                 EXECUTOR="$2"; shift 2 ;;
         --scrum-seconds)            SCRUM_SECONDS="$2"; shift 2 ;;
         --sprint-duration-seconds)  SPRINT_DURATION_SECONDS="$2"; shift 2 ;;
+        --waterfall-seconds)        WATERFALL_SECONDS="$2"; shift 2 ;;
+        --waterfall-story-cap)      WATERFALL_STORY_CAP="$2"; shift 2 ;;
         -h|--help)                  sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1"; exit 2 ;;
     esac
@@ -81,6 +85,8 @@ W_START=$(date +%s)
 if orgos run \
     --repo "$REPO" --team-id "$WATERFALL_TEAM" --goal "$GOAL" \
     --waterfall --model "$MODEL" \
+    --sprint-duration "$WATERFALL_SECONDS" \
+    --sprint-story-cap "$WATERFALL_STORY_CAP" \
     > "/tmp/orgos-cmp-waterfall.log" 2>&1; then
     W_EXIT=0
 else
