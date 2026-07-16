@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-05-add-wave-function-to-public-api-exports-",
+  "title": "Add wave function to public API exports in agile/__init__.py",
+  "body": "Update orgos/agile/__init__.py to export wave from the wave module, so users can do 'from orgos.agile import wave'. Update test import if needed.\n\nFiles: orgos/agile/__init__.py, tests/agile/test_wave.py\n\nDone: wave is importable from package top level.",
+  "state": "done",
+  "type": "architecture",
+  "priority": 60,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "Adding a single import line to __init__.py is trivial and follows established patterns. No test changes needed unless there's already a test for wave imports.",
+      "timestamp": "2026-07-15T19:31:57.628161+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 2,
+      "justification": "Minimal change: one export line in __init__.py and possibly a test import update. Low risk of breakage since wave module already exists; quick to verify with existing tests.",
+      "timestamp": "2026-07-15T19:31:59.544570+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "This is a trivial change that only adds an export line to __init__.py and possibly updates a test import. There are no new dependencies or secrets, and the diff is minimal, so security risk is negligible.",
+      "timestamp": "2026-07-15T19:32:01.464744+00:00"
+    }
+  ],
+  "signoffs": {
+    "test": true,
+    "architect": true,
+    "devsecops": true
+  },
+  "assignee": "architect",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "c4786e4b01c523c066c813269ec56a001f8a2609",
+  "created_at": "2026-07-15T19:31:08.063660+00:00",
+  "updated_at": "2026-07-15T19:33:41.634175+00:00"
+}

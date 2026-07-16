@@ -40,22 +40,40 @@ DEEPSEEK_API_KEY=sk-...
 
 ## Quick start
 
+Each `orgos run` executes **one Scrum sprint** against the target repo. A
+sprint is timeboxed — it ends when the story cap or wall-duration is hit.
+Incomplete work rolls over conceptually to a future sprint. The team NEVER
+"stops early because it's done": at sprint end, a mandatory retrospective
+is written to `wiki/RETRO.md`.
+
 ```bash
-# Run a Scrum team against a goal on a local git repo:
+# One Scrum sprint against a goal:
 orgos run \
   --repo /path/to/your-project \
   --team-id auth-team \
   --goal "Add JWT-based auth: signup, login, /me endpoint, tests" \
-  --model deepseek/deepseek-chat
+  --model deepseek/deepseek-chat \
+  --sprint-story-cap 10 \
+  --sprint-duration 1800 \
+  --n-workers 3 \
+  --serve                 # open a live browser view
 
-# Same goal, waterfall pipeline for comparison:
-orgos run \
-  --repo /path/to/your-project \
-  --team-id auth-waterfall \
+# Same goal, waterfall 5-role pipeline for comparison:
+orgos run --repo /path/to/your-project --team-id auth-waterfall \
   --goal "Add JWT-based auth: signup, login, /me endpoint, tests" \
   --waterfall
 
-# Re-render an HTML report:
+# Push the sprint branch and open a draft GitHub PR at sprint end:
+orgos run --repo /path/to/your-project --team-id auth-team \
+  --goal "..." --open-pr --pr-base main
+
+# Serve a multi-team dashboard (index of every team in the repo):
+orgos serve --index --repo /path/to/your-project
+
+# Serve one team's live report:
+orgos serve --team-id auth-team --repo /path/to/your-project
+
+# Re-render an HTML report (post-sprint):
 orgos report --team-id auth-team
 
 # List teams that have workspaces:

@@ -172,24 +172,39 @@ def run_poker_round(
     model: str,
     token_accumulator: Callable[[Any], tuple[int, int]],
     roles: tuple[str, ...] = ("architect", "test", "devsecops"),
+    model_for: Optional[Callable[[str], str]] = None,
 ) -> list[dict]:
-    """Run one round of poker. Records votes on the board. Returns the votes."""
+    """Run one round of poker. Records votes on the board. Returns the votes.
+
+    If `model_for` is given, each role uses model_for(role_name) — otherwise
+    they all use `model`. Concurrent execution across roles for speed.
+    """
+    import concurrent.futures
     labels = {"architect": "Architect", "test": "Test", "devsecops": "DevSecOps"}
-    votes: list[dict] = []
-    for role_name in roles:
-        vote = _spawn_one_vote(
+    resolver = model_for or (lambda _r: model)
+
+    def _vote(role_name: str) -> dict:
+        return _spawn_one_vote(
             role_name=role_name,
             role_label=labels[role_name],
             story=story,
-            model=model,
+            model=resolver(role_name),
             token_accumulator=token_accumulator,
             template=_POKER_BRIEF_TEMPLATE,
         )
-        board.add_poker_vote(
-            story.issue_id, voter=vote["voter"],
-            points=vote["points"], justification=vote["justification"],
-        )
-        votes.append(vote)
+
+    votes: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(roles)) as ex:
+        future_to_role = {ex.submit(_vote, r): r for r in roles}
+        for fut in concurrent.futures.as_completed(future_to_role):
+            vote = fut.result()
+            board.add_poker_vote(
+                story.issue_id, voter=vote["voter"],
+                points=vote["points"], justification=vote["justification"],
+            )
+            votes.append(vote)
+    # Preserve requested role order for stable display
+    votes.sort(key=lambda v: roles.index(v["voter"]) if v["voter"] in roles else 99)
     return votes
 
 
@@ -220,27 +235,37 @@ def run_discussion_and_revote(
     token_accumulator: Callable[[Any], tuple[int, int]],
     first_votes: list[dict],
     roles: tuple[str, ...] = ("architect", "test", "devsecops"),
+    model_for: Optional[Callable[[str], str]] = None,
 ) -> list[dict]:
     """Show first round's votes to each agent, they get one turn to re-vote."""
+    import concurrent.futures
     labels = {"architect": "Architect", "test": "Test", "devsecops": "DevSecOps"}
+    resolver = model_for or (lambda _r: model)
     votes_summary = "\n".join(
         f"  - {v['voter']}: {v['points']} pts  \"{v['justification'][:200]}\""
         for v in first_votes
     )
-    new_votes: list[dict] = []
-    for role_name in roles:
-        vote = _spawn_one_vote(
+
+    def _revote(role_name: str) -> dict:
+        return _spawn_one_vote(
             role_name=role_name,
             role_label=labels[role_name],
             story=story,
-            model=model,
+            model=resolver(role_name),
             token_accumulator=token_accumulator,
             template=_DISCUSSION_BRIEF_TEMPLATE,
             extra_ctx={"votes_summary": votes_summary},
         )
-        board.add_poker_vote(
-            story.issue_id, voter=vote["voter"],
-            points=vote["points"], justification=vote["justification"],
-        )
-        new_votes.append(vote)
+
+    new_votes: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(roles)) as ex:
+        futs = {ex.submit(_revote, r): r for r in roles}
+        for fut in concurrent.futures.as_completed(futs):
+            vote = fut.result()
+            board.add_poker_vote(
+                story.issue_id, voter=vote["voter"],
+                points=vote["points"], justification=vote["justification"],
+            )
+            new_votes.append(vote)
+    new_votes.sort(key=lambda v: roles.index(v["voter"]) if v["voter"] in roles else 99)
     return new_votes

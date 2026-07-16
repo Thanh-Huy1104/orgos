@@ -1,0 +1,37 @@
+{
+  "GS-00-add-orgos-agile-package-with-init-py": {
+    "state": "blocked",
+    "type": "architecture",
+    "priority": 100
+  },
+  "GS-01-add-wave-function-to-orgos-agile-wave-py": {
+    "state": "blocked",
+    "type": "architecture",
+    "priority": 90
+  },
+  "GS-02-add-test-infrastructure-for-orgos-agile-": {
+    "state": "ready",
+    "type": "test",
+    "priority": 85
+  },
+  "GS-03-add-test-wave-py-asserting-wave-sun-retu": {
+    "state": "ready",
+    "type": "test",
+    "priority": 80
+  },
+  "GS-04-add-validation-to-wave-function-for-non-": {
+    "state": "ready",
+    "type": "security",
+    "priority": 70
+  },
+  "GS-05-add-wave-function-to-public-api-exports-": {
+    "state": "done",
+    "type": "architecture",
+    "priority": 60
+  },
+  "GS-06-add-docstring-and-usage-example-to-wave-": {
+    "state": "ready",
+    "type": "docs",
+    "priority": 30
+  }
+}

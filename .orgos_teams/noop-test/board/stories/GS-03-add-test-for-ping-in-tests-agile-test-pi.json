@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-03-add-test-for-ping-in-tests-agile-test-pi",
+  "title": "Add test for ping() in tests/agile/test_ping.py",
+  "body": "Create `/root/tests/agile/test_ping.py` with a single test function `test_ping()` that asserts `from orgos.agile.ping import ping; assert ping() == 'pong'`. Use pytest conventions. The file must be runnable with `pytest tests/agile/test_ping.py`. Target file is NEW.",
+  "state": "ready",
+  "type": "test",
+  "priority": 89,
+  "points": 2,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 2,
+      "justification": "Adding a one-line test with a single assertion is trivial. The only risk is if the ping() function doesn't exist yet, but that's a missing dependency, not estimation uncertainty.",
+      "timestamp": "2026-07-15T19:47:06.234350+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "This is a trivial new file with one assertion and no dependencies, taking under 30 minutes to write and verify. There is no test environment risk because it is a standalone unit test for a simple function.",
+      "timestamp": "2026-07-15T19:47:08.278700+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 2,
+      "justification": "Adding a trivial ping test presents minimal security risk \u2014 no new dependencies or logic introduced. However, ensuring the test runner isolation and that no secrets leak into test fixtures is still worth a quick check, justifying a small estimate.",
+      "timestamp": "2026-07-15T19:47:10.941062+00:00"
+    }
+  ],
+  "signoffs": {
+    "architect": true,
+    "test": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:46:58.184330+00:00",
+  "updated_at": "2026-07-15T19:47:10.946927+00:00"
+}

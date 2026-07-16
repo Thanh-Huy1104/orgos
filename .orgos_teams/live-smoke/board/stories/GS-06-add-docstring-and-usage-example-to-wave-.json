@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-06-add-docstring-and-usage-example-to-wave-",
+  "title": "Add docstring and usage example to wave.py",
+  "body": "Add comprehensive docstring to wave function explaining purpose, parameter, return value, and usage example. Update the test to verify the docstring is non-empty.\n\nFiles: orgos/agile/wave.py, tests/agile/test_wave.py\n\nDone: docstring present, test verifies.",
+  "state": "ready",
+  "type": "docs",
+  "priority": 30,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "Adding a docstring and a simple test check is a straightforward, localized change with no design risk. The work is purely textual and can be completed in under 30 minutes.",
+      "timestamp": "2026-07-15T19:32:03.479968+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 2,
+      "justification": "Adding a docstring and verifying it's non-empty is straightforward and requires minimal test adjustment, likely under an hour. The main effort is writing a clear usage example in the docstring.",
+      "timestamp": "2026-07-15T19:32:05.314111+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "This is a documentation-only change with no code logic modifications, so there is no risk of introducing secrets or security vulnerabilities. The effort is trivial as it simply requires adding a docstring and a test assertion.",
+      "timestamp": "2026-07-15T19:32:07.545438+00:00"
+    }
+  ],
+  "signoffs": {
+    "test": true,
+    "architect": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:31:08.064265+00:00",
+  "updated_at": "2026-07-15T19:32:07.549466+00:00"
+}

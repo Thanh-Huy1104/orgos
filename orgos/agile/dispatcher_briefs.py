@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from orgos.agile.board_store import Story
+from orgos.agile.environment import RepoEnvironment, environment_hint_for_brief
 from orgos.spawn import TaskBrief
 
 
@@ -22,17 +23,26 @@ STORY
 BODY (the acceptance criteria):
 {body}
 
+{env_hint}
 YOU ARE HERE
   git worktree at: {worktree}
   branch:          {branch}
-  BashTool runs commands in the worktree automatically. Use bare relative
-  paths (`orgos/agile/foo.py`, not absolute). UNIX shell — use `cat`, `ls`,
-  `pytest`, heredocs. NOT `type`, `dir`, `echo >`.
 
-You share a persistent wiki with the rest of the team. Use these tools:
-  - `wiki_read` on `DECISIONS.md` — read this FIRST for prior conventions.
-  - `wiki_grep` — search wiki when you need to find prior decisions.
-  - `wiki_write` (mode=append) — record any convention you set for future teammates.
+TOOLS YOU HAVE (prefer these over raw bash for editing files):
+  - `read_file` (path, start_line, max_lines) → read a file's contents.
+    Prefer this to `cat` on large files (caps at 400 lines by default).
+  - `write_file` (path, content) → create a new file or fully replace one.
+    Use for NEW files.
+  - `edit_file` (path, old, new) → find + replace a unique literal string in
+    an EXISTING file. Preferred for narrow edits — avoids rewriting the
+    whole file just to change a few lines. `old` must appear exactly once,
+    or the tool refuses (widen with context to disambiguate).
+  - BashTool → run pytest, git, npm, or any shell command in the worktree.
+    Use bare relative paths. UNIX shell (cat, ls, pytest, git).
+  - `wiki_read` / `wiki_grep` / `wiki_write` → shared team knowledge base.
+
+Rule of thumb: edit_file is your default for existing files, write_file for
+new ones. Reserve `cat > file <<EOF` for cases where nothing else fits.
 
 DO THIS IN ORDER — no exploration, no explanation:
 
@@ -40,10 +50,11 @@ DO THIS IN ORDER — no exploration, no explanation:
    applies to your story (naming, unit, field order, error policy, API shape),
    FOLLOW IT EXACTLY. Two wiki calls max at this step.
 
-1. Write the code the story asks for. Heredoc:
-     cat > path/to/target <<'EOF'
-     <full contents>
-     EOF
+1. Write the code the story asks for:
+     - New file          → use `write_file`
+     - Small edit to existing file → use `edit_file` (specify unique `old` + `new`)
+     - Large rewrite of a file (rare) → BashTool heredoc is fine
+   For existing files, use `read_file` first if you need to see current contents.
 
 2. If the story implies tests, write them and run:
      pytest <path> -v
@@ -96,7 +107,7 @@ HARD RULES:
 """
 
 
-_REVIEW_BRIEF_TEMPLATE = """You are the {role_label}. Peer-reviewing the work another agent just committed.
+_REVIEW_BRIEF_TEMPLATE = """You are the {role_label}. Adversarial peer review of the work {author_role} just committed.
 
 STORY UNDER REVIEW
   issue_id: {issue_id}
@@ -105,7 +116,7 @@ STORY UNDER REVIEW
   points:   {points}
   written by: {author_role}
 
-ACCEPTANCE CRITERIA (from the story body):
+ACCEPTANCE CRITERIA (from the story body — every one of these must be met):
 {body}
 
 YOU ARE HERE
@@ -113,37 +124,60 @@ YOU ARE HERE
   branch:          {branch}
   Shell is UNIX bash.
 
+YOUR JOB IS TO FIND WHAT'S WRONG. Reviewers who rubber-stamp are useless.
+Approach this as if {author_role} might have made a mistake — because they might have.
+Before you can PASS you MUST name at least two concrete concerns and
+address each one. If you can't find two concerns, look harder — no diff is perfect.
+
 DO THIS:
 
-1. `git log --oneline -3` to see the recent commit.
-2. `git diff HEAD~1` to read the actual diff.
-3. If any *.py test files were touched, run them:
-     pytest <touched-test-path> -v
-
-4. Judge whether the work meets the acceptance criteria in the body above.
-
-5. Output ONLY this envelope JSON:
+1. `git log --oneline -3` — see the commit.
+2. `git diff HEAD~1` — read the actual diff line by line.
+3. Enumerate concerns FIRST, before deciding pass/fail. Ask yourself:
+     - Does the diff literally satisfy each acceptance criterion? Which line?
+     - What edge cases are unhandled? (empty input, None, negative numbers,
+       unicode, very long strings, concurrent access, missing fields)
+     - Are error paths tested, or only the happy path?
+     - Any silent try/except that swallows bugs?
+     - Any hard-coded values that should be constants or config?
+     - Any test that asserts implementation instead of behavior?
+     - Does the code introduce a security issue (path traversal, injection,
+       secrets in logs, unauthenticated endpoint)?
+     - Any file touched that this story shouldn't have touched?
+4. Re-run any *.py tests the diff touched:  pytest <path> -v
+   For non-Python projects, run the appropriate test command based on the
+   files touched (npm test, go test, cargo test, etc.).
+5. Decide pass/fail based on ALL of:
+     - Every acceptance criterion has a specific line/test in the diff that satisfies it.
+     - Tests actually pass.
+     - No secrets, no writes to .env or governance layer.
+     - Concerns list is either empty (rare) or every listed concern is minor.
+6. Output ONLY this envelope JSON:
 
 {{
   "role": "{role_lower}_reviewer",
   "review": "pass" or "fail",
-  "summary": "<one-line verdict>",
+  "summary": "<one-line verdict, honest — 'PASS with 2 minor concerns' is fine>",
   "success_criteria_met": true,
   "requires_human_approval": false,
   "payload": {{
     "reviewed_sha": "<sha>",
     "test_command": "<command or empty>",
     "test_passed": true,
-    "concerns": ["<any concern>", ...]
+    "concerns": ["<concrete concern 1>", "<concrete concern 2>", ...]
   }}
 }}
 
 RULES:
   - Do NOT modify files. Read-only review.
-  - PASS if the acceptance criteria are met AND tests pass AND diff is
-    reasonable (no secrets, no governance-layer edits).
-  - FAIL only when a concrete criterion is unmet OR tests fail. "Could be
-    better" is not a fail reason.
+  - FAIL any of these:
+      * an acceptance criterion is unsatisfied (name which one)
+      * tests fail
+      * secrets leaked or .env / governance layer touched
+      * story clearly implements the WRONG thing (misread the spec)
+  - You may PASS with concerns listed — reviewers are expected to see
+    imperfections. A pass with 3 minor concerns is more useful than a
+    silent pass with none.
 """
 
 
@@ -154,8 +188,10 @@ _ROLE_LABELS = {
 }
 
 
-def build_work_brief(story: Story, worktree: Path, branch: str) -> TaskBrief:
+def build_work_brief(story: Story, worktree: Path, branch: str,
+                      env: RepoEnvironment | None = None) -> TaskBrief:
     role_label = _ROLE_LABELS.get(story.assignee, story.assignee or "Developer")
+    env_hint = environment_hint_for_brief(env) if env else ""
     obj = _WORK_BRIEF_TEMPLATE.format(
         role_label=role_label,
         role_lower=(story.assignee or "developer").lower(),
@@ -169,6 +205,7 @@ def build_work_brief(story: Story, worktree: Path, branch: str) -> TaskBrief:
         git_name=f"orgos-{story.assignee}",
         git_email=f"{story.assignee}@orgos.local",
         commit_prefix=story.type,
+        env_hint=env_hint,
     )
     return TaskBrief(
         objective=obj,

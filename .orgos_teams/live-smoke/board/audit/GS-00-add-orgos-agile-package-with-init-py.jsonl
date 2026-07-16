@@ -1,0 +1,13 @@
+{"timestamp": "2026-07-15T19:31:08.060736+00:00", "actor": "po", "action": "draft_story", "title": "Add orgos/agile package with __init__.py", "story_type": "architecture", "priority": 100}
+{"timestamp": "2026-07-15T19:31:08.066704+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}
+{"timestamp": "2026-07-15T19:31:10.225805+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 203}
+{"timestamp": "2026-07-15T19:31:12.464176+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 146}
+{"timestamp": "2026-07-15T19:31:14.433371+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 197}
+{"timestamp": "2026-07-15T19:31:14.434479+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}
+{"timestamp": "2026-07-15T19:31:14.435183+00:00", "actor": "test", "action": "signoff", "role": "test"}
+{"timestamp": "2026-07-15T19:31:14.435960+00:00", "actor": "architect", "action": "signoff", "role": "architect"}
+{"timestamp": "2026-07-15T19:31:14.436634+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}
+{"timestamp": "2026-07-15T19:31:14.437440+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}
+{"timestamp": "2026-07-15T19:32:07.551167+00:00", "actor": "architect", "action": "assign"}
+{"timestamp": "2026-07-15T19:32:07.551697+00:00", "actor": "architect", "action": "transition", "from_state": "ready", "to_state": "in_progress", "reason": ""}
+{"timestamp": "2026-07-15T19:32:38.625729+00:00", "actor": "architect", "action": "transition", "from_state": "in_progress", "to_state": "blocked", "reason": "no_commit_produced"}

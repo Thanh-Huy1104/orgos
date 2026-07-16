@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-04-add-validation-to-wave-function-for-non-",
+  "title": "Add validation to wave function for non-string input",
+  "body": "Extend wave(name) to raise TypeError with a descriptive message if name is not a string. Update the existing test to also test TypeError for integer or None input.\n\nFiles: orgos/agile/wave.py, tests/agile/test_wave.py\n\nDone: validation works, all tests pass.",
+  "state": "ready",
+  "type": "security",
+  "priority": 70,
+  "points": 2,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 2,
+      "justification": "The change is small and well-defined: add a type check and raise TypeError in wave(), then update the existing test with two new test cases. No design risk or external dependencies, so 2 points is appropriate.",
+      "timestamp": "2026-07-15T19:31:50.517075+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 2,
+      "justification": "This is small \u2014 a single type check with clear exception raising, and the existing test suite already covers the happy path, so adding a few more test cases is straightforward. The risk is low because the change is isolated and well-understood; the main effort is ensuring the error message is descriptive and consistent.",
+      "timestamp": "2026-07-15T19:31:53.103712+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "The change is small and localized to adding a type check in one function and updating an existing test. No security-sensitive patterns (secrets, tokens) are introduced, and the diff is minimal and safe.",
+      "timestamp": "2026-07-15T19:31:55.575178+00:00"
+    }
+  ],
+  "signoffs": {
+    "test": true,
+    "architect": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 0,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:31:08.062997+00:00",
+  "updated_at": "2026-07-15T19:31:55.580180+00:00"
+}

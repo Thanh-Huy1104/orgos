@@ -1,0 +1,16 @@
+{"timestamp": "2026-07-15T19:46:58.183397+00:00", "actor": "po", "action": "draft_story", "title": "Add ping() to orgos/agile/ping.py", "story_type": "architecture", "priority": 90}
+{"timestamp": "2026-07-15T19:46:58.186739+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}
+{"timestamp": "2026-07-15T19:47:00.384173+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 195}
+{"timestamp": "2026-07-15T19:47:02.403918+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 207}
+{"timestamp": "2026-07-15T19:47:04.378392+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 155}
+{"timestamp": "2026-07-15T19:47:04.381462+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}
+{"timestamp": "2026-07-15T19:47:04.383132+00:00", "actor": "architect", "action": "signoff", "role": "architect"}
+{"timestamp": "2026-07-15T19:47:04.384267+00:00", "actor": "test", "action": "signoff", "role": "test"}
+{"timestamp": "2026-07-15T19:47:04.385392+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}
+{"timestamp": "2026-07-15T19:47:04.386307+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}
+{"timestamp": "2026-07-15T19:47:34.617650+00:00", "actor": "architect", "action": "assign"}
+{"timestamp": "2026-07-15T19:47:34.618302+00:00", "actor": "architect", "action": "transition", "from_state": "ready", "to_state": "in_progress", "reason": ""}
+{"timestamp": "2026-07-15T19:48:25.213079+00:00", "actor": "architect", "action": "set_commit", "commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9"}
+{"timestamp": "2026-07-15T19:48:25.213635+00:00", "actor": "architect", "action": "transition", "from_state": "in_progress", "to_state": "review", "reason": ""}
+{"timestamp": "2026-07-15T19:48:41.935846+00:00", "actor": "test_reviewer", "action": "comment", "body_len": 142}
+{"timestamp": "2026-07-15T19:48:41.936818+00:00", "actor": "reviewer", "action": "transition", "from_state": "review", "to_state": "done", "reason": ""}

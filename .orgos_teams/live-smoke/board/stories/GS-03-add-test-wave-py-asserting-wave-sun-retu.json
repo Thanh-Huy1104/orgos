@@ -1,0 +1,41 @@
+{
+  "issue_id": "GS-03-add-test-wave-py-asserting-wave-sun-retu",
+  "title": "Add test_wave.py asserting wave('sun') returns expected value",
+  "body": "Create tests/agile/test_wave.py with a single test function test_wave_sun that imports wave from orgos/agile/wave and asserts wave('sun') == 'wave to sun'. Use pytest.\n\nFiles: tests/agile/test_wave.py\n\nDone: test passes.",
+  "state": "ready",
+  "type": "test",
+  "priority": 80,
+  "points": 1,
+  "votes": [
+    {
+      "voter": "architect",
+      "points": 1,
+      "justification": "My estimate remains 1 because the story is purely adding a test file with one assertion against a trivial function, with zero implementation risk. The 5-point vote lacks justification, so it does not raise new concerns.",
+      "timestamp": "2026-07-15T19:31:44.508370+00:00"
+    },
+    {
+      "voter": "test",
+      "points": 1,
+      "justification": "The devsecops estimate of 5 appears to be an outlier without justification; the task remains a trivial one-file addition with zero complexity. I hold my estimate at 1.",
+      "timestamp": "2026-07-15T19:31:46.744689+00:00"
+    },
+    {
+      "voter": "devsecops",
+      "points": 1,
+      "justification": "My peer architect and test correctly identified this as trivial \u2014 no secrets or security concerns in a single test file. I adjust my estimate down.",
+      "timestamp": "2026-07-15T19:31:48.671999+00:00"
+    }
+  ],
+  "signoffs": {
+    "test": true,
+    "architect": true,
+    "devsecops": true
+  },
+  "assignee": "",
+  "refinement_rounds": 1,
+  "comments": [],
+  "wiki_touched": false,
+  "commit_sha": "",
+  "created_at": "2026-07-15T19:31:08.062359+00:00",
+  "updated_at": "2026-07-15T19:31:48.677238+00:00"
+}

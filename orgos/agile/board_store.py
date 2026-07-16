@@ -84,6 +84,7 @@ class Story:
     comments: list[dict] = field(default_factory=list)
     wiki_touched: bool = False
     commit_sha: str = ""
+    depends_on: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 
@@ -220,11 +221,14 @@ class BoardStore:
           security     worker → security
           docs         → any worker (fallback)
           feature      → architecture worker OR any worker if starved
+
+        Also enforces dependency gate: a story with `depends_on: [X, Y]` is
+        NOT returned unless X and Y are both in `done` state.
         """
         ready = self.list_state("ready")
-        # Primary matches by type
         primary: dict[str, tuple[str, ...]] = {
             "architecture": ("architecture", "feature"),
+            "architect":    ("architecture", "feature"),
             "test":         ("test",),
             "security":     ("security",),
             "devsecops":    ("security",),
@@ -232,7 +236,16 @@ class BoardStore:
         }
         allowed = primary.get(worker_type, ("architecture", "test", "security",
                                              "feature", "docs"))
-        return [s for s in ready if s.type in allowed]
+        idx = self._read_index()
+        def _deps_satisfied(s: Story) -> bool:
+            if not s.depends_on:
+                return True
+            for dep_id in s.depends_on:
+                dep_meta = idx.get(dep_id)
+                if not dep_meta or dep_meta.get("state") != "done":
+                    return False
+            return True
+        return [s for s in ready if s.type in allowed and _deps_satisfied(s)]
 
     # ── Draft (create) ───────────────────────────────────────────────────
 

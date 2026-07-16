@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>orgos team — noop-test</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --fg: #e6edf3; --muted: #7d8590; --accent: #58a6ff;
+    --scrum: #4ade80; --team: #fb923c; --wiki: #fbbf24;
+    --good: #4ade80; --bad: #f87171;
+    --add: #033a16; --rem: #67060c; --add-fg: #7ee787; --rem-fg: #ffa198;
+    --state-draft: #7d8590; --state-refinement: #fbbf24;
+    --state-ready: #58a6ff; --state-in_progress: #a78bfa;
+    --state-review: #f472b6; --state-done: #4ade80;
+    --state-blocked: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size:14px; line-height:1.5; }
+  header {
+    padding:20px 32px; border-bottom:1px solid var(--border);
+    display:flex; align-items:baseline; justify-content:space-between;
+    flex-wrap:wrap; gap:16px;
+  }
+  header h1 { margin:0 0 4px 0; font-size:20px; display:flex; align-items:center; gap:12px; }
+  header .goal { color:var(--fg); font-size:13px; margin-top:2px; max-width:900px; }
+  header .meta { color:var(--muted); font-size:12px; margin-top:4px; }
+  header .right { text-align:right; color:var(--muted); font-size:12px; }
+
+  #live-badge {
+    display:inline-flex; align-items:center; gap:6px;
+    background:#0d3d1c; color:var(--good);
+    padding:3px 10px; border-radius:12px; font-size:11px;
+    font-weight:600; text-transform:uppercase; letter-spacing:0.6px;
+    opacity:0; transition:opacity 0.3s;
+  }
+  #live-badge.on { opacity:1; }
+  #live-badge .dot {
+    width:8px; height:8px; border-radius:50%; background:var(--good);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; box-shadow:0 0 4px var(--good); }
+    50% { opacity:0.4; box-shadow:0 0 0 var(--good); }
+  }
+
+  main { padding:20px 32px; max-width:1800px; margin:0 auto; }
+  section { margin-bottom:32px; }
+  section h2 { font-size:14px; margin:0 0 12px 0; padding-bottom:6px;
+    border-bottom:1px solid var(--border); color:var(--muted); font-weight:500;
+    text-transform:uppercase; letter-spacing:0.5px;
+    display:flex; align-items:center; gap:8px; }
+  section h2 .count { color:var(--muted); font-weight:400; font-size:12px; }
+
+  .cards { display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; }
+  .card .l { color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:0.5px; }
+  .card .v { font-size:20px; font-weight:500; margin-top:2px; font-variant-numeric:tabular-nums; }
+
+  /* Kanban */
+  .kanban { display:grid; grid-template-columns:repeat(6, 1fr); gap:10px; }
+  @media (max-width:1200px) { .kanban { grid-template-columns:repeat(3, 1fr); } }
+  .kan-col {
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:10px; min-height:120px; display:flex; flex-direction:column;
+  }
+  .kan-col.state-draft       { border-top:3px solid var(--state-draft); }
+  .kan-col.state-refinement  { border-top:3px solid var(--state-refinement); }
+  .kan-col.state-ready       { border-top:3px solid var(--state-ready); }
+  .kan-col.state-in_progress { border-top:3px solid var(--state-in_progress); }
+  .kan-col.state-review      { border-top:3px solid var(--state-review); }
+  .kan-col.state-done        { border-top:3px solid var(--state-done); }
+  .kan-col.state-blocked     { border-top:3px solid var(--state-blocked); }
+  .kan-col h3 {
+    margin:0 0 8px 0; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;
+    color:var(--muted); font-weight:600; display:flex; justify-content:space-between;
+  }
+  .kan-col h3 .n { color:var(--fg); font-variant-numeric:tabular-nums; }
+  .kan-card {
+    background:#0b0f14; border:1px solid var(--border); border-radius:4px;
+    padding:6px 8px; margin-bottom:6px; font-size:12px; cursor:pointer;
+    transition:background 0.15s, transform 0.15s;
+  }
+  .kan-card:hover { background:#21262d; }
+  .kan-card.fresh {
+    animation: fresh-flash 1.6s ease-out;
+  }
+  @keyframes fresh-flash {
+    0% { background:#1f6feb99; transform:scale(1.03); }
+    100% { background:#0b0f14; transform:scale(1); }
+  }
+  .kan-card .title { color:var(--fg); font-size:12px; line-height:1.3; margin-bottom:2px; }
+  .kan-card .meta { color:var(--muted); font-size:10px; display:flex; gap:6px; }
+  .kan-card .type-tag { padding:0 4px; border-radius:2px; background:#21262d; }
+  .kan-card .pts { color:var(--accent); }
+  .kan-card .assignee { color:var(--state-in_progress); }
+
+  /* Activity strip */
+  #activity {
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:8px 12px; max-height:340px; overflow-y:auto;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11.5px;
+  }
+  .act-row {
+    padding:4px 0; border-bottom:1px dashed #21262d;
+    display:grid; grid-template-columns:60px 20px 1fr; gap:8px; align-items:baseline;
+  }
+  .act-row:last-child { border-bottom:none; }
+  .act-row .ts { color:var(--muted); font-size:10.5px; }
+  .act-row .emoji { text-align:center; font-size:14px; }
+  .act-row .msg { color:var(--fg); }
+  .act-row .msg .story-id { color:var(--accent); }
+  .act-row .msg .voter { color:var(--state-in_progress); }
+  .act-row .msg .points { color:var(--wiki); font-weight:600; }
+  .act-row .msg .just { color:var(--muted); font-style:italic; }
+  .act-row.fresh {
+    animation: fresh-row 1.6s ease-out;
+  }
+  @keyframes fresh-row {
+    0% { background:#1f6feb33; }
+    100% { background:transparent; }
+  }
+
+  /* Story list (below kanban — full table view) */
+  .stories { background:var(--panel); border:1px solid var(--border); border-radius:6px; }
+  .story-row { padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer;
+    display:grid; grid-template-columns:100px 80px 60px 1fr 80px; gap:12px; align-items:center; }
+  .story-row:last-child { border-bottom:none; }
+  .story-row:hover { background:#21262d; }
+  .story-row.active { background:#1f6feb33; border-left:3px solid var(--accent); }
+  .story-row .id { color:var(--muted); font-family:"SF Mono",monospace; font-size:11px; }
+  .story-row .state {
+    padding:2px 8px; border-radius:3px; font-size:10px; text-align:center;
+    text-transform:uppercase; font-weight:600; letter-spacing:0.5px;
+  }
+  .state.state-draft { background:#21262d; color:var(--state-draft); }
+  .state.state-refinement { background:#3d310b; color:var(--state-refinement); }
+  .state.state-ready { background:#0d2d5f; color:var(--state-ready); }
+  .state.state-in_progress { background:#3f2b6b; color:var(--state-in_progress); }
+  .state.state-review { background:#4b1e40; color:var(--state-review); }
+  .state.state-done { background:#0d3d1c; color:var(--state-done); }
+  .state.state-blocked { background:#4a0e11; color:var(--state-blocked); }
+  .story-row .type {
+    padding:2px 8px; border-radius:3px; font-size:10px; text-align:center;
+    background:#21262d; color:var(--muted);
+  }
+  .story-row .title { font-size:13px; }
+  .story-row .points { color:var(--muted); font-size:11px; text-align:right; }
+
+  .detail { background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:16px; margin-top:16px; }
+  .detail h3 { margin:0 0 8px 0; font-size:14px; }
+  .detail .body { color:var(--muted); font-size:12.5px; margin-bottom:12px; white-space:pre-wrap; }
+  .detail details { margin-top:8px; }
+  .detail details summary { cursor:pointer; padding:4px 0; color:var(--muted); font-size:12px; }
+  .detail details summary:hover { color:var(--fg); }
+  .detail pre { background:#0b0f14; border:1px solid var(--border); border-radius:4px;
+    padding:10px; overflow-x:auto; max-height:400px; overflow-y:auto;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11.5px;
+    white-space:pre; margin:6px 0 0 0; }
+  .diff .line-add { background:var(--add); color:var(--add-fg); display:block; }
+  .diff .line-rem { background:var(--rem); color:var(--rem-fg); display:block; }
+  .diff .line-hunk { color:var(--accent); display:block; }
+  .diff .line-file { color:var(--muted); font-weight:500; display:block; }
+
+  .audit { font-family:"SF Mono",monospace; font-size:11px; color:var(--muted); }
+  .audit .row { padding:2px 0; }
+  .audit .action { color:var(--accent); font-weight:500; }
+
+  .wiki-block {
+    background:#1a1305; border:1px dashed var(--wiki); border-radius:6px;
+    padding:12px 14px; margin-top:8px;
+    font-family:"SF Mono",monospace; font-size:11.5px; white-space:pre-wrap;
+    max-height:360px; overflow-y:auto;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>
+      <span>orgos team — <span id="team-id"></span></span>
+      <span id="live-badge"><span class="dot"></span> LIVE</span>
+    </h1>
+    <div class="goal" id="goal"></div>
+    <div class="meta" id="meta"></div>
+  </div>
+  <div class="right" id="right-meta"></div>
+</header>
+<main>
+
+<section>
+  <h2>Totals</h2>
+  <div class="cards" id="cards"></div>
+</section>
+
+<section>
+  <h2>Board <span class="count" id="kanban-count"></span></h2>
+  <div class="kanban" id="kanban"></div>
+</section>
+
+<section>
+  <h2>Live activity <span class="count" id="act-count"></span></h2>
+  <div id="activity"></div>
+</section>
+
+<section>
+  <h2>Wiki decisions (tail)</h2>
+  <div class="wiki-block" id="wiki"></div>
+</section>
+
+<section>
+  <h2>Stories (full table)</h2>
+  <div class="stories" id="stories"></div>
+  <div class="detail" id="detail" style="display:none;">
+    <h3 id="d-title"></h3>
+    <div class="body" id="d-body"></div>
+    <details open><summary>Audit trail</summary><div class="audit" id="d-audit"></div></details>
+    <details><summary>Poker votes</summary><pre id="d-votes"></pre></details>
+    <details><summary>Envelope</summary><pre id="d-envelope"></pre></details>
+    <details><summary>Diff (this story)</summary><pre class="diff" id="d-diff"></pre></details>
+  </div>
+</section>
+
+</main>
+
+<script>
+// Initial data — populated when the report is written statically.
+// In live mode, /live/state overwrites these on each poll.
+let MANIFEST = {"team_id": "noop-test", "goal": "Add orgos/agile/ping.py with ping() returning 'pong' and a test at tests/agile/test_ping.py asserting ping() == 'pong'.", "source_repo": "/Users/th/Documents/Github/orgos", "model": "deepseek/deepseek-chat", "created_at": "2026-07-15T19:46:50.457823+00:00", "branch": "team/noop-test", "baseline_sha": "440c57b512249365e7c313eda8b1eb46c6e947c7"};
+let RESULT = {"team_id": "noop-test", "goal": "Add orgos/agile/ping.py with ping() returning 'pong' and a test at tests/agile/test_ping.py asserting ping() == 'pong'.", "started_at": "2026-07-15T19:46:50.475255+00:00", "ended_at": "2026-07-15T19:50:09.852371+00:00", "reason_stopped": "max_stories_worked (3 = cap 3)", "stories_created": 6, "stories_done": 3, "stories_blocked": 0, "total_tokens_input": 492816, "total_tokens_output": 10549, "per_story_results": [{"story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "role": "architect", "status": "committed", "commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9", "diff_summary": " orgos/agile/__init__.py  |  4 ++++\n orgos/agile/ping.py      | 12 ++++++++++++\n tests/agile/test_ping.py | 18 ++++++++++++++++++\n 3 files changed, 34 insertions(+)\n", "envelope": {"role": "developer", "status": "completed", "summary": "Add ping() to orgos/agile/ping.py \u2014 returns 'pong', re-exported in __init__.py __all__", "success_criteria_met": true, "requires_human_approval": false, "payload": {"commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9", "files_touched": ["orgos/agile/ping.py", "orgos/agile/__init__.py", "tests/agile/test_ping.py"], "test_command": "pytest tests/agile/test_ping.py -v", "test_output": "2 passed in 0.99s", "test_passed": true, "wiki_updated": true}}, "tokens_input": 132679, "tokens_output": 3004, "wall_seconds": 50.58, "error": ""}, {"story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "role": "architect", "status": "no_commit", "commit_sha": "", "diff_summary": "", "envelope": {"role": "developer", "status": "completed", "summary": "Verified ping export already exists in orgos/agile/__init__.py (from prior commit 366b23f). All 17 tests pass including test_ping.py::TestPing::test_is_exposed_in_package. Wiki updated.", "success_criteria_met": true, "requires_human_approval": false, "payload": {"commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9", "files_touched": [], "test_command": "pytest tests/agile/ -v", "test_output": "17 passed in 1.02s", "test_passed": true, "wiki_updated": true}}, "tokens_input": 167142, "tokens_output": 2882, "wall_seconds": 49.5, "error": ""}, {"story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "role": "architect", "status": "committed", "commit_sha": "12c92db73bdf6447ba2b4bc5a85bd358f830ed8d", "diff_summary": " orgos/__init__.py | 1 +\n 1 file changed, 1 insertion(+)\n", "envelope": {"role": "developer", "status": "completed", "summary": "Added `from . import agile` to orgos/__init__.py so orgos.agile is accessible as a subpackage", "success_criteria_met": true, "requires_human_approval": false, "payload": {"commit_sha": "12c92db73bdf6447ba2b4bc5a85bd358f830ed8d", "files_touched": ["orgos/__init__.py"], "test_command": "python3 -c 'import orgos; print(orgos.agile)'", "test_output": "orgos.agile: <module 'orgos.agile' from '/Users/th/Documents/Github/orgos/.orgos_teams/noop-test/worktree/orgos/agile/__init__.py'>", "test_passed": true, "wiki_updated": true}}, "tokens_input": 64395, "tokens_output": 1674, "wall_seconds": 23.64, "error": ""}]};
+let STORIES = {"GS-00-add-ping-to-orgos-agile-ping-py": {"issue_id": "GS-00-add-ping-to-orgos-agile-ping-py", "title": "Add ping() to orgos/agile/ping.py", "body": "Create `/root/orgos/agile/ping.py` with a single function `ping()` that returns the string `'pong'`. The file must be importable as `from orgos.agile.ping import ping`. No other dependencies. Target file is NEW.", "state": "done", "type": "architecture", "priority": 90, "points": 1, "votes": [{"voter": "architect", "points": 1, "justification": "This is a trivial task requiring a single-function file with no dependencies, no design decisions, and no integration risk. The implementation takes under 30 minutes including testing and commit.", "timestamp": "2026-07-15T19:47:00.383159+00:00"}, {"voter": "test", "points": 1, "justification": "This is a trivial single-function file with no dependencies, so testing is straightforward \u2014 a simple import and assertion verifies it. No risk of hidden complexity or integration issues from my perspective.", "timestamp": "2026-07-15T19:47:02.403251+00:00"}, {"voter": "devsecops", "points": 1, "justification": "A single function returning a string has no dependencies and trivial surface area \u2014 no secrets or security risk to review. Effort is well under 30 minutes.", "timestamp": "2026-07-15T19:47:04.376664+00:00"}], "signoffs": {"architect": true, "test": true, "devsecops": true}, "assignee": "architect", "refinement_rounds": 0, "comments": [{"author": "test_reviewer", "timestamp": "2026-07-15T19:48:41.934799+00:00", "body": "Review PASS: ping() implementation meets all AC: function returns 'pong', importable from orgos.agile.ping, no extra dependencies, tests pass."}], "wiki_touched": false, "commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9", "created_at": "2026-07-15T19:46:58.182913+00:00", "updated_at": "2026-07-15T19:48:41.936135+00:00"}, "GS-01-add-ping-export-to-orgos-agile-init-py": {"issue_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "title": "Add ping export to orgos/agile/__init__.py", "body": "Modify existing `/root/orgos/agile/__init__.py` to add `from .ping import ping` so that `from orgos.agile import ping` works. Do not change any existing exports. Target file ALREADY EXISTS.", "state": "done", "type": "feature", "priority": 85, "points": 1, "votes": [{"voter": "architect", "points": 1, "justification": "Adding a single import line is trivial and requires no new logic. The risk is near zero as it's purely an export change.", "timestamp": "2026-07-15T19:47:12.861327+00:00"}, {"voter": "test", "points": 1, "justification": "This is a trivial one-line addition of an import with no logic changes, and testing would be minimal (e.g., verifying import works). From a test perspective, there's nearly zero risk or effort involved.", "timestamp": "2026-07-15T19:47:15.109968+00:00"}, {"voter": "devsecops", "points": 1, "justification": "Adding a single import line is trivial and poses no security risk. No secrets or sensitive data are involved, and the change is transparent and safe to deploy.", "timestamp": "2026-07-15T19:47:17.019603+00:00"}], "signoffs": {"architect": true, "test": true, "devsecops": true}, "assignee": "architect", "refinement_rounds": 0, "comments": [{"author": "architect", "timestamp": "2026-07-15T19:49:31.454837+00:00", "body": "No-op completion: architect verified acceptance criteria already met \u2014 Verified ping export already exists in orgos/agile/__init__.py (from prior commit 366b23f). All 17 tests pass including test_ping.py::TestPing::test_is_exposed_in_package. Wiki updated."}], "wiki_touched": false, "commit_sha": "", "created_at": "2026-07-15T19:46:58.183517+00:00", "updated_at": "2026-07-15T19:49:31.454840+00:00"}, "GS-02-add-agile-package-export-to-orgos-init-p": {"issue_id": "GS-02-add-agile-package-export-to-orgos-init-p", "title": "Add agile package export to orgos/__init__.py", "body": "Modify existing `/root/orgos/__init__.py` to add `from . import agile` if not already present. Ensure `orgos.agile` is accessible as a subpackage. Target file ALREADY EXISTS.", "state": "done", "type": "feature", "priority": 80, "points": 1, "votes": [{"voter": "architect", "points": 1, "justification": "Adding a single import line to an existing file is trivial; no logic or tests need to change. The only risk is a typo in the import, easily caught by importing the module.", "timestamp": "2026-07-15T19:47:18.836240+00:00"}, {"voter": "test", "points": 1, "justification": "The change is trivial: adding a single import line to an existing file. No test modifications are needed, and verification requires only confirming the module loads without error.", "timestamp": "2026-07-15T19:47:20.386990+00:00"}, {"voter": "devsecops", "points": 1, "justification": "This is a trivial one-line import addition with no security implications. No secrets or credentials are involved, and the change is limited to a single existing file.", "timestamp": "2026-07-15T19:47:22.525800+00:00"}], "signoffs": {"architect": true, "test": true, "devsecops": true}, "assignee": "architect", "refinement_rounds": 0, "comments": [{"author": "test_reviewer", "timestamp": "2026-07-15T19:50:09.849694+00:00", "body": "Review PASS: Commit 12c92db adds `from . import agile` to `orgos/__init__.py`. Verified: orgos.agile is accessible as a subpackage. No test files touched. Diff is clean, minimal, and meets all acceptance criteria."}], "wiki_touched": false, "commit_sha": "12c92db73bdf6447ba2b4bc5a85bd358f830ed8d", "created_at": "2026-07-15T19:46:58.183931+00:00", "updated_at": "2026-07-15T19:50:09.851182+00:00"}, "GS-03-add-test-for-ping-in-tests-agile-test-pi": {"issue_id": "GS-03-add-test-for-ping-in-tests-agile-test-pi", "title": "Add test for ping() in tests/agile/test_ping.py", "body": "Create `/root/tests/agile/test_ping.py` with a single test function `test_ping()` that asserts `from orgos.agile.ping import ping; assert ping() == 'pong'`. Use pytest conventions. The file must be runnable with `pytest tests/agile/test_ping.py`. Target file is NEW.", "state": "ready", "type": "test", "priority": 89, "points": 2, "votes": [{"voter": "architect", "points": 2, "justification": "Adding a one-line test with a single assertion is trivial. The only risk is if the ping() function doesn't exist yet, but that's a missing dependency, not estimation uncertainty.", "timestamp": "2026-07-15T19:47:06.234350+00:00"}, {"voter": "test", "points": 1, "justification": "This is a trivial new file with one assertion and no dependencies, taking under 30 minutes to write and verify. There is no test environment risk because it is a standalone unit test for a simple function.", "timestamp": "2026-07-15T19:47:08.278700+00:00"}, {"voter": "devsecops", "points": 2, "justification": "Adding a trivial ping test presents minimal security risk \u2014 no new dependencies or logic introduced. However, ensuring the test runner isolation and that no secrets leak into test fixtures is still worth a quick check, justifying a small estimate.", "timestamp": "2026-07-15T19:47:10.941062+00:00"}], "signoffs": {"architect": true, "test": true, "devsecops": true}, "assignee": "", "refinement_rounds": 0, "comments": [], "wiki_touched": false, "commit_sha": "", "created_at": "2026-07-15T19:46:58.184330+00:00", "updated_at": "2026-07-15T19:47:10.946927+00:00"}, "GS-04-add-test-conftest-for-agile-tests-if-mis": {"issue_id": "GS-04-add-test-conftest-for-agile-tests-if-mis", "title": "Add test conftest for agile tests if missing", "body": "If `/root/tests/agile/__init__.py` does not exist, create it as an empty file. If `/root/tests/conftest.py` already exists, skip. Check the provided tree (tests/agile/ directory exists, but no __init__.py is listed). Create `/root/tests/agile/__init__.py` empty. Target file is NEW.", "state": "ready", "type": "test", "priority": 70, "points": 1, "votes": [{"voter": "architect", "points": 1, "justification": "Creating an empty __init__.py is a trivial file creation with no logic, dependencies, or risk of breaking existing tests. The task requires only a single BashTool write command and a quick verification.", "timestamp": "2026-07-15T19:47:24.682528+00:00"}, {"voter": "test", "points": 1, "justification": "The task is trivial: creating an empty __init__.py file requires minimal effort and no testing. The main verification is checking file existence, which can be done in seconds.", "timestamp": "2026-07-15T19:47:26.507592+00:00"}, {"voter": "devsecops", "points": 1, "justification": "Creating an empty __init__.py is trivial; no secrets or security risks involved. The change is safe and straightforward to review.", "timestamp": "2026-07-15T19:47:28.266866+00:00"}], "signoffs": {"architect": true, "test": true, "devsecops": true}, "assignee": "", "refinement_rounds": 0, "comments": [], "wiki_touched": false, "commit_sha": "", "created_at": "2026-07-15T19:46:58.184693+00:00", "updated_at": "2026-07-15T19:47:28.271414+00:00"}, "GS-05-verify-ping-import-chain-works-end-to-en": {"issue_id": "GS-05-verify-ping-import-chain-works-end-to-en", "title": "Verify ping import chain works end-to-end", "body": "After all previous stories are implemented, run `pytest tests/agile/test_ping.py -v` and confirm the test passes. Also verify `python -c 'from orgos.agile import ping; print(ping())'` prints `pong`. This is a verification story: only record results, no code changes.", "state": "ready", "type": "test", "priority": 60, "points": 1, "votes": [{"voter": "architect", "points": 1, "justification": "This is purely a verification story requiring no code changes, only running existing tests and a quick import check. As Architect, I estimate it as trivial (<30 minutes) because the implementation is already in place and acceptance tests should pass immediately.", "timestamp": "2026-07-15T19:47:30.448979+00:00"}, {"voter": "test", "points": 2, "justification": "As Test, this is a purely verification story with no code changes, so effort is minimal. Risks are low since the dependency chain is simple, but I need to ensure the ping module is importable and the test environment is properly set up.", "timestamp": "2026-07-15T19:47:32.458124+00:00"}, {"voter": "devsecops", "points": 1, "justification": "This story requires no code changes and only involves running a pytest command and a simple Python import test, both of which are fast and deterministic. Security risk is minimal as there are no new dependencies or modifications to introduce secrets.", "timestamp": "2026-07-15T19:47:34.611400+00:00"}], "signoffs": {"architect": true, "test": true, "devsecops": true}, "assignee": "", "refinement_rounds": 0, "comments": [], "wiki_touched": false, "commit_sha": "", "created_at": "2026-07-15T19:46:58.185054+00:00", "updated_at": "2026-07-15T19:47:34.615855+00:00"}};
+let AUDIT = {"GS-00-add-ping-to-orgos-agile-ping-py": [{"timestamp": "2026-07-15T19:46:58.183397+00:00", "actor": "po", "action": "draft_story", "title": "Add ping() to orgos/agile/ping.py", "story_type": "architecture", "priority": 90}, {"timestamp": "2026-07-15T19:46:58.186739+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}, {"timestamp": "2026-07-15T19:47:00.384173+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 195}, {"timestamp": "2026-07-15T19:47:02.403918+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 207}, {"timestamp": "2026-07-15T19:47:04.378392+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 155}, {"timestamp": "2026-07-15T19:47:04.381462+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}, {"timestamp": "2026-07-15T19:47:04.383132+00:00", "actor": "architect", "action": "signoff", "role": "architect"}, {"timestamp": "2026-07-15T19:47:04.384267+00:00", "actor": "test", "action": "signoff", "role": "test"}, {"timestamp": "2026-07-15T19:47:04.385392+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}, {"timestamp": "2026-07-15T19:47:04.386307+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}, {"timestamp": "2026-07-15T19:47:34.617650+00:00", "actor": "architect", "action": "assign"}, {"timestamp": "2026-07-15T19:47:34.618302+00:00", "actor": "architect", "action": "transition", "from_state": "ready", "to_state": "in_progress", "reason": ""}, {"timestamp": "2026-07-15T19:48:25.213079+00:00", "actor": "architect", "action": "set_commit", "commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9"}, {"timestamp": "2026-07-15T19:48:25.213635+00:00", "actor": "architect", "action": "transition", "from_state": "in_progress", "to_state": "review", "reason": ""}, {"timestamp": "2026-07-15T19:48:41.935846+00:00", "actor": "test_reviewer", "action": "comment", "body_len": 142}, {"timestamp": "2026-07-15T19:48:41.936818+00:00", "actor": "reviewer", "action": "transition", "from_state": "review", "to_state": "done", "reason": ""}], "GS-01-add-ping-export-to-orgos-agile-init-py": [{"timestamp": "2026-07-15T19:46:58.183827+00:00", "actor": "po", "action": "draft_story", "title": "Add ping export to orgos/agile/__init__.py", "story_type": "feature", "priority": 85}, {"timestamp": "2026-07-15T19:47:10.948641+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}, {"timestamp": "2026-07-15T19:47:12.862651+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 120}, {"timestamp": "2026-07-15T19:47:15.111636+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 202}, {"timestamp": "2026-07-15T19:47:17.021444+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 159}, {"timestamp": "2026-07-15T19:47:17.023324+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}, {"timestamp": "2026-07-15T19:47:17.024384+00:00", "actor": "architect", "action": "signoff", "role": "architect"}, {"timestamp": "2026-07-15T19:47:17.025510+00:00", "actor": "test", "action": "signoff", "role": "test"}, {"timestamp": "2026-07-15T19:47:17.026463+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}, {"timestamp": "2026-07-15T19:47:17.027609+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}, {"timestamp": "2026-07-15T19:48:41.938464+00:00", "actor": "architect", "action": "assign"}, {"timestamp": "2026-07-15T19:48:41.939201+00:00", "actor": "architect", "action": "transition", "from_state": "ready", "to_state": "in_progress", "reason": ""}, {"timestamp": "2026-07-15T19:49:31.454079+00:00", "actor": "architect", "action": "transition", "from_state": "in_progress", "to_state": "review", "reason": "noop_no_changes_needed"}, {"timestamp": "2026-07-15T19:49:31.454712+00:00", "actor": "architect", "action": "transition", "from_state": "review", "to_state": "done", "reason": "noop_no_changes_needed"}, {"timestamp": "2026-07-15T19:49:31.455286+00:00", "actor": "architect", "action": "comment", "body_len": 256}], "GS-02-add-agile-package-export-to-orgos-init-p": [{"timestamp": "2026-07-15T19:46:58.184241+00:00", "actor": "po", "action": "draft_story", "title": "Add agile package export to orgos/__init__.py", "story_type": "feature", "priority": 80}, {"timestamp": "2026-07-15T19:47:17.028679+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}, {"timestamp": "2026-07-15T19:47:18.837444+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 171}, {"timestamp": "2026-07-15T19:47:20.388448+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 179}, {"timestamp": "2026-07-15T19:47:22.528931+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 166}, {"timestamp": "2026-07-15T19:47:22.531073+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}, {"timestamp": "2026-07-15T19:47:22.532959+00:00", "actor": "architect", "action": "signoff", "role": "architect"}, {"timestamp": "2026-07-15T19:47:22.534261+00:00", "actor": "test", "action": "signoff", "role": "test"}, {"timestamp": "2026-07-15T19:47:22.535141+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}, {"timestamp": "2026-07-15T19:47:22.535946+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}, {"timestamp": "2026-07-15T19:49:31.456478+00:00", "actor": "architect", "action": "assign"}, {"timestamp": "2026-07-15T19:49:31.457126+00:00", "actor": "architect", "action": "transition", "from_state": "ready", "to_state": "in_progress", "reason": ""}, {"timestamp": "2026-07-15T19:49:55.104155+00:00", "actor": "architect", "action": "set_commit", "commit_sha": "12c92db73bdf6447ba2b4bc5a85bd358f830ed8d"}, {"timestamp": "2026-07-15T19:49:55.104698+00:00", "actor": "architect", "action": "transition", "from_state": "in_progress", "to_state": "review", "reason": ""}, {"timestamp": "2026-07-15T19:50:09.850909+00:00", "actor": "test_reviewer", "action": "comment", "body_len": 213}, {"timestamp": "2026-07-15T19:50:09.851896+00:00", "actor": "reviewer", "action": "transition", "from_state": "review", "to_state": "done", "reason": ""}], "GS-03-add-test-for-ping-in-tests-agile-test-pi": [{"timestamp": "2026-07-15T19:46:58.184606+00:00", "actor": "po", "action": "draft_story", "title": "Add test for ping() in tests/agile/test_ping.py", "story_type": "test", "priority": 89}, {"timestamp": "2026-07-15T19:47:04.387397+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}, {"timestamp": "2026-07-15T19:47:06.236258+00:00", "actor": "architect", "action": "poker_vote", "points": 2, "justification_len": 178}, {"timestamp": "2026-07-15T19:47:08.280761+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 205}, {"timestamp": "2026-07-15T19:47:10.942416+00:00", "actor": "devsecops", "action": "poker_vote", "points": 2, "justification_len": 247}, {"timestamp": "2026-07-15T19:47:10.943854+00:00", "actor": "scrum_master", "action": "set_points", "points": 2}, {"timestamp": "2026-07-15T19:47:10.944869+00:00", "actor": "architect", "action": "signoff", "role": "architect"}, {"timestamp": "2026-07-15T19:47:10.945741+00:00", "actor": "test", "action": "signoff", "role": "test"}, {"timestamp": "2026-07-15T19:47:10.946691+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}, {"timestamp": "2026-07-15T19:47:10.947595+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}], "GS-04-add-test-conftest-for-agile-tests-if-mis": [{"timestamp": "2026-07-15T19:46:58.184961+00:00", "actor": "po", "action": "draft_story", "title": "Add test conftest for agile tests if missing", "story_type": "test", "priority": 70}, {"timestamp": "2026-07-15T19:47:22.536829+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}, {"timestamp": "2026-07-15T19:47:24.683190+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 202}, {"timestamp": "2026-07-15T19:47:26.508374+00:00", "actor": "test", "action": "poker_vote", "points": 1, "justification_len": 175}, {"timestamp": "2026-07-15T19:47:28.267701+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 130}, {"timestamp": "2026-07-15T19:47:28.268861+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}, {"timestamp": "2026-07-15T19:47:28.269722+00:00", "actor": "architect", "action": "signoff", "role": "architect"}, {"timestamp": "2026-07-15T19:47:28.270467+00:00", "actor": "test", "action": "signoff", "role": "test"}, {"timestamp": "2026-07-15T19:47:28.271228+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}, {"timestamp": "2026-07-15T19:47:28.272094+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}], "GS-05-verify-ping-import-chain-works-end-to-en": [{"timestamp": "2026-07-15T19:46:58.185333+00:00", "actor": "po", "action": "draft_story", "title": "Verify ping import chain works end-to-end", "story_type": "test", "priority": 60}, {"timestamp": "2026-07-15T19:47:28.272867+00:00", "actor": "scrum_master", "action": "transition", "from_state": "draft", "to_state": "refinement", "reason": ""}, {"timestamp": "2026-07-15T19:47:30.449835+00:00", "actor": "architect", "action": "poker_vote", "points": 1, "justification_len": 262}, {"timestamp": "2026-07-15T19:47:32.458948+00:00", "actor": "test", "action": "poker_vote", "points": 2, "justification_len": 236}, {"timestamp": "2026-07-15T19:47:34.612399+00:00", "actor": "devsecops", "action": "poker_vote", "points": 1, "justification_len": 250}, {"timestamp": "2026-07-15T19:47:34.613458+00:00", "actor": "scrum_master", "action": "set_points", "points": 1}, {"timestamp": "2026-07-15T19:47:34.614252+00:00", "actor": "architect", "action": "signoff", "role": "architect"}, {"timestamp": "2026-07-15T19:47:34.614980+00:00", "actor": "test", "action": "signoff", "role": "test"}, {"timestamp": "2026-07-15T19:47:34.615662+00:00", "actor": "devsecops", "action": "signoff", "role": "devsecops"}, {"timestamp": "2026-07-15T19:47:34.616445+00:00", "actor": "scrum_master", "action": "transition", "from_state": "refinement", "to_state": "ready", "reason": ""}]};
+let WIKI = "# Decisions\n\n## orgos/agile package structure \u2014 GS-00-create-orgos-agile-package-structure\n- author: Developer\n- timestamp: 2026-07-15T19:16:03Z\n- source: GS-00-create-orgos-agile-package-structure\n- decision: Created `orgos/agile/` as a Python package with an `__init__.py` docstring only.\n- rationale: Provides the module skeleton for subsequent agile feature stories without imposing any design constraints.\n- applies-to: All modules added under `orgos/agile/`.\n\n\n- author=Developer timestamp=2026-07-15T19:16:41Z source=GS-01-add-hi-name-function-returning-f-hi-name \u2014 Add hi(name) function returning f'hi {name}'\n\n\n- author=Developer timestamp=2026-07-15T19:32:28Z source=GS-00-add-orgos-agile-package-with-init-py \u2014 Add orgos/agile package with __init__.py (already present and importing cleanly)\n\n- author=Developer timestamp=2026-07-15T19:33:16Z source=GS-05-add-wave-function-to-public-api-exports- \u2014 Add wave function to public API exports in agile/__init__.py\n\n## wave module export convention \u2014 GS-05-add-wave-function-to-public-api-exports-\n- author: Developer\n- timestamp: 2026-07-15T19:33:16Z\n- source: GS-05-add-wave-function-to-public-api-exports-\n- decision: wave(name: str) -> str exported from orgos/agile/__init__.py via `from orgos.agile.wave import wave` and listed in __all__\n- rationale: Standard package-level re-export pattern so consumers can `from orgos.agile import wave`\n- applies-to: Any future public function added under orgos/agile/\n\n\n- author=Developer timestamp=2026-07-15T19:39:10Z source=GS-00-create-orgos-agile-package-with-init-py \u2014 Verified orgos/agile/__init__.py exists and `import orgos.agile` succeeds (already present from prior sprint). No changes needed.\n\n- author=Developer timestamp=2026-07-15T19:50:00Z source=GS-00-add-ping-to-orgos-agile-ping-py \u2014 Add ping() to orgos/agile/ping.py\n\n## ping module convention \u2014 GS-00-add-ping-to-orgos-agile-ping-py\n- author: Developer\n- timestamp: 2026-07-15T19:50:00Z\n- source: GS-00-add-ping-to-orgos-agile-ping-py\n- decision: ping() -> str returns \"pong\"; re-exported from orgos/agile/__init__.py via `from orgos.agile.ping import ping` and listed in __all__\n- rationale: Standard pattern matching existing wave module convention; provides a simple health-check function with no dependencies\n- applies-to: Any future health-check or no-dependency functions added under orgos/agile/\n\n- author=Developer timestamp=2026-07-15T19:48:15Z source=GS-00-add-ping-to-orgos-agile-ping-py \u2014 Add ping() to orgos/agile/ping.py\n\n## ping module convention \u2014 GS-00-add-ping-to-orgos-agile-ping-py\n- author: Developer\n- timestamp: 2026-07-15T19:48:15Z\n- source: GS-00-add-ping-to-orgos-agile-ping-py\n- decision: ping() -> str returns \"pong\"; re-exported from orgos/agile/__init__.py via `from orgos.agile.ping import ping` and listed in __all__\n- rationale: Standard pattern matching existing wave module convention; provides a simple health-check function with no dependencies\n- applies-to: Any future health-check or no-dependency functions added under orgos/agile/\n- author=Developer timestamp=2026-07-15T19:49:14Z source=GS-01-add-ping-export-to-orgos-agile-init-py \u2014 Add ping export to orgos/agile/__init__.py (already present from prior commit, verified working)\n\n- author=Developer timestamp=2026-07-15T19:49:49Z source=GS-02-add-agile-package-export-to-orgos-init-p \u2014 Add `from . import agile` to orgos/__init__.py so orgos.agile is accessible as a subpackage";
+let RESULTS_BY_STORY = {"GS-00-add-ping-to-orgos-agile-ping-py": {"story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "role": "architect", "status": "committed", "commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9", "diff_summary": " orgos/agile/__init__.py  |  4 ++++\n orgos/agile/ping.py      | 12 ++++++++++++\n tests/agile/test_ping.py | 18 ++++++++++++++++++\n 3 files changed, 34 insertions(+)\n", "envelope": {"role": "developer", "status": "completed", "summary": "Add ping() to orgos/agile/ping.py \u2014 returns 'pong', re-exported in __init__.py __all__", "success_criteria_met": true, "requires_human_approval": false, "payload": {"commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9", "files_touched": ["orgos/agile/ping.py", "orgos/agile/__init__.py", "tests/agile/test_ping.py"], "test_command": "pytest tests/agile/test_ping.py -v", "test_output": "2 passed in 0.99s", "test_passed": true, "wiki_updated": true}}, "tokens_input": 132679, "tokens_output": 3004, "wall_seconds": 50.58, "error": ""}, "GS-01-add-ping-export-to-orgos-agile-init-py": {"story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "role": "architect", "status": "no_commit", "commit_sha": "", "diff_summary": "", "envelope": {"role": "developer", "status": "completed", "summary": "Verified ping export already exists in orgos/agile/__init__.py (from prior commit 366b23f). All 17 tests pass including test_ping.py::TestPing::test_is_exposed_in_package. Wiki updated.", "success_criteria_met": true, "requires_human_approval": false, "payload": {"commit_sha": "366b23f4ab1c981dc2438ca62ad20e39ac4188d9", "files_touched": [], "test_command": "pytest tests/agile/ -v", "test_output": "17 passed in 1.02s", "test_passed": true, "wiki_updated": true}}, "tokens_input": 167142, "tokens_output": 2882, "wall_seconds": 49.5, "error": ""}, "GS-02-add-agile-package-export-to-orgos-init-p": {"story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "role": "architect", "status": "committed", "commit_sha": "12c92db73bdf6447ba2b4bc5a85bd358f830ed8d", "diff_summary": " orgos/__init__.py | 1 +\n 1 file changed, 1 insertion(+)\n", "envelope": {"role": "developer", "status": "completed", "summary": "Added `from . import agile` to orgos/__init__.py so orgos.agile is accessible as a subpackage", "success_criteria_met": true, "requires_human_approval": false, "payload": {"commit_sha": "12c92db73bdf6447ba2b4bc5a85bd358f830ed8d", "files_touched": ["orgos/__init__.py"], "test_command": "python3 -c 'import orgos; print(orgos.agile)'", "test_output": "orgos.agile: <module 'orgos.agile' from '/Users/th/Documents/Github/orgos/.orgos_teams/noop-test/worktree/orgos/agile/__init__.py'>", "test_passed": true, "wiki_updated": true}}, "tokens_input": 64395, "tokens_output": 1674, "wall_seconds": 23.64, "error": ""}};
+let EVENTS = [{"timestamp": "2026-07-15T19:46:50.475262+00:00", "action": "campaign_started", "emoji": "\ud83d\ude80", "label": "campaign started", "mode": "scrum", "goal": "Add orgos/agile/ping.py with ping() returning 'pong' and a test at tests/agile/test_ping.py asserting ping() == 'pong'."}, {"timestamp": "2026-07-15T19:46:50.475332+00:00", "action": "goal_ingest_start", "emoji": "\ud83c\udfaf", "label": "decomposing goal", "summary": "PO decomposing goal"}, {"timestamp": "2026-07-15T19:46:58.185427+00:00", "action": "goal_ingest_done", "emoji": "\ud83d\udccb", "label": "backlog seeded", "n_stories": 6, "summary": "created 6 DRAFT stories"}, {"timestamp": "2026-07-15T19:46:58.185556+00:00", "action": "story_drafted", "emoji": "\ud83d\udcdd", "label": "story drafted", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "title": "Add ping() to orgos/agile/ping.py", "type": "architecture", "priority": 90}, {"timestamp": "2026-07-15T19:46:58.185627+00:00", "action": "story_drafted", "emoji": "\ud83d\udcdd", "label": "story drafted", "story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "title": "Add ping export to orgos/agile/__init__.py", "type": "feature", "priority": 85}, {"timestamp": "2026-07-15T19:46:58.185692+00:00", "action": "story_drafted", "emoji": "\ud83d\udcdd", "label": "story drafted", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "title": "Add agile package export to orgos/__init__.py", "type": "feature", "priority": 80}, {"timestamp": "2026-07-15T19:46:58.185764+00:00", "action": "story_drafted", "emoji": "\ud83d\udcdd", "label": "story drafted", "story_id": "GS-03-add-test-for-ping-in-tests-agile-test-pi", "title": "Add test for ping() in tests/agile/test_ping.py", "type": "test", "priority": 89}, {"timestamp": "2026-07-15T19:46:58.185852+00:00", "action": "story_drafted", "emoji": "\ud83d\udcdd", "label": "story drafted", "story_id": "GS-04-add-test-conftest-for-agile-tests-if-mis", "title": "Add test conftest for agile tests if missing", "type": "test", "priority": 70}, {"timestamp": "2026-07-15T19:46:58.185919+00:00", "action": "story_drafted", "emoji": "\ud83d\udcdd", "label": "story drafted", "story_id": "GS-05-verify-ping-import-chain-works-end-to-en", "title": "Verify ping import chain works end-to-end", "type": "test", "priority": 60}, {"timestamp": "2026-07-15T19:47:04.378712+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "voter": "architect", "points": 1, "justification": "This is a trivial task requiring a single-function file with no dependencies, no design decisions, and no integration risk. The implementation takes under 30 minutes including testing and commit."}, {"timestamp": "2026-07-15T19:47:04.378871+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "voter": "test", "points": 1, "justification": "This is a trivial single-function file with no dependencies, so testing is straightforward \u2014 a simple import and assertion verifies it. No risk of hidden complexity or integration issues from my persp"}, {"timestamp": "2026-07-15T19:47:04.379025+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "voter": "devsecops", "points": 1, "justification": "A single function returning a string has no dependencies and trivial surface area \u2014 no secrets or security risk to review. Effort is well under 30 minutes."}, {"timestamp": "2026-07-15T19:47:04.386401+00:00", "action": "refined_ready", "emoji": "\u2705", "label": "refined \u2192 READY", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "points": 1, "summary": "agreed on 1 pts"}, {"timestamp": "2026-07-15T19:47:10.942554+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-03-add-test-for-ping-in-tests-agile-test-pi", "voter": "architect", "points": 2, "justification": "Adding a one-line test with a single assertion is trivial. The only risk is if the ping() function doesn't exist yet, but that's a missing dependency, not estimation uncertainty."}, {"timestamp": "2026-07-15T19:47:10.942688+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-03-add-test-for-ping-in-tests-agile-test-pi", "voter": "test", "points": 1, "justification": "This is a trivial new file with one assertion and no dependencies, taking under 30 minutes to write and verify. There is no test environment risk because it is a standalone unit test for a simple func"}, {"timestamp": "2026-07-15T19:47:10.942768+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-03-add-test-for-ping-in-tests-agile-test-pi", "voter": "devsecops", "points": 2, "justification": "Adding a trivial ping test presents minimal security risk \u2014 no new dependencies or logic introduced. However, ensuring the test runner isolation and that no secrets leak into test fixtures is still wo"}, {"timestamp": "2026-07-15T19:47:10.947692+00:00", "action": "refined_ready", "emoji": "\u2705", "label": "refined \u2192 READY", "story_id": "GS-03-add-test-for-ping-in-tests-agile-test-pi", "points": 2, "summary": "agreed on 2 pts"}, {"timestamp": "2026-07-15T19:47:17.021691+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "voter": "architect", "points": 1, "justification": "Adding a single import line is trivial and requires no new logic. The risk is near zero as it's purely an export change."}, {"timestamp": "2026-07-15T19:47:17.021853+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "voter": "test", "points": 1, "justification": "This is a trivial one-line addition of an import with no logic changes, and testing would be minimal (e.g., verifying import works). From a test perspective, there's nearly zero risk or effort involve"}, {"timestamp": "2026-07-15T19:47:17.021975+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "voter": "devsecops", "points": 1, "justification": "Adding a single import line is trivial and poses no security risk. No secrets or sensitive data are involved, and the change is transparent and safe to deploy."}, {"timestamp": "2026-07-15T19:47:17.027709+00:00", "action": "refined_ready", "emoji": "\u2705", "label": "refined \u2192 READY", "story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "points": 1, "summary": "agreed on 1 pts"}, {"timestamp": "2026-07-15T19:47:22.529218+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "voter": "architect", "points": 1, "justification": "Adding a single import line to an existing file is trivial; no logic or tests need to change. The only risk is a typo in the import, easily caught by importing the module."}, {"timestamp": "2026-07-15T19:47:22.529423+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "voter": "test", "points": 1, "justification": "The change is trivial: adding a single import line to an existing file. No test modifications are needed, and verification requires only confirming the module loads without error."}, {"timestamp": "2026-07-15T19:47:22.529517+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "voter": "devsecops", "points": 1, "justification": "This is a trivial one-line import addition with no security implications. No secrets or credentials are involved, and the change is limited to a single existing file."}, {"timestamp": "2026-07-15T19:47:22.536034+00:00", "action": "refined_ready", "emoji": "\u2705", "label": "refined \u2192 READY", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "points": 1, "summary": "agreed on 1 pts"}, {"timestamp": "2026-07-15T19:47:28.267810+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-04-add-test-conftest-for-agile-tests-if-mis", "voter": "architect", "points": 1, "justification": "Creating an empty __init__.py is a trivial file creation with no logic, dependencies, or risk of breaking existing tests. The task requires only a single BashTool write command and a quick verificatio"}, {"timestamp": "2026-07-15T19:47:28.267928+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-04-add-test-conftest-for-agile-tests-if-mis", "voter": "test", "points": 1, "justification": "The task is trivial: creating an empty __init__.py file requires minimal effort and no testing. The main verification is checking file existence, which can be done in seconds."}, {"timestamp": "2026-07-15T19:47:28.268003+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-04-add-test-conftest-for-agile-tests-if-mis", "voter": "devsecops", "points": 1, "justification": "Creating an empty __init__.py is trivial; no secrets or security risks involved. The change is safe and straightforward to review."}, {"timestamp": "2026-07-15T19:47:28.272159+00:00", "action": "refined_ready", "emoji": "\u2705", "label": "refined \u2192 READY", "story_id": "GS-04-add-test-conftest-for-agile-tests-if-mis", "points": 1, "summary": "agreed on 1 pts"}, {"timestamp": "2026-07-15T19:47:34.612525+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-05-verify-ping-import-chain-works-end-to-en", "voter": "architect", "points": 1, "justification": "This is purely a verification story requiring no code changes, only running existing tests and a quick import check. As Architect, I estimate it as trivial (<30 minutes) because the implementation is "}, {"timestamp": "2026-07-15T19:47:34.612626+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-05-verify-ping-import-chain-works-end-to-en", "voter": "test", "points": 2, "justification": "As Test, this is a purely verification story with no code changes, so effort is minimal. Risks are low since the dependency chain is simple, but I need to ensure the ping module is importable and the "}, {"timestamp": "2026-07-15T19:47:34.612694+00:00", "action": "poker_vote", "emoji": "\ud83c\udfb2", "label": "poker vote", "story_id": "GS-05-verify-ping-import-chain-works-end-to-en", "voter": "devsecops", "points": 1, "justification": "This story requires no code changes and only involves running a pytest command and a simple Python import test, both of which are fast and deterministic. Security risk is minimal as there are no new d"}, {"timestamp": "2026-07-15T19:47:34.616525+00:00", "action": "refined_ready", "emoji": "\u2705", "label": "refined \u2192 READY", "story_id": "GS-05-verify-ping-import-chain-works-end-to-en", "points": 1, "summary": "agreed on 1 pts"}, {"timestamp": "2026-07-15T19:47:34.617032+00:00", "action": "story_pulled", "emoji": "\ud83d\udc77", "label": "worker pulled story", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "worker": "architect", "story_type": "architecture", "points": 1, "title": "Add ping() to orgos/agile/ping.py"}, {"timestamp": "2026-07-15T19:48:25.213704+00:00", "action": "commit_landed", "emoji": "\ud83d\udcbe", "label": "commit landed", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "commit_sha": "366b23f", "worker": "architect", "summary": "architect committed 366b23f"}, {"timestamp": "2026-07-15T19:48:41.936949+00:00", "action": "story_review_pass", "emoji": "\ud83d\udc4d", "label": "peer review PASS", "story_id": "GS-00-add-ping-to-orgos-agile-ping-py", "summary": "\u2192 DONE (366b23f)"}, {"timestamp": "2026-07-15T19:48:41.937671+00:00", "action": "story_pulled", "emoji": "\ud83d\udc77", "label": "worker pulled story", "story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "worker": "architect", "story_type": "feature", "points": 1, "title": "Add ping export to orgos/agile/__init__.py"}, {"timestamp": "2026-07-15T19:49:31.455356+00:00", "action": "story_done_noop", "emoji": "\ud83c\udf88", "label": "already satisfied, no changes needed", "story_id": "GS-01-add-ping-export-to-orgos-agile-init-py", "worker": "architect", "summary": "Verified ping export already exists in orgos/agile/__init__.py (from prior commit 366b23f). All 17 tests pass including test_ping.py::TestPing::test_i"}, {"timestamp": "2026-07-15T19:49:31.455811+00:00", "action": "story_pulled", "emoji": "\ud83d\udc77", "label": "worker pulled story", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "worker": "architect", "story_type": "feature", "points": 1, "title": "Add agile package export to orgos/__init__.py"}, {"timestamp": "2026-07-15T19:49:55.104767+00:00", "action": "commit_landed", "emoji": "\ud83d\udcbe", "label": "commit landed", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "commit_sha": "12c92db", "worker": "architect", "summary": "architect committed 12c92db"}, {"timestamp": "2026-07-15T19:50:09.852007+00:00", "action": "story_review_pass", "emoji": "\ud83d\udc4d", "label": "peer review PASS", "story_id": "GS-02-add-agile-package-export-to-orgos-init-p", "summary": "\u2192 DONE (12c92db)"}, {"timestamp": "2026-07-15T19:50:09.852201+00:00", "action": "campaign_finished", "emoji": "\ud83c\udfc1", "label": "campaign finished", "reason": "max_stories_worked (3 = cap 3)", "stories_done": 3, "stories_blocked": 0, "total_tokens": 503365, "summary": "stopped: max_stories_worked (3 = cap 3)"}];
+
+const STATE_ORDER = ["draft", "refinement", "ready", "in_progress", "review", "done"];
+// Blocked is shown as an extra column when non-empty.
+const KAN_STATE_ORDER = ["draft", "refinement", "ready", "in_progress", "review", "done"];
+
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function fmt(n, dp=0) { if (n==null) return "—"; if (typeof n !== "number") return n;
+  return n.toLocaleString(undefined, {maximumFractionDigits: dp}); }
+function pricingCost(model, tin, tout) {
+  const p = ({"deepseek/deepseek-chat":{i:0.27,o:1.10},
+              "deepseek/deepseek-reasoner":{i:0.55,o:2.19},
+              "unknown":{i:0.50,o:1.50}})[model] || {i:0.50,o:1.50};
+  return (tin/1e6)*p.i + (tout/1e6)*p.o;
+}
+
+function renderHeader() {
+  document.getElementById("team-id").textContent = MANIFEST.team_id || "(no team)";
+  document.getElementById("goal").textContent = MANIFEST.goal || "";
+  document.getElementById("meta").textContent =
+    "model: " + (MANIFEST.model || "?") +
+    " · created: " + (MANIFEST.created_at || "").slice(0,19).replace("T"," ") +
+    " · branch: " + (MANIFEST.branch || "");
+}
+
+function renderTotals() {
+  const tin = RESULT.total_tokens_input || 0;
+  const tout = RESULT.total_tokens_output || 0;
+  const cost = pricingCost(MANIFEST.model || "unknown", tin, tout);
+  const counts = {};
+  for (const s of Object.values(STORIES)) counts[s.state] = (counts[s.state]||0) + 1;
+  const totals = [
+    {l:"stories created", v: Object.keys(STORIES).length},
+    {l:"done", v: counts.done || 0},
+    {l:"in progress", v: counts.in_progress || 0},
+    {l:"blocked", v: counts.blocked || 0},
+    {l:"tokens (in+out)", v: fmt(tin + tout, 0)},
+    {l:"cost (USD)", v: "$" + fmt(cost, 4)},
+    {l:"stopped", v: RESULT.reason_stopped || "—"},
+  ];
+  const el = document.getElementById("cards");
+  el.innerHTML = "";
+  for (const t of totals) {
+    const d = document.createElement("div");
+    d.className = "card";
+    d.innerHTML = '<div class="l">'+esc(t.l)+'</div><div class="v">'+esc(t.v)+'</div>';
+    el.appendChild(d);
+  }
+}
+
+// Track which story IDs are already rendered where so we can add
+// a "fresh" pulse when a story moves columns.
+let lastStoryStateHash = {};
+
+function renderKanban() {
+  const el = document.getElementById("kanban");
+  const kanCount = document.getElementById("kanban-count");
+  const cols = KAN_STATE_ORDER.slice();
+  const hasBlocked = Object.values(STORIES).some(s => s.state === "blocked");
+  if (hasBlocked) cols.push("blocked");
+  kanCount.textContent = "(" + Object.keys(STORIES).length + " total)";
+
+  // If the number of columns changed, rebuild from scratch
+  if (el.children.length !== cols.length) {
+    el.innerHTML = "";
+    for (const state of cols) {
+      const col = document.createElement("div");
+      col.className = "kan-col state-" + state;
+      col.dataset.state = state;
+      col.innerHTML = '<h3><span>' + state.replace('_',' ') + '</span><span class="n">0</span></h3><div class="col-body"></div>';
+      el.appendChild(col);
+    }
+  }
+
+  // Bucket stories
+  const buckets = {};
+  for (const s of cols) buckets[s] = [];
+  for (const s of Object.values(STORIES)) {
+    if (buckets[s.state]) buckets[s.state].push(s);
+  }
+
+  // Sort each bucket by priority desc, then by id
+  for (const state of cols) {
+    buckets[state].sort((a,b) => (b.priority||0) - (a.priority||0) || a.issue_id.localeCompare(b.issue_id));
+  }
+
+  // Render
+  for (const state of cols) {
+    const col = el.querySelector('.kan-col[data-state="' + state + '"]');
+    col.querySelector(".n").textContent = buckets[state].length;
+    const body = col.querySelector(".col-body");
+    body.innerHTML = "";
+    for (const s of buckets[state]) {
+      const prevState = lastStoryStateHash[s.issue_id];
+      const isFresh = prevState && prevState !== s.state;
+      lastStoryStateHash[s.issue_id] = s.state;
+      const card = document.createElement("div");
+      card.className = "kan-card" + (isFresh ? " fresh" : "");
+      card.dataset.id = s.issue_id;
+      card.innerHTML =
+        '<div class="title">' + esc(s.title) + '</div>' +
+        '<div class="meta">' +
+          '<span class="type-tag">' + esc(s.type) + '</span>' +
+          (s.points != null ? '<span class="pts">' + s.points + 'pt</span>' : '') +
+          (s.assignee ? '<span class="assignee">@' + esc(s.assignee) + '</span>' : '') +
+        '</div>';
+      card.addEventListener("click", () => showDetail(s.issue_id));
+      body.appendChild(card);
+    }
+  }
+}
+
+// Activity strip
+let renderedEventKeys = new Set();
+function eventKey(e) { return e.timestamp + "|" + e.action + "|" + (e.story_id||"") + "|" + (e.voter||""); }
+
+function formatEventMsg(e) {
+  const sid = e.story_id ? '<span class="story-id">' + esc(e.story_id.slice(0, 34)) + '</span>' : "";
+  switch (e.action) {
+    case "campaign_started":
+      return "campaign started (mode=<b>" + esc(e.mode || "?") + "</b>)";
+    case "goal_ingest_start": return "PO decomposing the goal";
+    case "goal_ingest_done": return "PO produced <b>" + e.n_stories + "</b> stories";
+    case "goal_ingest_failed": return "decomposition FAILED: " + esc(e.summary);
+    case "story_drafted": return "drafted " + sid + " <span class=\"type-tag\">" + esc(e.type) + "</span> — " + esc(e.title || "");
+    case "poker_vote":
+      return "<span class=\"voter\">" + esc(e.voter) + "</span> voted <span class=\"points\">" + e.points + " pts</span> on " + sid +
+        (e.justification ? ' <span class="just">"' + esc(e.justification) + '"</span>' : "");
+    case "poker_divergent":
+      return "poker divergent on " + sid + " (votes " + JSON.stringify(e.votes || []) + ") — discussion round";
+    case "refined_ready":
+      return sid + " refined → <b>READY</b> (points=" + (e.points ?? "?") + ")";
+    case "refined_blocked":
+      return sid + " refined → <b>BLOCKED</b> — " + esc(e.summary || "");
+    case "story_pulled":
+      return "<span class=\"voter\">" + esc(e.worker) + "</span> pulled " + sid + " (" + esc(e.story_type) + ")";
+    case "commit_landed":
+      return sid + " committed <b>" + esc(e.commit_sha) + "</b>";
+    case "story_no_commit":
+      return sid + " NO COMMIT (" + esc(e.summary || "") + ")";
+    case "story_done_noop":
+      return sid + " <b>DONE (no-op)</b> — already satisfied: " + esc(e.summary || "");
+    case "story_review_pass":
+      return sid + " review <b>PASS</b> — " + esc(e.summary || "");
+    case "story_review_fail":
+      return sid + " review <b>FAIL</b>";
+    case "wiki_write":
+      return "wiki updated (" + esc(e.summary || "DECISIONS.md") + ")";
+    case "campaign_finished":
+      return "campaign done — stopped: <b>" + esc(e.reason || "") + "</b>";
+    default:
+      return esc(e.label || e.action) + " " + sid;
+  }
+}
+
+function renderActivity(newlyAddedOnly) {
+  const el = document.getElementById("activity");
+  const countEl = document.getElementById("act-count");
+  const events = EVENTS || [];
+  countEl.textContent = "(" + events.length + " events)";
+
+  // We render bottom-up; latest at bottom.
+  if (!newlyAddedOnly) {
+    el.innerHTML = "";
+    renderedEventKeys = new Set();
+  }
+  let addedAny = false;
+  for (const e of events) {
+    const k = eventKey(e);
+    if (renderedEventKeys.has(k)) continue;
+    renderedEventKeys.add(k);
+    const row = document.createElement("div");
+    row.className = "act-row" + (newlyAddedOnly ? " fresh" : "");
+    const ts = (e.timestamp || "").slice(11, 19);
+    row.innerHTML =
+      '<span class="ts">' + esc(ts) + '</span>' +
+      '<span class="emoji">' + esc(e.emoji || "•") + '</span>' +
+      '<span class="msg">' + formatEventMsg(e) + '</span>';
+    el.appendChild(row);
+    addedAny = true;
+  }
+  if (addedAny) el.scrollTop = el.scrollHeight;
+}
+
+function renderWiki() {
+  document.getElementById("wiki").textContent = WIKI || "(no wiki entries yet)";
+}
+
+function renderStoryTable() {
+  const stateOrder = {done:0, review:1, in_progress:2, ready:3, refinement:4, draft:5, blocked:6};
+  const ids = Object.keys(STORIES).sort((a,b) => {
+    const sa = stateOrder[STORIES[a].state] ?? 9;
+    const sb = stateOrder[STORIES[b].state] ?? 9;
+    if (sa !== sb) return sa - sb;
+    return (STORIES[b].priority||0) - (STORIES[a].priority||0);
+  });
+  const el = document.getElementById("stories");
+  el.innerHTML = "";
+  for (const id of ids) {
+    const s = STORIES[id];
+    const row = document.createElement("div");
+    row.className = "story-row";
+    row.dataset.id = id;
+    row.innerHTML =
+      '<div class="id">'+esc(id.slice(0,20))+'</div>' +
+      '<div class="state state-'+s.state+'">'+esc(s.state)+'</div>' +
+      '<div class="type">'+esc(s.type)+'</div>' +
+      '<div class="title">'+esc(s.title)+'</div>' +
+      '<div class="points">'+(s.points != null ? s.points + " pts" : "—")+'</div>';
+    row.addEventListener("click", () => showDetail(id));
+    el.appendChild(row);
+  }
+}
+
+function renderDiff(text) {
+  if (!text) return "(no diff)";
+  return text.split("\n").map(line => {
+    const e = esc(line);
+    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff --git")) return '<span class="line-file">'+e+'</span>';
+    if (line.startsWith("@@")) return '<span class="line-hunk">'+e+'</span>';
+    if (line.startsWith("+")) return '<span class="line-add">'+e+'</span>';
+    if (line.startsWith("-")) return '<span class="line-rem">'+e+'</span>';
+    return e;
+  }).join("\n");
+}
+
+function showDetail(id) {
+  document.querySelectorAll(".story-row").forEach(r =>
+    r.classList.toggle("active", r.dataset.id === id));
+  document.getElementById("detail").style.display = "block";
+  const s = STORIES[id];
+  if (!s) return;
+  document.getElementById("d-title").textContent = "[" + s.type + "] " + s.title + "  (" + s.state + ")";
+  document.getElementById("d-body").textContent = s.body || "(no body)";
+  const trail = (AUDIT || {})[id] || [];
+  document.getElementById("d-audit").innerHTML = trail.map(e =>
+    '<div class="row"><span>'+esc((e.timestamp||"").slice(11,19))+'</span> ' +
+    '<span class="action">'+esc(e.action)+'</span> ' +
+    '<span>by '+esc(e.actor||"?")+'</span> ' +
+    (e.to_state ? '<span>→ '+esc(e.to_state)+'</span>' : '') +
+    (e.reason ? '<span> ('+esc(e.reason)+')</span>' : '') +
+    '</div>'
+  ).join("");
+  document.getElementById("d-votes").textContent = JSON.stringify(s.votes || [], null, 2);
+  const r = (RESULTS_BY_STORY || {})[id] || {};
+  document.getElementById("d-envelope").textContent = JSON.stringify(r.envelope || {}, null, 2);
+  document.getElementById("d-diff").innerHTML = renderDiff(r.diff_summary || "(no diff for this story)");
+}
+
+// ── Live polling ─────────────────────────────────────────────────────
+let liveMode = false;
+let lastEventTs = "";
+async function tryEnterLiveMode() {
+  try {
+    const r = await fetch("/live/state", {cache: "no-store"});
+    if (!r.ok) return;
+    liveMode = true;
+    document.getElementById("live-badge").classList.add("on");
+    scheduleNextPoll();
+  } catch (e) {
+    // Not served — stay in static mode.
+  }
+}
+
+async function pollOnce() {
+  try {
+    const r = await fetch("/live/state", {cache: "no-store"});
+    if (!r.ok) throw new Error("state fetch failed");
+    const j = await r.json();
+    // Fold in updates
+    STORIES = j.stories || STORIES;
+    AUDIT = j.audit || AUDIT;
+    WIKI = j.wiki || WIKI;
+    RESULT = j.result || RESULT;
+    RESULTS_BY_STORY = j.results_by_story || RESULTS_BY_STORY;
+    // Tail events since last seen
+    const evUrl = "/live/tail" + (lastEventTs ? ("?since=" + encodeURIComponent(lastEventTs)) : "");
+    const er = await fetch(evUrl, {cache: "no-store"});
+    if (er.ok) {
+      const newEvents = await er.json();
+      if (newEvents && newEvents.length) {
+        EVENTS = (EVENTS || []).concat(newEvents);
+        lastEventTs = newEvents[newEvents.length - 1].timestamp;
+        renderActivity(true);
+      }
+    }
+    renderTotals();
+    renderKanban();
+    renderStoryTable();
+    renderWiki();
+  } catch (e) {
+    // Server likely stopped — turn off live badge and stop polling
+    document.getElementById("live-badge").classList.remove("on");
+    liveMode = false;
+    return;
+  }
+  scheduleNextPoll();
+}
+
+function scheduleNextPoll() {
+  if (!liveMode) return;
+  setTimeout(pollOnce, 2000);
+}
+
+// ── Initial render ───────────────────────────────────────────────────
+renderHeader();
+renderTotals();
+renderKanban();
+renderActivity(false);
+renderWiki();
+renderStoryTable();
+if (EVENTS && EVENTS.length) lastEventTs = EVENTS[EVENTS.length - 1].timestamp;
+tryEnterLiveMode();
+</script>
+</body>
+</html>

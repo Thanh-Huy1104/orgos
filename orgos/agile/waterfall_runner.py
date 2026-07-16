@@ -26,6 +26,7 @@ from typing import Any
 from orgos.agile.board_store import BoardStore
 from orgos.agile.dispatcher import DispatchResult, WorkResult
 from orgos.agile.goal_decomposer import decompose_goal
+from orgos.agile.live_events import EventEmitter
 from orgos.agile.sprint import _extract_json_objects, _get_wiki_mcp
 from orgos.agile.team_workspace import TeamWorkspace
 from orgos.spawn import TaskBrief, spawn
@@ -298,16 +299,25 @@ def run_waterfall_campaign(
     started_at = datetime.now(timezone.utc).isoformat()
     t0 = time.time()
     board = BoardStore(workspace.board_dir)
+    emitter = EventEmitter(workspace.root, console_log=lambda m: print(f"[waterfall] {m}", flush=True))
+
+    emitter.emit("campaign_started", mode="waterfall", goal=goal[:200])
 
     # Phase 1: same decomposer the scrum dispatcher uses
-    print(f"[waterfall] decomposing goal", flush=True)
+    emitter.emit("goal_ingest_start", summary="PO decomposing goal (waterfall mode)")
     try:
         ids = decompose_goal(
             goal=goal, repo_root=workspace.source_repo,
             board=board, model=model,
         )
-        print(f"[waterfall] created {len(ids)} stories", flush=True)
+        emitter.emit("goal_ingest_done", n_stories=len(ids),
+                     summary=f"created {len(ids)} stories")
+        for iid in ids:
+            s = board.read(iid)
+            emitter.emit("story_drafted", story_id=iid,
+                         title=s.title, type=s.type, priority=s.priority)
     except Exception as e:
+        emitter.emit("goal_ingest_failed", summary=str(e)[:200])
         return DispatchResult(
             team_id=workspace.team_id, goal=goal,
             started_at=started_at,
@@ -337,7 +347,8 @@ def run_waterfall_campaign(
             break
 
         story = board.read(iid)
-        print(f"[waterfall] story {iid} ({story.type})", flush=True)
+        emitter.emit("story_pulled", story_id=iid, worker="waterfall_pipeline",
+                     story_type=story.type, title=story.title[:80])
         story_dict = {
             "issue_id": story.issue_id, "title": story.title,
             "body": story.body, "type": story.type,
@@ -353,9 +364,16 @@ def run_waterfall_campaign(
             board.set_commit(iid, r.commit_sha, actor="waterfall_team")
             board.transition(iid, "review", actor="waterfall_team")
             board.transition(iid, "done", actor="waterfall_team")
+            emitter.emit("commit_landed", story_id=iid, commit_sha=r.commit_sha[:7],
+                         worker="waterfall_pipeline",
+                         summary=f"pipeline committed {r.commit_sha[:7]}")
+            emitter.emit("story_review_pass", story_id=iid,
+                         summary=f"→ DONE ({r.commit_sha[:7]})")
         else:
             board.transition(iid, "blocked", actor="waterfall_team",
                               reason=r.status)
+            emitter.emit("story_no_commit", story_id=iid, worker="waterfall_pipeline",
+                         summary=r.status)
 
         results.append(WorkResult(
             story_id=r.story_id, role="waterfall_team", status=r.status,
@@ -370,6 +388,11 @@ def run_waterfall_campaign(
         reason = "backlog_empty"
 
     counts = board.counts_by_state()
+    emitter.emit("campaign_finished", reason=reason,
+                 stories_done=counts.get("done", 0),
+                 stories_blocked=counts.get("blocked", 0),
+                 total_tokens=ttl_in + ttl_out,
+                 summary=f"stopped: {reason}")
     return DispatchResult(
         team_id=workspace.team_id, goal=goal,
         started_at=started_at,

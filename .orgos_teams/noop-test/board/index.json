@@ -1,0 +1,32 @@
+{
+  "GS-00-add-ping-to-orgos-agile-ping-py": {
+    "state": "done",
+    "type": "architecture",
+    "priority": 90
+  },
+  "GS-01-add-ping-export-to-orgos-agile-init-py": {
+    "state": "done",
+    "type": "feature",
+    "priority": 85
+  },
+  "GS-02-add-agile-package-export-to-orgos-init-p": {
+    "state": "done",
+    "type": "feature",
+    "priority": 80
+  },
+  "GS-03-add-test-for-ping-in-tests-agile-test-pi": {
+    "state": "ready",
+    "type": "test",
+    "priority": 89
+  },
+  "GS-04-add-test-conftest-for-agile-tests-if-mis": {
+    "state": "ready",
+    "type": "test",
+    "priority": 70
+  },
+  "GS-05-verify-ping-import-chain-works-end-to-en": {
+    "state": "ready",
+    "type": "test",
+    "priority": 60
+  }
+}
