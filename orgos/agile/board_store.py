@@ -258,8 +258,10 @@ class BoardStore:
         currently in_progress or review story. Returns None if nothing
         claimable.
 
-        Thread-safe: multiple concurrent callers will each get a different
-        story (or None).
+        Thread-safe within a single process (uses threading.Lock). Not safe
+        across multiple processes sharing the same board directory — the
+        async runtime is single-process by design (one asyncio event loop
+        drives all agents).
         """
         with self._claim_lock:
             candidates = self.list_ready_for_type(role)
