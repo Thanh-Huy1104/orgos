@@ -74,9 +74,11 @@ class TeamSupervisor:
                     # Agent exited cleanly (probably via .stop())
                     del tasks[name]
 
-        # Wait for all remaining agents to finish
+        # Wait for all remaining agents to finish; cancel any that hang past 5s
+        # and await the cancellation to keep teardown fully synchronous.
         for t in tasks.values():
             try:
                 await asyncio.wait_for(t, timeout=5.0)
             except (asyncio.TimeoutError, Exception):
                 t.cancel()
+        await asyncio.gather(*tasks.values(), return_exceptions=True)
