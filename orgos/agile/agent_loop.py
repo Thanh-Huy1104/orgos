@@ -64,22 +64,111 @@ class AsyncAgent:
             due_tasks = self.scheduler.pending(now)
 
             for task in due_tasks:
-                # For delivery agents, "check the board" is the implicit action
-                # for the first task if its cadence is short enough (<= 60s).
-                # For all agents, any scheduled task's action_text may contain
-                # keywords we route to a ceremony (retro/replan/poker) —
-                # ceremony routing is a follow-up task.
-                if self.is_delivery_agent and task.cadence_seconds <= 60:
+                text = task.action_text.lower()
+                # Delivery: implicit "check board" for short-cadence tasks
+                if self.is_delivery_agent and task.cadence_seconds <= 60 \
+                   and ("board" in text or "story" in text or "check" in text):
                     await self._pull_and_work_once()
-                # Ceremony routing: parse action_text keywords — implemented
-                # in the ceremonies task. For now, other scheduled tasks are
-                # no-ops so the tests can pass.
+                    continue
+                # Ceremony routing by keyword
+                if "retro" in text or "retrospective" in text:
+                    await self._run_retro()
+                    continue
+                if "replan" in text or "backlog" in text or "spec" in text:
+                    await self._run_replan()
+                    continue
+                if "poker" in text or "refinement" in text:
+                    await self._run_poker()
+                    continue
+                if "pr" in text and ("comment" in text or "feedback" in text or "review" in text):
+                    await self._run_pr_feedback()
+                    continue
+                # Otherwise: no-op (unknown scheduled task; log for the retro to notice)
+                self.emitter.emit(
+                    "scheduled_noop", role=self.role,
+                    summary=f"unrouted schedule: {task.action_text[:80]}",
+                )
 
             # Sleep until next scheduled tick (or 1s min, so stop() is responsive)
             await asyncio.sleep(min(1.0, self.scheduler.next_tick_in(now)))
 
         self.emitter.emit("agent_stopped", role=self.role,
                           summary=f"{self.role} shut down cleanly")
+
+    async def _run_retro(self) -> None:
+        try:
+            from orgos.agile.retrospective import run_retrospective
+            m = self.workspace.manifest()
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: run_retrospective(
+                    workspace=self.workspace, board=self.board,
+                    emitter=self.emitter, model=m.model,
+                    goal=m.goal, reason_stopped="scheduled",
+                    started_at=m.created_at, ended_at=m.created_at,
+                    tokens_total=0,
+                ),
+            )
+        except Exception as e:
+            self.emitter.emit("retro_failed", role=self.role, summary=str(e)[:200])
+
+    async def _run_replan(self) -> None:
+        try:
+            from orgos.agile.replan import run_replan
+            from orgos.agile.sprint_history import read_history
+            m = self.workspace.manifest()
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: run_replan(
+                    workspace=self.workspace, board=self.board,
+                    emitter=self.emitter, model=m.model,
+                    goal=m.goal, history=read_history(self.workspace.root),
+                ),
+            )
+        except Exception as e:
+            self.emitter.emit("replan_failed", role=self.role, summary=str(e)[:200])
+
+    async def _run_poker(self) -> None:
+        try:
+            from orgos.agile.poker import run_poker_round
+            m = self.workspace.manifest()
+            for state in ("draft", "refinement"):
+                for story in self.board.list_state(state):
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda s=story: run_poker_round(
+                            story=s, board=self.board, model=m.model,
+                            token_accumulator=lambda r: (0, 0),
+                        ),
+                    )
+        except Exception as e:
+            self.emitter.emit("poker_failed", role=self.role, summary=str(e)[:200])
+
+    async def _run_pr_feedback(self) -> None:
+        try:
+            from orgos.agile.pr_feedback import ingest_pr_feedback
+            import json
+            r_path = self.workspace.root / "campaign_result.json"
+            pr_url = ""
+            if r_path.exists():
+                try:
+                    pr_url = json.loads(r_path.read_text()).get("pr_url", "")
+                except Exception:
+                    pass
+            if not pr_url:
+                return  # nothing to ingest
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: ingest_pr_feedback(
+                    workspace=self.workspace, pr_url=pr_url,
+                    board=self.board, emitter=self.emitter,
+                    sprint_num=1,
+                ),
+            )
+        except Exception as e:
+            self.emitter.emit(
+                "pr_feedback_error", role=self.role, summary=str(e)[:200],
+            )
 
     async def _pull_and_work_once(self) -> None:
         """Delivery-agent action: check board, pull if match, run executor, enqueue merge."""
