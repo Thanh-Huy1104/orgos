@@ -62,7 +62,7 @@ class DispatchResult:
     stories_blocked: int
     total_tokens_input: int = 0
     total_tokens_output: int = 0
-    per_story_results: list = field(default_factory=list)
+    per_story_results: list["WorkResult"] = field(default_factory=list)
     pr_url: str = ""
 
 
