@@ -216,7 +216,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
     import signal
     from orgos.agile.agent_loop import AsyncAgent
     from orgos.agile.board_store import BoardStore
-    from orgos.agile.coding_executor import ClaudeCodeExecutor
+    from orgos.agile.coding_executor import ClaudeCodeExecutor, CopilotCliExecutor
     from orgos.agile.spawn_executor import SpawnCodingExecutor
     import shutil
     from orgos.agile.live_events import EventEmitter
@@ -255,16 +255,25 @@ def _cmd_start(args: argparse.Namespace) -> int:
     board = BoardStore(ws.root / "board")
     emitter = EventEmitter(ws.root)
 
-    # Pick coding executor. 'auto' prefers claude if installed, else spawn.
+    # Pick coding executor.
+    #  auto → prefer claude, else copilot, else fall back to spawn (API-key path).
     choice = args.executor
     if choice == "auto":
-        choice = "claude" if shutil.which("claude") else "spawn"
+        if shutil.which("claude"):
+            choice = "claude"
+        elif shutil.which("copilot"):
+            choice = "copilot"
+        else:
+            choice = "spawn"
     if choice == "claude":
         executor = ClaudeCodeExecutor()
-        exec_label = "claude (Claude Code CLI, user's subscription)"
+        exec_label = "claude (Claude Code CLI, user's Claude subscription — no API key)"
+    elif choice == "copilot":
+        executor = CopilotCliExecutor()
+        exec_label = "copilot (GitHub Copilot CLI, user's Copilot subscription — no API key)"
     else:
         executor = SpawnCodingExecutor(model=args.model)
-        exec_label = f"spawn (LiteLLM backend, model={args.model})"
+        exec_label = f"spawn (LiteLLM backend, model={args.model} — needs API key in .env)"
     print(f"[cli] coding executor: {exec_label}", flush=True)
     merge_queue = MergeQueue(ws)
 
@@ -532,14 +541,17 @@ def main(argv: list[str] | None = None) -> int:
     start_p.add_argument("--spec-file", type=str, default=None)
     start_p.add_argument("--model", type=str, default="deepseek/deepseek-chat")
     start_p.add_argument(
-        "--executor", type=str, choices=("auto", "claude", "spawn"),
+        "--executor", type=str,
+        choices=("auto", "claude", "copilot", "spawn"),
         default="auto",
-        help="Coding executor. 'auto' (default) prefers 'claude' if the "
-             "Claude Code CLI is on PATH, else falls back to 'spawn'. "
-             "'claude' uses `claude -p` (the user's Claude subscription — "
-             "no API key visible to orgos). 'spawn' uses orgos.spawn + "
-             "LiteLLM (needs a model API key from .env or the model "
-             "provider's default env var).",
+        help="Coding executor. 'auto' (default) prefers 'claude', then "
+             "'copilot', then falls back to 'spawn'. "
+             "'claude' uses `claude -p` (Claude subscription — no API key). "
+             "'copilot' uses `copilot -p` (GitHub Copilot subscription — no "
+             "API key; run `copilot` + `/login` once first). "
+             "'spawn' uses orgos.spawn + LiteLLM (needs an API key in .env; "
+             "supports any OpenAI-compatible endpoint via OPENAI_BASE_URL, "
+             "so this is where the DeepSeek / custom-URL path lives).",
     )
     start_p.add_argument("--fresh", action="store_true")
     start_p.set_defaults(func=_cmd_start)
