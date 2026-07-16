@@ -191,6 +191,100 @@ class TestAsyncAgentCeremonies:
         assert called["retro"] == 0
 
 
+class TestHeartbeatSchedulerResetOnRestart:
+    """Regression: after a crash+restart the scheduler must not freeze."""
+
+    def test_scheduler_tasks_reset_to_minus_one_on_loop_reentry(
+        self, tmp_path, real_repo
+    ):
+        """After loop() exits and is re-entered, _last_fired_at must be -1.0."""
+        board = BoardStore(tmp_path / "board")
+        ws = _make_ws(tmp_path, real_repo)
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(ws)
+        executor = MagicMock()
+
+        heartbeat_md = "## Every 1 seconds\nCheck board."
+        agent = AsyncAgent(
+            role="architect", workspace=ws, board=board,
+            executor=executor, merge_queue=queue, emitter=emitter,
+            heartbeat_md=heartbeat_md,
+            is_delivery_agent=True,
+        )
+
+        async def run_once():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+
+        # First session: run and let the scheduler fire
+        asyncio.run(run_once())
+        fired_after_first = agent.scheduler.tasks[0]._last_fired_at
+        # It should have fired (positive value) during the first session
+        assert fired_after_first > 0, (
+            "Task should have fired during first session"
+        )
+
+        # Simulate crash+restart: supervisor resets _alive and calls loop() again
+        agent._alive = True
+        asyncio.run(run_once())
+
+        # After the second session completes, the task should have fired again
+        # (it was reset to -1.0 at the top of loop(), so it fires immediately)
+        fired_after_second = agent.scheduler.tasks[0]._last_fired_at
+        assert fired_after_second >= 0, (
+            "Task should have fired in the restarted session — scheduler was not frozen"
+        )
+
+    def test_ceremony_fires_in_second_session(self, tmp_path, real_repo, monkeypatch):
+        """After restart the scheduled ceremony must fire again, not be frozen."""
+        board = BoardStore(tmp_path / "board")
+        ws = _make_ws(tmp_path, real_repo)
+        ws.team_id = "t1"
+        ws.source_repo = real_repo
+        ws.manifest = MagicMock(return_value=MagicMock(
+            goal="test", model="m", baseline_sha="", created_at="2024-01-01T00:00:00Z"))
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(ws)
+        executor = MagicMock()
+
+        called = {"retro": 0}
+
+        def fake_retro(**kwargs):
+            called["retro"] += 1
+            return {"went_well": [], "went_wrong": [], "action_item": ""}
+
+        from orgos.agile import retrospective as _retro_mod
+        monkeypatch.setattr(_retro_mod, "run_retrospective", fake_retro)
+
+        heartbeat_md = "## Every 1 seconds\nRun the sprint retrospective."
+        agent = AsyncAgent(
+            role="scrum_master", workspace=ws, board=board,
+            executor=executor, merge_queue=queue, emitter=emitter,
+            heartbeat_md=heartbeat_md,
+            is_delivery_agent=False,
+        )
+
+        async def run_once():
+            task = asyncio.create_task(agent.loop())
+            await asyncio.sleep(1.5)
+            agent.stop()
+            await asyncio.wait_for(task, timeout=5.0)
+
+        asyncio.run(run_once())
+        after_first = called["retro"]
+        assert after_first >= 1, "retro must fire in first session"
+
+        # Simulate crash+restart
+        agent._alive = True
+        asyncio.run(run_once())
+        after_second = called["retro"]
+        assert after_second > after_first, (
+            "retro must fire again in restarted session (scheduler not frozen)"
+        )
+
+
 class TestAsyncAgentCoordination:
     def test_coordination_agent_skips_board(self, tmp_path, real_repo):
         board = BoardStore(tmp_path / "board")

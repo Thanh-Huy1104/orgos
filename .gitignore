@@ -23,3 +23,7 @@ google-*.json
 
 # per-sprint git worktrees
 .sprints/
+
+# macOS metadata
+.DS_Store
+**/.DS_Store

@@ -178,6 +178,35 @@ class TestFilesToTouchExtraction:
         )
         assert b.read(ids[0]).files_to_touch == []
 
+    def test_missing_files_to_touch_emits_warning(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """When a story has no files_to_touch, decompose_goal must print a warning."""
+        from orgos.agile.board_store import BoardStore
+        from orgos.agile import goal_decomposer as gd
+
+        class FakeTaskOutput:
+            # Story deliberately omits files_to_touch
+            raw = '[{"title": "Research spike", "body": "investigate", "type": "docs", "priority": 10}]'
+
+        class FakeResult:
+            tasks_output = [FakeTaskOutput()]
+            token_usage = None
+
+        monkeypatch.setattr(gd, "spawn", lambda role, brief, **kw: FakeResult())
+
+        b = BoardStore(tmp_path)
+        ids = gd.decompose_goal(
+            goal="research something", repo_root=tmp_path, board=b, model="mock",
+        )
+        assert len(ids) == 1
+        assert b.read(ids[0]).files_to_touch == []
+
+        captured = capsys.readouterr()
+        assert "[decomposer] WARNING" in captured.out
+        assert "files_to_touch" in captured.out
+        assert "Research spike" in captured.out
+
 
 class TestEnvironmentDetection:
     def test_python_pip(self, tmp_path):

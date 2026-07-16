@@ -318,6 +318,15 @@ def decompose_goal(
             raw_ftt = []
         files_to_touch = [str(p).strip() for p in raw_ftt if str(p).strip()]
 
+        if not files_to_touch:
+            # Not fatal — some stories genuinely have no files (research, wiki edits).
+            # But log it so retro/review can catch a lazy PO.
+            print(
+                f"[decomposer] WARNING: story '{title[:60]}' drafted with empty "
+                f"files_to_touch — file-overlap safety net is inert for this story.",
+                flush=True,
+            )
+
         issue_id = f"{id_prefix}-{i:02d}-{_slugify(title)}"
         while board.exists(issue_id):
             issue_id = f"{issue_id}-{len(created)}"

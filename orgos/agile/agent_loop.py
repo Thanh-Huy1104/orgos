@@ -62,6 +62,12 @@ class AsyncAgent:
 
     async def loop(self) -> None:
         self._start_wall = time.time()
+        # Reset scheduled-task fired markers so that a crash+restart doesn't
+        # leave _last_fired_at holding a value from the previous session
+        # (which would make (now - _last_fired_at) negative and freeze tasks
+        # for up to one full cadence interval after restart).
+        for t in self.scheduler.tasks:
+            t._last_fired_at = -1.0
         self.emitter.emit("agent_started", role=self.role,
                           summary=f"{self.role} online")
 
