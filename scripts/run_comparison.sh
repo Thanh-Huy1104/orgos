@@ -23,17 +23,19 @@ GOAL=""
 MODEL="deepseek/deepseek-chat"
 EXECUTOR="auto"
 SCRUM_SECONDS=360
+SPRINT_DURATION_SECONDS=0
 WATERFALL_TEAM="cmp-waterfall"
 SCRUM_TEAM="cmp-scrum"
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --repo)          REPO="$2"; shift 2 ;;
-        --goal)          GOAL="$2"; shift 2 ;;
-        --model)         MODEL="$2"; shift 2 ;;
-        --executor)      EXECUTOR="$2"; shift 2 ;;
-        --scrum-seconds) SCRUM_SECONDS="$2"; shift 2 ;;
-        -h|--help)       sed -n '2,20p' "$0"; exit 0 ;;
+        --repo)                     REPO="$2"; shift 2 ;;
+        --goal)                     GOAL="$2"; shift 2 ;;
+        --model)                    MODEL="$2"; shift 2 ;;
+        --executor)                 EXECUTOR="$2"; shift 2 ;;
+        --scrum-seconds)            SCRUM_SECONDS="$2"; shift 2 ;;
+        --sprint-duration-seconds)  SPRINT_DURATION_SECONDS="$2"; shift 2 ;;
+        -h|--help)                  sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1"; exit 2 ;;
     esac
 done
@@ -54,6 +56,7 @@ echo "    goal:          $GOAL"
 echo "    model:         $MODEL"
 echo "    executor:      $EXECUTOR"
 echo "    scrum window:  ${SCRUM_SECONDS}s"
+echo "    sprint dur:    ${SPRINT_DURATION_SECONDS}s (0 = use SM's HEARTBEAT.md default 4h)"
 
 # ── clean previous runs ────────────────────────────────────────────────────
 echo "==> Cleaning previous team workspaces + branches"
@@ -94,6 +97,7 @@ if orgos start \
     --repo "$REPO" --team-id "$SCRUM_TEAM" --goal "$GOAL" \
     --executor "$EXECUTOR" --model "$MODEL" \
     --timeout-seconds "$SCRUM_SECONDS" \
+    --sprint-duration-seconds "$SPRINT_DURATION_SECONDS" \
     > "/tmp/orgos-cmp-scrum.log" 2>&1; then
     S_EXIT=0
 else

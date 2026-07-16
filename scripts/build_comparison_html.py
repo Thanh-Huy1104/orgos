@@ -110,6 +110,26 @@ def collect_team(root: pathlib.Path) -> dict:
     integ_wt = root / ("worktree" if (root / "worktree").exists() else "integration")
     test_rc, test_tail = run_tests(integ_wt)
 
+    # Sprint history (scrum only — waterfall doesn't have sprints)
+    sprints = campaign.get("sprints", []) or []
+    # Fallback: read sprints/*.json directly if campaign_result didn't inline them
+    if not sprints:
+        sprints_dir = root / "sprints"
+        if sprints_dir.exists():
+            for f in sorted(sprints_dir.glob("*.json")):
+                try:
+                    sprints.append(json.loads(f.read_text()))
+                except json.JSONDecodeError:
+                    continue
+    # Compute mean SPE across closed sprints (only sprints that actually closed
+    # have a duration and thus a meaningful SPE).
+    closed = [s for s in sprints if s.get("ended_at")]
+    mean_spe = (
+        round(sum(s.get("spe", 0.0) for s in closed) / len(closed), 4)
+        if closed else 0.0
+    )
+    total_final_commit = sum(s.get("final_commit", 0) for s in closed)
+
     return {
         "missing":         False,
         "team_id":         campaign.get("team_id", root.name),
@@ -117,6 +137,10 @@ def collect_team(root: pathlib.Path) -> dict:
         "started_at":      campaign.get("started_at", ""),
         "ended_at":        campaign.get("ended_at", ""),
         "reason_stopped":  campaign.get("reason_stopped", ""),
+        "sprints":         sprints,
+        "closed_sprints":  len(closed),
+        "mean_spe":        mean_spe,
+        "total_final_commit_pts": total_final_commit,
         "stories_created": campaign.get("stories_created", sum(states.values())),
         "stories_done":    campaign.get("stories_done", states.get("done", 0)),
         "stories_blocked": campaign.get("stories_blocked", states.get("blocked", 0)),
@@ -237,6 +261,28 @@ def render(
 
     metrics_rows = "\n".join(metric_row(*m) for m in metrics)
 
+    # SPE (mean over closed sprints) — scrum-only. Waterfall has no sprint concept.
+    spe_row = ""
+    if scrum.get("closed_sprints", 0) > 0:
+        s_spe = scrum.get("mean_spe", 0.0)
+        try:
+            from orgos.agile.spe import spe_band
+            band = spe_band(s_spe)
+        except Exception:
+            band = ""
+        s_spe_str = f"{s_spe:.3f}" + (f' ({band})' if band else '')
+        spe_row = (
+            f'<tr><td>mean SPE (per sprint)</td>'
+            f'<td class="num sub">— (no sprints)</td>'
+            f'<td class="num">{html.escape(s_spe_str)}</td></tr>'
+            f'<tr><td>closed sprints</td>'
+            f'<td class="num sub">—</td>'
+            f'<td class="num">{scrum["closed_sprints"]}</td></tr>'
+            f'<tr><td>total committed pts</td>'
+            f'<td class="num sub">—</td>'
+            f'<td class="num">{scrum.get("total_final_commit_pts", 0)}</td></tr>'
+        )
+
     # Test verdict row (separate — not a "winner" style)
     tests_row = (
         f'<tr><td>integration tests</td>'
@@ -262,6 +308,44 @@ def render(
             "<table><thead><tr><th>id</th><th>title</th><th>type</th>"
             "<th>pts</th><th>state</th><th>sha</th></tr></thead>"
             f"<tbody>{body}</tbody></table>"
+        )
+
+    def sprint_history_table(sprints_list):
+        if not sprints_list:
+            return '<div class="sub">(no sprints — waterfall run, or scrum never closed a sprint)</div>'
+        try:
+            from orgos.agile.spe import spe_band
+        except Exception:
+            spe_band = lambda _v: ""  # noqa: E731
+        rows = []
+        for s in sprints_list:
+            n = s.get("number", "?")
+            duration = s.get("duration_hours", 0.0)
+            fc = s.get("final_commit", 0)
+            done = len(s.get("stories_done") or [])
+            committed = len(s.get("committed_backlog") or [])
+            pts = s.get("points_completed", 0)
+            spe = s.get("spe", 0.0)
+            band = spe_band(spe) if s.get("ended_at") else "(open)"
+            status = "open" if not s.get("ended_at") else s.get("reason_closed", "closed")
+            rows.append(
+                f"<tr>"
+                f"<td class='num'>{n}</td>"
+                f"<td>{done}/{committed}</td>"
+                f"<td class='num'>{pts}</td>"
+                f"<td class='num'>{fc}</td>"
+                f"<td class='num'>{duration:.2f}h</td>"
+                f"<td class='num'>{spe:.3f}</td>"
+                f"<td>{html.escape(band)}</td>"
+                f"<td>{html.escape(status)}</td>"
+                f"</tr>"
+            )
+        return (
+            "<table><thead><tr>"
+            "<th>sprint</th><th>done/committed</th><th>pts done</th>"
+            "<th>final_commit (pts)</th><th>duration</th><th>SPE</th>"
+            "<th>band</th><th>status</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
         )
 
     def event_histogram(counts):
@@ -294,14 +378,18 @@ def render(
 <thead><tr><th>metric</th><th class="num">waterfall</th><th class="num">scrum</th></tr></thead>
 <tbody>
 {metrics_rows}
+{spe_row}
 {tests_row}
 </tbody>
 </table>
 <div class="sub">
   Cost estimate uses input=${input_cost:.4f}/1M output=${output_cost:.4f}/1M
   (DeepSeek Chat defaults). Green cell = winner on that metric.
-  For "blocked / tokens / cost", lower is better; for "drafted / done", higher.
-  Test outcomes are informational, not scored.
+  For "blocked / tokens / cost", lower is better; for "drafted / done / SPE", higher.
+  Test outcomes are informational, not scored. SPE = per-sprint
+  process efficiency (ideal fair-share hours / actual hours), point-weighted;
+  &gt; 1.0 = finished faster than fair share, &lt; 1.0 = ran over, 0 = didn't
+  land.
 </div>
 
 <div class="grid2">
@@ -330,6 +418,9 @@ def render(
 
 <h2>Stories — scrum ({scrum.get('stories_created', 0)})</h2>
 {stories_table(scrum.get('stories', []))}
+
+<h2>Scrum sprint history</h2>
+{sprint_history_table(scrum.get('sprints', []))}
 
 <h2>Scrum event histogram</h2>
 {event_histogram(scrum.get('event_counts', {}))}

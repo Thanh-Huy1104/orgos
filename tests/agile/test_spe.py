@@ -71,13 +71,16 @@ class TestSprintProcessEfficiency:
         assert r["spe"] == 1.25                   # (2.5*5 + 0*5)/10
 
     def test_blocked_excluded_from_commit_and_average(self):
+        # A is the only scored story after D is dropped, so it "owns" the
+        # entire fair-share pie: ideal = (5/5)*10 = 10h. It finished in 5h,
+        # so PE = 10/5 = 2.0 (twice as fast as fair share) → SPE = 2.0.
         a = _story("A", 5, "done",
-                   "2026-01-01T00:00:00Z", "2026-01-01T05:00:00Z")  # PE 1.0
+                   "2026-01-01T00:00:00Z", "2026-01-01T05:00:00Z")  # PE 2.0
         d = _story("D", 3, "blocked")
         r = sprint_process_efficiency([a, d], duration_hours=10)
         assert r["final_commit"] == 5             # blocked dropped from commit
         assert r["dropped_stories"] == 1
-        assert r["spe"] == 1.0
+        assert r["spe"] == 2.0
 
     def test_empty_sprint_spe_zero(self):
         r = sprint_process_efficiency([], duration_hours=10)

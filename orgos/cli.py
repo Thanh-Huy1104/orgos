@@ -296,7 +296,26 @@ def _cmd_start(args: argparse.Namespace) -> int:
         # Personas live in the orgos repo (source of truth), not the target.
         orgos_root = Path(__file__).resolve().parent.parent
         p = orgos_root / "agents" / role / "HEARTBEAT.md"
-        return p.read_text(encoding="utf-8") if p.exists() else "## Every 30 seconds\nCheck board."
+        text = p.read_text(encoding="utf-8") if p.exists() else "## Every 30 seconds\nCheck board."
+        # Override SM's sprint boundary cadence at runtime if the user set
+        # --sprint-duration-seconds. Rewrites 'Every N hours' → 'Every S seconds'
+        # for the block that contains 'sprint boundary'.
+        override = int(getattr(args, "sprint_duration_seconds", 0) or 0)
+        if role == "scrum_master" and override > 0:
+            import re
+            def _sub(match):
+                whole, body = match.group(0), match.group(1)
+                if "sprint" in body.lower() and (
+                    "boundary" in body.lower() or "open" in body.lower()
+                    or "close" in body.lower() or "planning" in body.lower()
+                ):
+                    return f"## Every {override} seconds\n{body}"
+                return whole
+            text = re.sub(
+                r"## Every \d+ (?:seconds?|minutes?|hours?)\n((?:.*\n?)*?)(?=(?:## Every |\Z))",
+                _sub, text, flags=re.MULTILINE,
+            )
+        return text
 
     delivery_roles = {"architect", "test", "devsecops"}
     agents = {}
@@ -625,6 +644,14 @@ def main(argv: list[str] | None = None) -> int:
         "--timeout-seconds", type=int, default=0,
         help="Auto-shutdown after N seconds (0 = run until SIGINT). Useful "
              "for CI / benchmarking / any driver that can't send SIGINT itself.",
+    )
+    start_p.add_argument(
+        "--sprint-duration-seconds", type=int, default=0,
+        help="Override SM's sprint boundary cadence at runtime (0 = use the "
+             "cadence written in agents/scrum_master/HEARTBEAT.md, currently 4h). "
+             "Useful for demos and comparison runs — e.g. 300 makes SM close+open "
+             "sprints every 5 minutes, so a 30-min run sees ~6 sprints and SPE "
+             "becomes measurable per sprint.",
     )
     start_p.set_defaults(func=_cmd_start)
 
