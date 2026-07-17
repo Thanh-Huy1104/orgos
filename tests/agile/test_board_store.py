@@ -8,7 +8,69 @@ import pytest
 
 from orgos.agile.board_store import (
     BoardError, BoardStore, InvalidTransition, VALID_TYPES,
+    derive_component_from_files,
 )
+
+
+class TestComponentDerivation:
+    """Component is auto-derived from files_to_touch — feature-branch style.
+    No hardcoded vocabulary; the story's file scope IS its component."""
+
+    def test_top_level_dir_becomes_component(self):
+        assert derive_component_from_files(["auth/routes.py"]) == "auth"
+        assert derive_component_from_files(["notes/mod.py", "notes/util.py"]) == "notes"
+
+    def test_test_files_normalize_to_subject(self):
+        assert derive_component_from_files(["tests/test_auth.py"]) == "auth"
+        assert derive_component_from_files(["test/test_notes.py"]) == "notes"
+        assert derive_component_from_files(["tests/auth/test_login.py"]) == "auth"
+
+    def test_root_file_becomes_unique_lock(self):
+        assert derive_component_from_files(["app.py"]) == "app-py"
+        assert derive_component_from_files(["main.py"]) == "main-py"
+
+    def test_empty_files_defaults_to_core(self):
+        assert derive_component_from_files([]) == "core"
+
+    def test_mixed_scopes_picks_most_common(self):
+        files = ["auth/routes.py", "auth/tokens.py", "app.py"]
+        assert derive_component_from_files(files) == "auth"
+
+    def test_tie_broken_alphabetically(self):
+        files = ["notes/x.py", "auth/y.py"]
+        assert derive_component_from_files(files) == "auth"
+
+    def test_draft_story_auto_derives_component(self, board):
+        s = board.draft_story(
+            issue_id="A", title="a", body="b",
+            story_type="feature",
+            files_to_touch=["auth/routes.py"],
+        )
+        assert s.component == "auth"
+
+    def test_draft_story_explicit_component_wins(self, board):
+        s = board.draft_story(
+            issue_id="B", title="b", body="b",
+            story_type="feature",
+            files_to_touch=["auth/routes.py"],
+            component="custom-override",
+        )
+        assert s.component == "custom-override"
+
+    def test_paired_feature_and_test_share_component(self, board):
+        """Feature (auth/routes.py) + paired test (tests/test_auth.py)
+        both derive to 'auth' → serialize correctly."""
+        f = board.draft_story(
+            issue_id="F", title="add ping", body="",
+            story_type="feature",
+            files_to_touch=["notes/routes.py"],
+        )
+        t = board.draft_story(
+            issue_id="T", title="test ping", body="",
+            story_type="test",
+            files_to_touch=["tests/test_notes.py"],
+        )
+        assert f.component == t.component == "notes"
 
 
 @pytest.fixture

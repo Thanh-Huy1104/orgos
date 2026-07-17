@@ -39,13 +39,65 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import threading
 import uuid
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+
+def derive_component_from_files(files_to_touch: list[str]) -> str:
+    """Derive a component (ownership boundary) from a story's files_to_touch.
+
+    Feature-branch style — no hardcoded vocabulary. What the story TOUCHES
+    IS what defines its component:
+      ["auth/routes.py", "auth/tokens.py"] → "auth"
+      ["notes/routes.py"] → "notes"
+      ["tests/test_notes.py"] → "notes"   (test file normalized to its subject)
+      ["tests/notes/test_foo.py"] → "notes"
+      ["app.py"] → "app-py"               (leaf file → unique lock)
+      [] → "core"                         (nothing specified → default lock)
+
+    When files span multiple components, uses the most common one; ties
+    broken alphabetically. A story spanning multiple components is a smell
+    (should be split), but we don't reject it — we just pick a lock.
+    """
+    if not files_to_touch:
+        return "core"
+
+    def _one(f: str) -> str:
+        # Normalize the path
+        f = f.lstrip("./").strip()
+        if not f:
+            return "core"
+        # Test file conventions:
+        #   tests/test_<name>.py  → <name>
+        #   test/test_<name>.py   → <name>
+        m = re.match(r"tests?/test_(\w+)\.\w+$", f)
+        if m:
+            return m.group(1)
+        #   tests/<name>/…       → <name>
+        m = re.match(r"tests?/([\w-]+)/", f)
+        if m:
+            return m.group(1)
+        # Top-level directory: notes/routes.py → notes
+        m = re.match(r"([\w-]+)/", f)
+        if m:
+            return m.group(1)
+        # Leaf file at repo root: app.py → app-py (unique per file so
+        # multiple stories touching the same file serialize on the SAME
+        # component; each root file is its own lock).
+        return f.replace(".", "-").replace("/", "-").lower()
+
+    counts = Counter(_one(f) for f in files_to_touch)
+    # Most common; tie broken alphabetically for determinism
+    max_count = max(counts.values())
+    winners = sorted(k for k, v in counts.items() if v == max_count)
+    return winners[0]
 
 
 VALID_STATES = (
@@ -358,7 +410,7 @@ class BoardStore:
         priority: int = 0,
         actor: str = "po",
         files_to_touch: Optional[list[str]] = None,
-        component: str = "core",
+        component: Optional[str] = None,
     ) -> Story:
         if story_type not in VALID_TYPES:
             raise BoardError(
@@ -366,6 +418,14 @@ class BoardStore:
             )
         if self.exists(issue_id):
             raise BoardError(f"story already exists: {issue_id}")
+        # Component derivation. If the caller explicitly provided one, use it.
+        # Otherwise auto-derive from files_to_touch — feature-branch style
+        # where the story's file scope IS its component (no hardcoded list).
+        ftt = list(files_to_touch or [])
+        if component is None or not component.strip():
+            comp = derive_component_from_files(ftt)
+        else:
+            comp = component.strip()
         now = _now_iso()
         story = Story(
             issue_id=issue_id,
@@ -374,8 +434,8 @@ class BoardStore:
             state="draft",
             type=story_type,
             priority=priority,
-            files_to_touch=list(files_to_touch or []),
-            component=(component or "core").strip() or "core",
+            files_to_touch=ftt,
+            component=comp,
             created_at=now,
             updated_at=now,
         )

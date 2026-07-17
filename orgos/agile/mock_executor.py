@@ -59,6 +59,10 @@ def seed_mock_backlog(board: Any, n_stories: int = 15) -> list[str]:
             files = [f"tests/test_{comp}.py"]
         else:
             files = [f"{comp}/mod.py"]
+        # Do NOT pass explicit component — let BoardStore auto-derive from
+        # files_to_touch. Feature stories touch `{comp}/mod.py` → derives
+        # to `comp`. Paired test stories touch `tests/test_{comp}.py` →
+        # normalize to same `comp` → auto-serialize with parent.
         s = board.draft_story(
             issue_id=f"MK-{i:02d}",
             title=title,
@@ -66,7 +70,6 @@ def seed_mock_backlog(board: Any, n_stories: int = 15) -> list[str]:
             story_type=ttype,
             priority=90 - (i * 3),
             files_to_touch=files,
-            component=comp,
         )
         if parent_idx is not None:
             s.depends_on = [created[parent_idx]]

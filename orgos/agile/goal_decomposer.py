@@ -106,24 +106,31 @@ RULES:
    concurrent stories from stepping on each other's code. Example:
    `"files_to_touch": ["app.py", "tests/test_auth.py"]`. If genuinely
    unknowable (e.g., a research story), use `[]`.
-6. **COMPONENT (ownership boundary — critical for team-scale runs):**
-   Every story MUST include `component: <short-slug>`. A component is a
-   module boundary (e.g., `auth`, `notes`, `folders`, `tags`, `search`,
-   `ratelimit`, `docs`, `core`). Rules:
-     a. TWO STORIES IN THE SAME COMPONENT CANNOT BE IN FLIGHT AT ONCE.
-        The board enforces this: while story A (component=`auth`) is
-        being worked, no other agent can claim any story with
-        component=`auth`. This mirrors real Scrum ownership — one
-        pair per module — so devs don't step on each other's files.
-     b. Stories in DIFFERENT components MUST have disjoint
-        `files_to_touch`. If two stories both touch `app.py`, they
-        belong in the SAME component, not different ones.
-     c. Related follow-up work (e.g., "add auth" and "add auth tests")
-        should share the SAME component and use `depends_on` to
-        sequence them — not different components.
-     d. Choose specific component names (`auth`, `notes`, `folders`)
-        over generic ones (`core`, `misc`). A backlog where 12 stories
-        all say `component=core` cannot parallelize.
+6. **OWNERSHIP BOUNDARY (crucial for team-scale parallelism):**
+   Every story implicitly belongs to a "component" which orgos DERIVES
+   from your `files_to_touch`. Two stories in the same component CANNOT
+   be in flight simultaneously (real-Scrum module ownership).
+
+   Rules of thumb:
+     a. Files in the same top-level directory → same component:
+          `auth/routes.py` and `auth/tokens.py` → both in `auth`.
+        These stories will serialize (only one worked at a time).
+     b. Files in DIFFERENT top-level directories → different components:
+          `auth/routes.py` and `notes/routes.py` → `auth` vs `notes`.
+        These stories CAN be worked in parallel by different agents.
+     c. Test files auto-normalize to their subject:
+          `tests/test_auth.py` → component `auth`.
+        So a feature story (`auth/routes.py`) and its paired test
+        (`tests/test_auth.py`) share `auth` and serialize correctly.
+     d. Files at the repo root (`app.py`) get their OWN component per
+        file — meaning any two stories both touching `app.py` will
+        serialize. If a goal requires many changes to one shared file
+        (like `app.py`), decompose so each story touches at most one
+        root-level file at a time.
+     e. **You don't need to declare component explicitly.** Just make
+        `files_to_touch` accurate and the ownership boundary emerges.
+        If you WANT to override the derivation, set `component: <name>`
+        on a story — but this is rare and usually a decomposition smell.
 7. Body is a mini-spec: what to add, where, what tests to write, what
    'done' looks like. Include target file paths — and note whether the
    target file is expected to already exist or be newly created.
@@ -356,16 +363,12 @@ def decompose_goal(
                 flush=True,
             )
 
-        # Component (ownership boundary) — mandatory for team-scale parallelism.
+        # Component (ownership boundary). If PO explicitly declared one,
+        # honor it; otherwise pass None so BoardStore.draft_story derives
+        # from files_to_touch (feature-branch style — the story's file
+        # scope IS its component).
         raw_comp = s.get("component") or s.get("module") or ""
-        component = str(raw_comp).strip().lower().replace(" ", "-") or "core"
-        if component == "core":
-            print(
-                f"[decomposer] NOTE: story '{title[:60]}' has component=core "
-                f"(default). Team-scale runs benefit from specific components "
-                f"(auth, notes, folders, tags, ...) — 'core' cannot parallelize.",
-                flush=True,
-            )
+        component = str(raw_comp).strip().lower().replace(" ", "-") or None
 
         issue_id = f"{id_prefix}-{i:02d}-{_slugify(title)}"
         while board.exists(issue_id):
