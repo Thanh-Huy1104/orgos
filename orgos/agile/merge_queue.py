@@ -92,6 +92,14 @@ def _attempt_merge(
     rc, out, err = _run_git(["rebase", integ_branch], agent_worktree)
     if rc != 0:
         _run_git(["rebase", "--abort"], agent_worktree)
+        # RESET AGENT BRANCH TO INTEGRATION HEAD. Without this reset, an
+        # un-rebasable commit stays on the agent branch and every future
+        # commit stacks on top of it → every subsequent rebase attempt
+        # fails on the same first commit → cascade of merge_conflicts.
+        # Losing the conflicting story's commit is the correct outcome
+        # (that story is already going to `blocked`); the reset unblocks
+        # the branch for the next story.
+        _run_git(["reset", "--hard", integ_branch], agent_worktree)
         return False, f"merge_conflict:{err.strip() or out.strip()}"
 
     # 2. Fast-forward integration onto from_branch's new tip.

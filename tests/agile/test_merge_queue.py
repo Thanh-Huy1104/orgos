@@ -170,3 +170,76 @@ class TestMergeWorkerConflict:
         )
         assert transition_entry is not None, "No blocked transition found in audit"
         assert transition_entry.get("reason", "").startswith("merge_conflict:")
+
+
+class TestMergeWorkerBranchResetOnConflict:
+    """Regression for the cascade seen in smoke #3: a single un-rebasable
+    commit on an agent branch was blocking all subsequent commits because
+    rebase kept failing on the same first commit. Fix: reset the agent
+    branch to integration HEAD after a failed rebase, so future commits
+    have a clean base."""
+
+    def test_agent_branch_resets_after_failed_rebase(self, team_repo, tmp_path):
+        # Put agent/arch into its own worktree with a conflicting commit
+        agent_wt = tmp_path / "agent_wt"
+        subprocess.run(
+            ["git", "worktree", "add", str(agent_wt), "agent/arch"],
+            cwd=team_repo, check=True, capture_output=True,
+        )
+        # Diverge integration branch
+        subprocess.run(["git", "checkout", "integration"], cwd=team_repo, check=True)
+        (team_repo / "app.py").write_text("integration side\n")
+        subprocess.run(["git", "add", "-A"], cwd=team_repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t",
+             "commit", "-qm", "integration change"],
+            cwd=team_repo, check=True,
+        )
+
+        board = BoardStore(tmp_path / "board")
+        board.draft_story(issue_id="S1", title="t", body="b",
+                          story_type="feature", files_to_touch=["app.py"])
+        board.transition("S1", "refinement", actor="sm")
+        board.transition("S1", "ready", actor="sm")
+        board.transition("S1", "in_progress", actor="arch")
+        board.transition("S1", "review", actor="arch")
+
+        ws = MagicMock()
+        ws.integration_worktree = team_repo
+        ws.integration_branch = "integration"
+        ws.source_repo = team_repo
+        ws.agent_worktree = lambda role: agent_wt
+
+        emitter = EventEmitter(tmp_path)
+        queue = MergeQueue(workspace=ws)
+
+        async def scenario():
+            await queue.enqueue(MergeRequest(
+                story_id="S1", from_branch="agent/arch",
+                files_touched=["app.py"],
+            ))
+            worker = asyncio.create_task(run_merge_worker(
+                queue, ws, board, emitter, stop_when_empty=True,
+            ))
+            await asyncio.wait_for(worker, timeout=10.0)
+
+        asyncio.run(scenario())
+
+        # Story is blocked (expected) — but agent branch should now match
+        # integration HEAD (RESET FIX), so future commits will have a
+        # clean base.
+        assert board.read("S1").state == "blocked"
+        agent_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=agent_wt,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        integ_head = subprocess.run(
+            ["git", "rev-parse", "integration"], cwd=team_repo,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        assert agent_head == integ_head, (
+            f"Agent branch not reset to integration HEAD after rebase failure. "
+            f"agent={agent_head[:7]}, integ={integ_head[:7]}. "
+            f"This means the un-rebasable commit is still on the branch → "
+            f"cascade failure on next rebase."
+        )
