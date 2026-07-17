@@ -192,16 +192,24 @@ class TeamWorkspace:
         )
 
         # Baseline .gitignore so scratch never leaks into the agent's diff.
-        # (Same rationale as sprint._make_worktree — per-worktree info/exclude
-        # is dead code in git 2.5+, .gitignore is the reliable path.)
         (ws.integration_worktree / ".gitignore").write_text(_BASELINE_GITIGNORE)
+        # .gitattributes with `merge=union` for wiki files. Real Scrum teams
+        # append-only to shared docs; git's default merge would treat
+        # parallel appends as conflicts even though semantically both
+        # belong. `merge=union` concatenates automatically.
+        gitattrs = ws.integration_worktree / ".gitattributes"
+        gitattrs.write_text(
+            "wiki/DECISIONS.md merge=union\n"
+            "wiki/RETRO.md merge=union\n"
+            "wiki/**/*.md merge=union\n"
+        )
         subprocess.run(
-            ["git", "add", ".gitignore"],
+            ["git", "add", ".gitignore", ".gitattributes"],
             cwd=ws.integration_worktree, check=True, capture_output=True,
         )
         subprocess.run(
             ["git", "-c", "user.name=orgos-team", "-c", "user.email=team@orgos.local",
-             "commit", "-m", f"chore(team-{team_id}): baseline .gitignore"],
+             "commit", "-m", f"chore(team-{team_id}): baseline"],
             cwd=ws.integration_worktree, check=True, capture_output=True,
         )
 

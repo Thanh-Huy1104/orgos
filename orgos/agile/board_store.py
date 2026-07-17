@@ -100,6 +100,11 @@ class Story:
     depends_on: list[str] = field(default_factory=list)
     sprint_number: int = 0   # 0 = unassigned (not in any sprint yet)
     attempts: int = 0        # executor attempts — retry until MAX before block
+    component: str = "core"  # ownership boundary — see BoardStore claim logic.
+                             # Two stories in the same component cannot be
+                             # in flight simultaneously — mirrors how real
+                             # Scrum teams avoid stepping on each other by
+                             # module/component ownership.
     created_at: str = ""
     updated_at: str = ""
 
@@ -263,20 +268,45 @@ class BoardStore:
             return True
         return [s for s in ready if s.type in allowed and _deps_satisfied(s)]
 
+    def _components_in_flight(self) -> set[str]:
+        """Return the set of `component` values for stories that are
+        currently in in_progress, review, or pending_acceptance state.
+
+        A story whose component is in this set MUST NOT be claimed by
+        another agent — this mirrors real Scrum ownership: only one
+        pair works `auth` at a time, another works `notes`, another
+        `folders`. Prevents same-file collisions structurally rather
+        than relying on PO's `files_to_touch` being complete.
+        """
+        locked: set[str] = set()
+        for state in ("in_progress", "review", "pending_acceptance"):
+            for s in self.list_state(state):
+                comp = getattr(s, "component", "core") or "core"
+                locked.add(comp)
+        return locked
+
     def list_ready_for_sprint(
         self, worker_type: str, *, sprint_number: int,
     ) -> list[Story]:
         """Sprint-filtered variant of list_ready_for_type.
 
-        If `sprint_number == 0`: fall back to the un-filtered set (pre-sprint
-        bootstrap — the team hasn't opened sprint 1 yet, board can still be
-        worked). Once a sprint is open, only stories committed to THAT sprint
-        are pullable — this enforces Scrum's Sprint Backlog commitment.
+        Also enforces COMPONENT OWNERSHIP: filters out stories whose
+        component is currently in flight (in_progress/review/pending_acceptance).
+        Mirrors real Scrum where only one pair works a given module at
+        a time so devs don't step on each other.
+
+        If `sprint_number == 0`: skip the sprint filter (bootstrap mode).
+        The component filter still applies.
         """
         candidates = self.list_ready_for_type(worker_type)
-        if sprint_number == 0:
-            return candidates
-        return [s for s in candidates if s.sprint_number == sprint_number]
+        if sprint_number > 0:
+            candidates = [s for s in candidates if s.sprint_number == sprint_number]
+        # Component ownership: skip anything whose component is in flight.
+        locked = self._components_in_flight()
+        return [
+            s for s in candidates
+            if (getattr(s, "component", "core") or "core") not in locked
+        ]
 
     def try_claim_next_for(
         self, role: str, *, actor: str,
@@ -328,6 +358,7 @@ class BoardStore:
         priority: int = 0,
         actor: str = "po",
         files_to_touch: Optional[list[str]] = None,
+        component: str = "core",
     ) -> Story:
         if story_type not in VALID_TYPES:
             raise BoardError(
@@ -344,6 +375,7 @@ class BoardStore:
             type=story_type,
             priority=priority,
             files_to_touch=list(files_to_touch or []),
+            component=(component or "core").strip() or "core",
             created_at=now,
             updated_at=now,
         )

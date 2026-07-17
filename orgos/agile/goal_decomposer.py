@@ -106,27 +106,43 @@ RULES:
    concurrent stories from stepping on each other's code. Example:
    `"files_to_touch": ["app.py", "tests/test_auth.py"]`. If genuinely
    unknowable (e.g., a research story), use `[]`.
-6. Body is a mini-spec: what to add, where, what tests to write, what
+6. **COMPONENT (ownership boundary — critical for team-scale runs):**
+   Every story MUST include `component: <short-slug>`. A component is a
+   module boundary (e.g., `auth`, `notes`, `folders`, `tags`, `search`,
+   `ratelimit`, `docs`, `core`). Rules:
+     a. TWO STORIES IN THE SAME COMPONENT CANNOT BE IN FLIGHT AT ONCE.
+        The board enforces this: while story A (component=`auth`) is
+        being worked, no other agent can claim any story with
+        component=`auth`. This mirrors real Scrum ownership — one
+        pair per module — so devs don't step on each other's files.
+     b. Stories in DIFFERENT components MUST have disjoint
+        `files_to_touch`. If two stories both touch `app.py`, they
+        belong in the SAME component, not different ones.
+     c. Related follow-up work (e.g., "add auth" and "add auth tests")
+        should share the SAME component and use `depends_on` to
+        sequence them — not different components.
+     d. Choose specific component names (`auth`, `notes`, `folders`)
+        over generic ones (`core`, `misc`). A backlog where 12 stories
+        all say `component=core` cannot parallelize.
+7. Body is a mini-spec: what to add, where, what tests to write, what
    'done' looks like. Include target file paths — and note whether the
    target file is expected to already exist or be newly created.
-7. Optional `depends_on`: a story can list issue indices (0-based, into
+8. Optional `depends_on`: a story can list issue indices (0-based, into
    your OWN output array) that must complete before this story is workable.
    Use this for dependencies: e.g. "implement POST /notes" depends on
    "add Note data model". Field is optional; default is no dependencies.
 
-8. **DEFINITION OF DONE (mandatory):** Every story of type `architecture`,
+9. **DEFINITION OF DONE (mandatory):** Every story of type `architecture`,
    `feature`, or `security` that ships production code MUST be paired with
    an immediately-following `test` story with `depends_on: [<parent-index>]`.
    The test story's title starts with "Add tests for " followed by the
-   parent story's title. This mirrors real Scrum where a story is not
-   "done" without tests — so the parent's implementation must land before
-   its test story can be pulled. Docs stories do not require a paired test.
-   Example pairing:
+   parent story's title. Test story shares the SAME component as its
+   parent. Docs stories do not require a paired test. Example pairing:
      [
        {{"title": "Add count() to NotesStore", "type": "feature",
-         "priority": 80, "depends_on": []}},
+         "component": "notes", "priority": 80, "depends_on": []}},
        {{"title": "Add tests for Add count() to NotesStore", "type": "test",
-         "priority": 79, "depends_on": [0]}},
+         "component": "notes", "priority": 79, "depends_on": [0]}},
      ]
 
 9. Output the JSON array. If you wrap in an envelope (your persona may
@@ -334,11 +350,20 @@ def decompose_goal(
         files_to_touch = [str(p).strip() for p in raw_ftt if str(p).strip()]
 
         if not files_to_touch:
-            # Not fatal — some stories genuinely have no files (research, wiki edits).
-            # But log it so retro/review can catch a lazy PO.
             print(
                 f"[decomposer] WARNING: story '{title[:60]}' drafted with empty "
                 f"files_to_touch — file-overlap safety net is inert for this story.",
+                flush=True,
+            )
+
+        # Component (ownership boundary) — mandatory for team-scale parallelism.
+        raw_comp = s.get("component") or s.get("module") or ""
+        component = str(raw_comp).strip().lower().replace(" ", "-") or "core"
+        if component == "core":
+            print(
+                f"[decomposer] NOTE: story '{title[:60]}' has component=core "
+                f"(default). Team-scale runs benefit from specific components "
+                f"(auth, notes, folders, tags, ...) — 'core' cannot parallelize.",
                 flush=True,
             )
 
@@ -354,6 +379,7 @@ def decompose_goal(
             priority=priority,
             actor="po",
             files_to_touch=files_to_touch,
+            component=component,
         )
         created.append(issue_id)
 
@@ -375,7 +401,43 @@ def decompose_goal(
             board._write_story(story)
             board._audit(created[i], "po", "set_depends_on", deps=resolved)
 
+    # Component/file-scope validation: two stories in DIFFERENT components
+    # should not share files_to_touch. If they do, the PO decomposition is
+    # unsound — the board will serialize them anyway (component lock) but
+    # the naming is misleading.
+    _validate_component_file_disjointness(board, created)
+
     return created
+
+
+def _validate_component_file_disjointness(
+    board: BoardStore, issue_ids: list[str],
+) -> None:
+    """Flag stories that live in different components but share files.
+
+    Real-Scrum discipline: components are file-ownership boundaries. If
+    stories A (component=auth) and B (component=notes) both touch app.py,
+    one of them is mis-tagged. Warn but don't fail — PO will learn.
+    """
+    stories = [board.read(iid) for iid in issue_ids]
+    files_per_component: dict[str, set[str]] = {}
+    for s in stories:
+        comp = getattr(s, "component", "core") or "core"
+        files_per_component.setdefault(comp, set()).update(s.files_to_touch or [])
+    # Find files owned by more than one component
+    comp_by_file: dict[str, list[str]] = {}
+    for comp, files in files_per_component.items():
+        for f in files:
+            comp_by_file.setdefault(f, []).append(comp)
+    for f, comps in comp_by_file.items():
+        if len(comps) > 1:
+            print(
+                f"[decomposer] WARNING: file '{f}' claimed by multiple "
+                f"components {comps}. Same-file work should be in the SAME "
+                f"component (real Scrum ownership). Board's component lock "
+                f"will serialize these anyway, but the naming misleads.",
+                flush=True,
+            )
 
 
 def detect_decomposition_overlaps(

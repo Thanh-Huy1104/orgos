@@ -246,15 +246,40 @@ class TestTryClaim:
         assert board.try_claim_next_for("architect", actor="arch_agent2") is None
 
     def test_claim_allows_non_overlapping_parallel(self, board):
+        # Different components = concurrent claim allowed.
+        # Same component would be serialized (see _components_in_flight).
         board.draft_story(issue_id="A", title="a", body="b",
                           story_type="architecture",
-                          files_to_touch=["app.py"])
+                          files_to_touch=["app.py"],
+                          component="notes")
         board.draft_story(issue_id="B", title="b", body="b",
                           story_type="architecture",
-                          files_to_touch=["util.py"])
+                          files_to_touch=["util.py"],
+                          component="folders")
         for iid in ("A", "B"):
             board.transition(iid, "refinement", actor="sm")
             board.transition(iid, "ready", actor="sm")
         s1 = board.try_claim_next_for("architect", actor="arch1")
         s2 = board.try_claim_next_for("architect", actor="arch2")
         assert {s1.issue_id, s2.issue_id} == {"A", "B"}
+
+    def test_claim_serializes_same_component(self, board):
+        """New: two stories in the SAME component cannot be in flight
+        simultaneously — mirrors real-Scrum module ownership."""
+        board.draft_story(issue_id="A", title="a", body="b",
+                          story_type="architecture",
+                          files_to_touch=["app.py"], component="auth")
+        board.draft_story(issue_id="B", title="b", body="b",
+                          story_type="architecture",
+                          files_to_touch=["util.py"], component="auth")
+        for iid in ("A", "B"):
+            board.transition(iid, "refinement", actor="sm")
+            board.transition(iid, "ready", actor="sm")
+        s1 = board.try_claim_next_for("architect", actor="arch1")
+        assert s1 is not None
+        assert s1.issue_id == "A"  # priority-tied, first drafted wins
+        # Second claim in same component → blocked
+        s2 = board.try_claim_next_for("architect", actor="arch2")
+        assert s2 is None, (
+            f"Same-component concurrent claim should be blocked. Got {s2!r}"
+        )

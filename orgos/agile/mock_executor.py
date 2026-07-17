@@ -23,31 +23,51 @@ from typing import Any, Callable, Optional
 from orgos.agile.coding_executor import ExecutionResult
 
 
-def seed_mock_backlog(board: Any, n_stories: int = 12) -> list[str]:
+def seed_mock_backlog(board: Any, n_stories: int = 15) -> list[str]:
     """Populate the board with N synthetic stories for infrastructure smoke.
 
-    Alternating architecture/feature/test/security types so the DoD gate,
-    depends_on filtering, and type-filtered pulls all get exercised.
-    Paired test subtasks (depends_on) mirror the real DoD structure.
+    Structured to exercise team-scale parallelism realistically:
+      - 5 disjoint components (`auth`, `notes`, `folders`, `tags`, `search`).
+      - Each component has architecture → feature → test progression, so
+        depends_on gating fires and DoD wiki-write fires.
+      - Files are strictly disjoint per component (`{comp}/mod.py`,
+        `tests/test_{comp}.py`) so N>1 agents can pull in parallel
+        without stepping on each other.
+      - Every story marked type + component; test stories `depends_on`
+        their parent feature.
     """
-    types_cycle = ["architecture", "feature", "feature", "test", "security"]
+    components = ["auth", "notes", "folders", "tags", "search"]
     created: list[str] = []
+    # Round-robin through components so 3 architects each get an
+    # available parallel component on the first tick.
     for i in range(n_stories):
-        ttype = types_cycle[i % len(types_cycle)]
-        prio = 90 - (i * 5)
-        # Pair every non-test story with a test subtask
+        comp = components[i % len(components)]
+        cycle_pos = (i // len(components)) % 3
+        # First round per component: architecture. Second: feature. Third: test.
+        ttype = ["architecture", "feature", "test"][cycle_pos]
+        # Test story depends on the previous story in the same component
         parent_idx = None
-        if ttype == "test" and created:
-            parent_idx = len(created) - 1
+        if ttype == "test":
+            for j in range(i - 1, -1, -1):
+                prev = board.read(created[j])
+                if prev.component == comp and prev.type in ("architecture", "feature"):
+                    parent_idx = j
+                    break
+        title = f"[{comp}] {ttype} shim {i:02d}"
+        # Files strictly under this component's directory (disjoint by design)
+        if ttype == "test":
+            files = [f"tests/test_{comp}.py"]
+        else:
+            files = [f"{comp}/mod.py"]
         s = board.draft_story(
             issue_id=f"MK-{i:02d}",
-            title=f"Mock story {i:02d}: {ttype} shim",
-            body=f"Mock body for {ttype} story {i}. No real work.",
+            title=title,
+            body=f"Mock body for {ttype} story {i} in component {comp}.",
             story_type=ttype,
-            priority=prio,
-            files_to_touch=[f"mock/module_{i % 3}.py"],  # disjoint file scopes
+            priority=90 - (i * 3),
+            files_to_touch=files,
+            component=comp,
         )
-        # Set depends_on if paired test
         if parent_idx is not None:
             s.depends_on = [created[parent_idx]]
             board._write_story(s)
