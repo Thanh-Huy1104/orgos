@@ -382,7 +382,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
     pid_file = ws.root / "pid.txt"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
 
-    print(f"[cli] team {args.team_id} started with roles {roles} (pid={os.getpid()})", flush=True)
+    print(f"[cli] team {args.team_id} started with {len(agents)} agents (pid={os.getpid()})", flush=True)
     try:
         asyncio.run(_run_all())
     finally:
