@@ -26,6 +26,9 @@ SCRUM_SECONDS=360
 SPRINT_DURATION_SECONDS=0
 WATERFALL_SECONDS=3600
 WATERFALL_STORY_CAP=20
+ARCHITECTS=1
+TESTERS=1
+DEVSECOPS=1
 WATERFALL_TEAM="cmp-waterfall"
 SCRUM_TEAM="cmp-scrum"
 
@@ -39,6 +42,9 @@ while [ $# -gt 0 ]; do
         --sprint-duration-seconds)  SPRINT_DURATION_SECONDS="$2"; shift 2 ;;
         --waterfall-seconds)        WATERFALL_SECONDS="$2"; shift 2 ;;
         --waterfall-story-cap)      WATERFALL_STORY_CAP="$2"; shift 2 ;;
+        --architects)               ARCHITECTS="$2"; shift 2 ;;
+        --testers)                  TESTERS="$2"; shift 2 ;;
+        --devsecops)                DEVSECOPS="$2"; shift 2 ;;
         -h|--help)                  sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1"; exit 2 ;;
     esac
@@ -104,6 +110,7 @@ if orgos start \
     --executor "$EXECUTOR" --model "$MODEL" \
     --timeout-seconds "$SCRUM_SECONDS" \
     --sprint-duration-seconds "$SPRINT_DURATION_SECONDS" \
+    --architects "$ARCHITECTS" --testers "$TESTERS" --devsecops "$DEVSECOPS" \
     > "/tmp/orgos-cmp-scrum.log" 2>&1; then
     S_EXIT=0
 else
