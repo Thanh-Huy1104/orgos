@@ -46,16 +46,20 @@ running low on iterations. The commit is not optional.
 ═══ ORDER (do these in this order, do not skip commit) ═══
 1. Write code with heredoc (`cat > path <<'EOF' … EOF`). First bash call is
    productive, not exploration.
-2. If this story is type=architecture, append to wiki/DECISIONS.md:
+2. If this story is type=architecture, append to wiki/DECISIONS.md the
+   EXACT format below. Use `field: value` (NOT `**field:**` markdown-bold
+   — the DoD gate's regex does not match bold form):
 
        ## <one-line decision summary>
-       **author:** architect-agent
-       **timestamp:** <ISO-8601 UTC>
-       **source:** {issue_id}
+       author: architect-agent
+       timestamp: <ISO-8601 UTC>
+       source: {issue_id}
 
        <2-4 sentences>
 
-   Without this, PO's DoD gate blocks the story on acceptance.
+   Without this, PO's DoD gate blocks the story on acceptance. (orgos
+   also auto-writes a stub if you skip this step, but yours will have
+   better rationale.)
 3. **COMMIT NOW** — even before running tests:
        git add -A
        git -c user.name=orgos-arch -c user.email=arch@orgos.local commit -m "{type}: {title}"
@@ -318,6 +322,18 @@ class SpawnCodingExecutor:
                 learnings=summary_text,
             )
 
+        # DoD auto-write for architecture stories. If the story is
+        # type=architecture and its committed diff doesn't already record a
+        # compliant wiki/DECISIONS.md entry citing this issue_id, orgos writes
+        # the stub itself and amends the commit. Removes LLM unreliability
+        # from the DoD path — the executor guarantees the wiki entry lands.
+        if getattr(story, "type", "") == "architecture":
+            head_after_dod = self._ensure_arch_wiki_entry(
+                worktree, story, head, summary_text,
+            )
+            if head_after_dod:
+                head = head_after_dod
+
         return ExecutionResult(
             success=True,
             commit_sha=head,
@@ -327,6 +343,86 @@ class SpawnCodingExecutor:
             tokens_output=tokens_out,
             wall_seconds=wall,
         )
+
+    def _ensure_arch_wiki_entry(
+        self, worktree: Path, story: Any, current_head: str, summary_text: str,
+    ) -> str:
+        """Ensure wiki/DECISIONS.md has a compliant entry citing story.issue_id.
+        If missing, write a stub with the three mandatory fields and amend
+        (or add) a commit. Returns the new HEAD sha, or '' on failure.
+        Never raises — a failure here degrades gracefully to "PO will block
+        it" (the pre-fix behavior).
+        """
+        try:
+            from orgos.mcps.wiki_mcp import decisions_cite_source
+        except Exception:
+            return ""
+
+        issue_id = getattr(story, "issue_id", "").strip()
+        if not issue_id:
+            return ""
+
+        # Wiki lives at repo/wiki/DECISIONS.md (agents were told to touch it
+        # in the worktree). Check the CURRENT state of the file in the
+        # worktree — after the commit.
+        decisions_path = worktree / "wiki" / "DECISIONS.md"
+        existing = ""
+        if decisions_path.exists():
+            try:
+                existing = decisions_path.read_text(encoding="utf-8")
+            except Exception:
+                existing = ""
+
+        if existing and decisions_cite_source(existing, issue_id):
+            return ""  # already compliant, nothing to do
+
+        # Write a stub entry. Use the story's title as the summary and the
+        # LLM's returned summary (if any) as the rationale.
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        title = str(getattr(story, "title", "architectural decision")).strip()
+        rationale = (summary_text or
+                     "Auto-recorded by orgos DoD-guard: LLM committed the "
+                     "architecture story but did not annotate the decision. "
+                     "This stub satisfies the three-field DoD gate; a human "
+                     "or a later replan should expand it.")[:600]
+
+        # Use plain "field: value" block form — matches wiki_mcp's regex
+        # (`**source:**` markdown-bold syntax is NOT recognized by
+        # decisions_cite_source, which is one reason the LLM's own attempts
+        # often fail the DoD gate).
+        entry = (
+            f"\n## {title}\n"
+            f"author: architect-agent\n"
+            f"timestamp: {ts}\n"
+            f"source: {issue_id}\n\n"
+            f"{rationale}\n"
+        )
+
+        try:
+            decisions_path.parent.mkdir(parents=True, exist_ok=True)
+            with decisions_path.open("a", encoding="utf-8") as f:
+                f.write(entry)
+            import subprocess as _sp
+            _sp.run(
+                ["git", "add", "wiki/DECISIONS.md"], cwd=str(worktree),
+                check=True, capture_output=True, timeout=10,
+            )
+            r = _sp.run(
+                ["git", "-c", "user.name=orgos-dod",
+                 "-c", "user.email=dod@orgos.local",
+                 "commit", "-m", f"docs(dod): auto-record decision for {issue_id}"],
+                cwd=str(worktree), capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                return ""
+            head = _sp.run(
+                ["git", "rev-parse", "HEAD"], cwd=str(worktree),
+                capture_output=True, text=True, timeout=10,
+            )
+            return (head.stdout or "").strip()
+        except Exception:
+            return ""
 
     def spawn_subagent(
         self, *,

@@ -149,6 +149,151 @@ class TestSpawnCodingExecutorRoleRouting:
         assert captured["called"] == "test_role"
 
 
+class TestArchDoDAutoWrite:
+    """When an architecture story commits code but doesn't touch
+    wiki/DECISIONS.md, the executor auto-writes a compliant stub entry
+    (author + timestamp + source citing the issue_id) and amends with a
+    follow-up commit. Removes LLM unreliability from the DoD path.
+    """
+
+    def _arch_story(self):
+        s = FakeStory()
+        s.issue_id = "S-ARCH-001"
+        s.type = "architecture"
+        s.title = "Extract Note data model"
+        return s
+
+    def test_auto_writes_wiki_stub_when_missing(self, repo, monkeypatch):
+        baseline = _baseline(repo)
+
+        def fake_spawn(role, brief, run_budget_tokens=1_200_000):
+            # LLM committed code but did NOT touch wiki/DECISIONS.md
+            (repo / "app.py").write_text("class Note: pass\n")
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=x", "-c", "user.email=x@x",
+                 "commit", "-qm", "architecture: extract Note"],
+                cwd=repo, check=True,
+            )
+            r = MagicMock()
+            r.token_usage = {}
+            r.tasks_output = [MagicMock(raw='{"summary": "extracted Note class"}')]
+            return r
+
+        monkeypatch.setattr("orgos.agile.spawn_executor.spawn", fake_spawn)
+        monkeypatch.setattr("orgos.agile.spawn_executor.architect_role",
+                            lambda **kw: MagicMock(mcp_servers=[]))
+
+        ex = SpawnCodingExecutor(
+            model="m", baseline_sha_provider=lambda: baseline,
+        )
+        result = ex.run_story(
+            worktree=repo, story=self._arch_story(),
+            persona_scaffold="", session_id="architect",
+        )
+        assert result.success is True
+        # Wiki entry was auto-written
+        decisions = (repo / "wiki" / "DECISIONS.md").read_text()
+        assert "S-ARCH-001" in decisions
+        assert "author: architect-agent" in decisions
+        assert "timestamp:" in decisions
+        assert "source: S-ARCH-001" in decisions
+        # DoD gate would now accept it
+        from orgos.mcps.wiki_mcp import decisions_cite_source
+        assert decisions_cite_source(decisions, "S-ARCH-001")
+        # A follow-up commit landed (result.commit_sha != first commit sha)
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        assert result.commit_sha == head
+
+    def test_leaves_alone_if_wiki_entry_already_compliant(self, repo, monkeypatch):
+        baseline = _baseline(repo)
+        # LLM writes both the code AND a compliant wiki entry itself
+        (repo / "wiki").mkdir(exist_ok=True)
+        (repo / "wiki" / "DECISIONS.md").write_text(
+            "## Extract Note\n"
+            "author: architect-agent\n"
+            "timestamp: 2026-07-17T00:00:00Z\n"
+            "source: S-ARCH-001\n\n"
+            "Split Note out of app.py for reuse.\n"
+        )
+
+        def fake_spawn(role, brief, run_budget_tokens=1_200_000):
+            (repo / "app.py").write_text("class Note: pass\n")
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=x", "-c", "user.email=x@x",
+                 "commit", "-qm", "architecture + wiki"],
+                cwd=repo, check=True,
+            )
+            r = MagicMock()
+            r.token_usage = {}
+            r.tasks_output = []
+            return r
+
+        monkeypatch.setattr("orgos.agile.spawn_executor.spawn", fake_spawn)
+        monkeypatch.setattr("orgos.agile.spawn_executor.architect_role",
+                            lambda **kw: MagicMock(mcp_servers=[]))
+
+        ex = SpawnCodingExecutor(
+            model="m", baseline_sha_provider=lambda: baseline,
+        )
+        pre = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        result = ex.run_story(
+            worktree=repo, story=self._arch_story(),
+            persona_scaffold="", session_id="architect",
+        )
+        # No extra commit should have been added since the wiki was already compliant
+        post = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        assert result.commit_sha == post
+        # Only the LLM's commit exists (no auto-DoD commit stacked on top)
+        log = subprocess.run(
+            ["git", "log", "--oneline", f"{baseline}..HEAD"], cwd=repo,
+            capture_output=True, text=True,
+        ).stdout
+        assert "docs(dod)" not in log, f"unexpected auto-DoD commit: {log}"
+
+    def test_non_architecture_stories_untouched(self, repo, monkeypatch):
+        baseline = _baseline(repo)
+
+        def fake_spawn(role, brief, run_budget_tokens=1_200_000):
+            (repo / "app.py").write_text("def foo(): pass\n")
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=x", "-c", "user.email=x@x",
+                 "commit", "-qm", "feature: add foo"],
+                cwd=repo, check=True,
+            )
+            r = MagicMock()
+            r.token_usage = {}
+            r.tasks_output = []
+            return r
+
+        monkeypatch.setattr("orgos.agile.spawn_executor.spawn", fake_spawn)
+        monkeypatch.setattr("orgos.agile.spawn_executor.architect_role",
+                            lambda **kw: MagicMock(mcp_servers=[]))
+
+        story = FakeStory()
+        story.type = "feature"  # NOT architecture
+        ex = SpawnCodingExecutor(
+            model="m", baseline_sha_provider=lambda: baseline,
+        )
+        ex.run_story(
+            worktree=repo, story=story,
+            persona_scaffold="", session_id="architect",
+        )
+        # Feature stories should NOT trigger any wiki auto-write
+        assert not (repo / "wiki" / "DECISIONS.md").exists()
+
+
 class TestWipAutoCommitFallback:
     """When the LLM writes files but skips `git commit`, the executor should
     auto-commit them with a WIP: prefix and return success. Turns 'LLM
