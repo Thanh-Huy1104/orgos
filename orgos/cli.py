@@ -218,6 +218,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
     from orgos.agile.board_store import BoardStore
     from orgos.agile.coding_executor import ClaudeCodeExecutor, CopilotCliExecutor
     from orgos.agile.spawn_executor import SpawnCodingExecutor
+    from orgos.agile.mock_executor import MockExecutor
     import shutil
     from orgos.agile.live_events import EventEmitter
     from orgos.agile.merge_queue import MergeQueue, run_merge_worker
@@ -264,6 +265,13 @@ def _cmd_start(args: argparse.Namespace) -> int:
     for r, i in all_instances:
         ws.ensure_agent_workspace(r, i)
 
+    # Scale sprint velocity target with team size. A 6-story sprint ceiling
+    # starves N>1 delivery agents (measured in Run 5c: 60% throughput loss
+    # at N=3 with default 6). max(6, n_delivery_agents * 2) keeps the
+    # per-story quality bar the same while lifting the ceiling.
+    ws.velocity_target = max(6, len(delivery_instances) * 2)
+    print(f"[cli] sprint velocity_target: {ws.velocity_target}", flush=True)
+
     board = BoardStore(ws.root / "board")
     emitter = EventEmitter(ws.root)
 
@@ -283,26 +291,39 @@ def _cmd_start(args: argparse.Namespace) -> int:
     elif choice == "copilot":
         executor = CopilotCliExecutor()
         exec_label = "copilot (GitHub Copilot CLI, user's Copilot subscription — no API key)"
+    elif choice == "mock":
+        executor = MockExecutor(wall_seconds=0.05)
+        exec_label = "mock (zero-LLM stub — infrastructure smoke only)"
     else:
         executor = SpawnCodingExecutor(model=args.model)
         exec_label = f"spawn (LiteLLM backend, model={args.model} — needs API key in .env)"
     print(f"[cli] coding executor: {exec_label}", flush=True)
     merge_queue = MergeQueue(ws)
 
-    # Seed the board on first start (PO decomposes the goal into stories).
-    # PO's replan ceremony tops up the backlog later; this call bootstraps it.
-    from orgos.agile.goal_decomposer import decompose_goal
+    # Seed the board on first start.
+    # In mock mode: synthetic backlog (no LLM call).
+    # In real mode: PO decomposes the goal.
     existing = list(board.list_state("draft")) + list(board.list_state("refinement")) \
              + list(board.list_state("ready")) + list(board.list_state("in_progress"))
     if not existing:
-        print("[cli] decomposing goal into initial stories...", flush=True)
-        try:
-            ids = decompose_goal(
-                goal=goal, repo_root=repo, board=board, model=args.model,
-            )
-            print(f"[cli] drafted {len(ids)} stories", flush=True)
-        except Exception as e:
-            print(f"[cli] WARNING: goal decomposition failed: {e}", file=sys.stderr, flush=True)
+        if choice == "mock":
+            print("[cli] mock mode: seeding synthetic backlog", flush=True)
+            from orgos.agile.mock_executor import seed_mock_backlog
+            ids = seed_mock_backlog(board)
+            print(f"[cli] drafted {len(ids)} synthetic stories", flush=True)
+        else:
+            print("[cli] decomposing goal into initial stories...", flush=True)
+            try:
+                from orgos.agile.goal_decomposer import decompose_goal
+                ids = decompose_goal(
+                    goal=goal, repo_root=repo, board=board, model=args.model,
+                )
+                print(f"[cli] drafted {len(ids)} stories", flush=True)
+            except Exception as e:
+                print(
+                    f"[cli] WARNING: goal decomposition failed: {e}",
+                    file=sys.stderr, flush=True,
+                )
 
     def _load_heartbeat(role: str) -> str:
         # Personas live in the orgos repo (source of truth), not the target.
@@ -647,7 +668,7 @@ def main(argv: list[str] | None = None) -> int:
     start_p.add_argument("--model", type=str, default="deepseek/deepseek-chat")
     start_p.add_argument(
         "--executor", type=str,
-        choices=("auto", "claude", "copilot", "spawn"),
+        choices=("auto", "claude", "copilot", "spawn", "mock"),
         default="auto",
         help="Coding executor. 'auto' (default) prefers 'claude', then "
              "'copilot', then falls back to 'spawn'. "

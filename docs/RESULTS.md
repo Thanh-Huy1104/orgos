@@ -225,21 +225,106 @@ runtime + DoD + memory) is the dominant factor. Isolating that would
 require a "parallel waterfall on same runtime with same DoD" — that's
 a follow-up experiment, not this one.
 
-### Run 5b — N-dev scaling test (multiple architects/testers/devsecops)
+### Run 5b — N=2 smoke (merge safety validation)
 
-Not yet run. The current runs used N=1 for each role (1 architect, 1
-test, 1 devsecops). Real Scrum teams are 3-9 devs. Open question: does
-Scrum's coordination overhead pay off at team scale, or do the merge
-conflicts + files_to_touch collisions dominate?
+15-minute smoke to check that N>1 delivery agents don't cause cascade
+merge failures. Config: 2 architect + 2 test + 2 devsecops + PO + SM = 8
+agents. CRUD-Notes goal, `spawn` executor, DeepSeek.
 
-Concrete plan for the N-scaling test:
-- Add `--architects N --testers N --devsecops N` (default 1 each) to
-  `orgos start`. Each agent gets its own `agents/<role>-<i>/worktree/`
-  and its own `team/<id>/agent/<role>-<i>` branch.
-- Small smoke first (N=2, 10 min, `/tmp/flask-target`) — validate that
-  merge queue survives 6 delivery agents committing in parallel without
-  deadlock or persistent conflicts.
-- Then a full 4h comparison at N=3 on the production Notes API goal.
+| Metric | N=1 smoke | **N=2 smoke** |
+|---|---|---|
+| pulls | 3 | 6 (2×) |
+| commit rate | 100% (3/3) | **100% (6/6)** |
+| stories done | 1 | 4 |
+| merge conflicts | 0 | 2 |
+| agent crashes | 0 | 0 |
+| DoD blocks | 0 | 0 |
+
+**All 4 delivery-agent instances committed** (architect × 2, architect#1 × 2,
+test × 1, test#1 × 1). Parallelism works end-to-end. Merges DID conflict
+(feature+test overlap on `app.py`, retry hit stale worktree state) but
+the branch-reset fix + `--autostash` on rebase kept them from cascading.
+No crashes, no deadlocks. **Merge queue is safe at N=2.**
+
+### Run 5c — Full N=3 4-hour comparison (the harsh N-scaling one)
+
+Same goal as Run 4/5 (production-shape Notes API), same 4h budget.
+Team shape: **9 delivery agents + PO + SM = 11 total** (3 architect +
+3 test + 3 devsecops).
+
+| Metric | Waterfall | **Scrum N=3** |
+|---|---|---|
+| Wall time | 19 min | 4 h |
+| Stories drafted | 11 | 46 |
+| Stories done | 9 | 15 |
+| Stories blocked | 2 | 12 |
+| Commit rate | — | **96%** (27/28) |
+| Merge conflicts | — | 12 |
+| Agent crashes | — | 1 (auto-restarted OK) |
+| Tokens in | 3.67 M | 9.24 M |
+| Tokens out | 107 k | 205 k |
+| Integration tests | 194 pass / 2 fail | **28 pass / 59 fail** ❌ |
+
+**Commits distributed across all 9 delivery instances** (proof of true
+parallelism):
+```
+architect     7        devsecops     2        test    1
+architect#1   8        devsecops#1   3        test#1  1
+architect#2   3        devsecops#2   1        test#2  1
+```
+
+### Run 5 (N=1) vs Run 5c (N=3) — same goal, 3× more devs
+
+| | Run 5 (N=1) | Run 5c (N=3) | Delta |
+|---|---|---|---|
+| Stories done | 37 | **15** | **59% LESS** |
+| Merge conflicts | 5 | 12 | 2.4× more |
+| Integration tests | 188 pass / 0 fail | 28 pass / 59 fail | catastrophic regression |
+
+### Empirical finding: adding devs without proportional decomposition HURTS throughput
+
+The N=3 run delivered **60% fewer stories than N=1** on the same goal.
+Adding agents made throughput worse, not better. Three concrete root
+causes visible in the data (all fixable, not fundamental to the topology):
+
+1. **Sprint `velocity_target` is hardcoded at 6**, but there are 9 delivery
+   agents. Most sprints committed 21-31 pts of work but the *number of
+   stories* per sprint stayed at 6. 6 stories × 9 agents = 6 working +
+   3 idle by construction. Scaling `velocity_target` with team size
+   would eliminate this bottleneck immediately.
+2. **PO's `files_to_touch` is imprecise at scale.** JWT chain stories
+   all touched `app.py` in overlapping ways; 12 merge_conflicts
+   vs Run 5's 5. Real merge conflicts (not stale-worktree races) that
+   the collision guard missed because PO didn't specify complete file
+   sets. Would need a stricter PO prompt or an auto-post-processor.
+3. **Integration branch is broken (59 test failures).** Multiple parallel
+   architects each changed `app.py` in different ways; the merge queue
+   fast-forwarded each in FIFO order but the combined result isn't
+   internally consistent. Real dependency chains (JWT → refresh → logout
+   → tests) can't be parallelized safely without much finer decomposition.
+
+**This is a real Scrum lesson: throwing devs at a poorly-decomposable
+goal makes things worse.** Same lesson human teams learn painfully.
+
+### Direction
+
+The N=3 run establishes that **team-scale Scrum works if and only if the
+decomposition supports it.** For CRUD-shaped goals with a single central
+file (`app.py`), N=1 wins. For goals with genuinely disjoint feature
+sets (say, 5 different microservices), N=5 would likely win.
+
+Concrete next-round fixes:
+- **Scale `velocity_target = max(6, n_delivery_agents * 2)` in cli.py.**
+  ~5 lines. Eliminates the 6-story sprint ceiling.
+- **Enforce path-scope-disjointness in the PO decomposer**, or at least
+  warn on overlap at decomposition time.
+- **Auto-serialize `depends_on` chains** — if story B depends on A which
+  is `in_progress`, don't let B be pulled by another agent for the same
+  file scope; wait for A to be done.
+- **Add `--executor mock`** — a zero-LLM-cost mock executor that just
+  writes a file, commits it, returns success. Enables infrastructure
+  smoke tests (merge queue, sprints, DoD, N>1) in ~30 seconds instead
+  of 15 minutes. Critical for iterating fast on the topology.
 
 ### The 9 fixes that took Run 4 → Run 5
 

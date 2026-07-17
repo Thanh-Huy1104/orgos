@@ -53,14 +53,14 @@ tr:hover td { background: #fafaf8; }
 <table>
 <thead><tr><th>metric</th><th class="num">waterfall</th><th class="num">scrum</th></tr></thead>
 <tbody>
-<tr><td>stories drafted</td><td class="num loser">12</td><td class="num winner">74</td></tr>
-<tr><td>stories done</td><td class="num loser">6</td><td class="num winner">37</td></tr>
-<tr><td>stories blocked</td><td class="num winner">6</td><td class="num loser">9</td></tr>
-<tr><td>tokens (in)</td><td class="num winner">5,579,985</td><td class="num loser">22,057,528</td></tr>
-<tr><td>tokens (out)</td><td class="num winner">161,270</td><td class="num loser">395,593</td></tr>
-<tr><td>est. cost (USD)</td><td class="num winner">1.684</td><td class="num loser">6.3907</td></tr>
-<tr><td>mean SPE (per sprint)</td><td class="num sub">— (no sprints)</td><td class="num">0.993 (Verify Data)</td></tr><tr><td>closed sprints</td><td class="num sub">—</td><td class="num">12</td></tr><tr><td>total committed pts</td><td class="num sub">—</td><td class="num">318</td></tr>
-<tr><td>integration tests</td><td><span class="fail">✗ rc=1 — 14 failed, 149 passed, 510 warnings in 46.42s</span></td><td><span class="pass">✓ 188 passed in 53.18s</span></td></tr>
+<tr><td>stories drafted</td><td class="num loser">11</td><td class="num winner">46</td></tr>
+<tr><td>stories done</td><td class="num loser">9</td><td class="num winner">15</td></tr>
+<tr><td>stories blocked</td><td class="num winner">2</td><td class="num loser">12</td></tr>
+<tr><td>tokens (in)</td><td class="num winner">3,672,167</td><td class="num loser">9,241,781</td></tr>
+<tr><td>tokens (out)</td><td class="num winner">107,112</td><td class="num loser">204,703</td></tr>
+<tr><td>est. cost (USD)</td><td class="num winner">1.1093</td><td class="num loser">2.7205</td></tr>
+<tr><td>mean SPE (per sprint)</td><td class="num sub">— (no sprints)</td><td class="num">0.840 (Verify Data)</td></tr><tr><td>closed sprints</td><td class="num sub">—</td><td class="num">11</td></tr><tr><td>total committed pts</td><td class="num sub">—</td><td class="num">260</td></tr>
+<tr><td>integration tests</td><td><span class="fail">✗ rc=1 — 2 failed, 194 passed, 347 warnings in 42.38s</span></td><td><span class="fail">✗ rc=1 — 59 failed, 28 passed in 0.75s</span></td></tr>
 </tbody>
 </table>
 <div class="sub">
@@ -78,8 +78,8 @@ tr:hover td { background: #fafaf8; }
     <h3>Waterfall run</h3>
     <div class="sub">
       team_id: <code>cmp-waterfall</code><br>
-      started: 2026-07-17T03:43:38.039376+00:00<br>
-      ended:   2026-07-17T04:10:45.356573+00:00<br>
+      started: 2026-07-17T12:44:30.864270+00:00<br>
+      ended:   2026-07-17T13:03:24.762807+00:00<br>
       reason:  backlog_empty
     </div>
   </div>
@@ -87,121 +87,94 @@ tr:hover td { background: #fafaf8; }
     <h3>Scrum run</h3>
     <div class="sub">
       team_id: <code>cmp-scrum</code><br>
-      started: 2026-07-17T04:11:09.068834+00:00<br>
-      ended:   2026-07-17T08:11:10.119322+00:00<br>
+      started: 2026-07-17T13:03:48.935710+00:00<br>
+      ended:   2026-07-17T17:03:49.952113+00:00<br>
       reason:  timeout
     </div>
   </div>
 </div>
 
-<h2>Stories — waterfall (12)</h2>
-<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-add-password-hashing-and-jwt-auth-helper</td><td>Add password hashing and JWT auth helpers to app.py</td><td>architecture</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">5d354e2</td></tr>
-<tr><td class="mono">GS-01-add-tests-for-add-password-hashing-and-j</td><td>Add tests for Add password hashing and JWT auth helpers to app.py</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-02-add-user-model-with-owner-scoped-access-</td><td>Add User model with owner-scoped access control</td><td>security</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">bb0ee9f</td></tr>
-<tr><td class="mono">GS-03-add-tests-for-add-user-model-with-owner-</td><td>Add tests for Add User model with owner-scoped access control</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-04-add-notes-crud-with-full-text-search-pag</td><td>Add Notes CRUD with full-text search, pagination, filtering, sorting</td><td>feature</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-05-add-tests-for-add-notes-crud-with-full-t</td><td>Add tests for Add Notes CRUD with full-text search, pagination, filter</td><td>test</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">8944c3d</td></tr>
-<tr><td class="mono">GS-06-add-folders-crud-with-hierarchical-folde</td><td>Add Folders CRUD with hierarchical folder tree support</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">9291d2f</td></tr>
-<tr><td class="mono">GS-07-add-tests-for-add-folders-crud-with-hier</td><td>Add tests for Add Folders CRUD with hierarchical folder tree support</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-08-add-tags-with-many-to-many-to-notes</td><td>Add Tags with many-to-many to Notes</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">04b6efc</td></tr>
-<tr><td class="mono">GS-09-add-tests-for-add-tags-with-many-to-many</td><td>Add tests for Add Tags with many-to-many to Notes</td><td>test</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">9e53673</td></tr>
-<tr><td class="mono">GS-10-add-rate-limiting-health-endpoint-and-op</td><td>Add rate limiting, /health endpoint, and OpenAPI docs</td><td>feature</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-11-add-tests-for-rate-limiting-health-and-o</td><td>Add tests for rate limiting, /health, and OpenAPI</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr></tbody></table>
+<h2>Stories — waterfall (11)</h2>
+<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-add-user-model-with-bcrypt-password-hash</td><td>Add User model with bcrypt password hashing and JWT token generation</td><td>security</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">8bcd632</td></tr>
+<tr><td class="mono">GS-01-add-tests-for-user-model-and-jwt-token-g</td><td>Add tests for User model and JWT token generation</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-02-implement-register-login-refresh-endpoin</td><td>Implement register/login/refresh endpoints</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">37a6982</td></tr>
+<tr><td class="mono">GS-03-add-tests-for-register-login-refresh-end</td><td>Add tests for register/login/refresh endpoints</td><td>test</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">e4d7ab8</td></tr>
+<tr><td class="mono">GS-04-add-folder-model-with-hierarchical-tree-</td><td>Add Folder model with hierarchical tree support</td><td>architecture</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">9d20cd7</td></tr>
+<tr><td class="mono">GS-05-add-note-model-with-tag-many-to-many-and</td><td>Add Note model with Tag many-to-many and Folder FK</td><td>architecture</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">2de9205</td></tr>
+<tr><td class="mono">GS-06-add-tests-for-folder-and-note-models</td><td>Add tests for Folder and Note models</td><td>test</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">ea268a8</td></tr>
+<tr><td class="mono">GS-07-implement-full-crud-for-notes-and-folder</td><td>Implement full CRUD for Notes and Folders endpoints</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">58e6c3f</td></tr>
+<tr><td class="mono">GS-08-add-tests-for-notes-and-folders-crud-end</td><td>Add tests for Notes and Folders CRUD endpoints</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-09-add-health-and-docs-endpoints</td><td>Add /health and /docs endpoints</td><td>feature</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">6a71626</td></tr>
+<tr><td class="mono">GS-10-add-wiki-decisions-md-entries-for-four-a</td><td>Add wiki/DECISIONS.md entries for four architecture decisions</td><td>docs</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">5d4b700</td></tr></tbody></table>
 
-<h2>Stories — scrum (74)</h2>
-<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-add-user-model-with-bcrypt-password-hash</td><td>Add User model with bcrypt password hashing</td><td>security</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">5f1ff26</td></tr>
-<tr><td class="mono">GS-01-add-tests-for-add-user-model-with-bcrypt</td><td>Add tests for Add User model with bcrypt password hashing</td><td>test</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono">16ddace</td></tr>
-<tr><td class="mono">GS-02-implement-jwt-auth-register-login-refres</td><td>Implement JWT auth (register/login/refresh)</td><td>security</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">b2724bf</td></tr>
-<tr><td class="mono">GS-03-add-tests-for-jwt-auth-implementation</td><td>Add tests for JWT auth implementation</td><td>test</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">6d14bd2</td></tr>
-<tr><td class="mono">GS-04-add-folder-model-with-hierarchical-tree-</td><td>Add Folder model with hierarchical tree structure</td><td>feature</td><td class="num">8</td><td><span class="tag blocked">blocked</span></td><td class="mono">643c69e</td></tr>
-<tr><td class="mono">GS-05-add-tests-for-folder-model-crud</td><td>Add tests for Folder model CRUD</td><td>test</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-06-add-notes-crud-with-owner-scoping-and-fo</td><td>Add Notes CRUD with owner scoping and folder association</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-07-add-tests-for-notes-crud</td><td>Add tests for Notes CRUD</td><td>test</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-08-add-tags-with-many-to-many-to-notes</td><td>Add Tags with many-to-many to notes</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-09-add-tests-for-tags-system</td><td>Add tests for Tags system</td><td>test</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-10-implement-full-text-search-on-notes</td><td>Implement full-text search on Notes</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-11-add-pagination-filtering-sorting-on-list</td><td>Add pagination, filtering, sorting on list endpoints</td><td>feature</td><td class="num">8</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-12-add-health-endpoint-and-openapi-docs</td><td>Add health endpoint and OpenAPI docs</td><td>feature</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">GS-13-add-wiki-decisions-for-architecture-choi</td><td>Add wiki decisions for architecture choices</td><td>docs</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-00-add-user-model-with-bcrypt-password-hash</td><td>Add User model with bcrypt password hashing</td><td>security</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">a2852a8</td></tr>
-<tr><td class="mono">S1-00-architecture-jwt-auth-flow-with-refresh-</td><td>Architecture: JWT Auth Flow with Refresh Tokens</td><td>architecture</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">63cf9b1</td></tr>
-<tr><td class="mono">S1-00-implement-jwt-auth-with-register-login-r</td><td>Implement JWT auth with register/login/refresh endpoints</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">7f550ba</td></tr>
-<tr><td class="mono">S1-00-implement-user-model-with-bcrypt-passwor-0</td><td>Implement User model with bcrypt password hashing</td><td>feature</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-00-implement-user-model-with-bcrypt-passwor</td><td>Implement User model with bcrypt password hashing and registration</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">4357071</td></tr>
-<tr><td class="mono">S1-00-s2-01-implement-user-model-with-bcrypt-p</td><td>S2-01 - Implement User model with bcrypt password hashing and JWT auth</td><td>security</td><td class="num">8</td><td><span class="tag done">done</span></td><td class="mono">481bbe3</td></tr>
-<tr><td class="mono">S1-00-s2-01-setup-project-skeleton-and-ci-cd-p</td><td>S2-01 - Setup project skeleton and CI/CD pipeline</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">0774f0e</td></tr>
-<tr><td class="mono">S1-00-split-gs-04-add-folder-model-with-hierar</td><td>Split GS-04: Add Folder model with hierarchical tree structure</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">687d64e</td></tr>
-<tr><td class="mono">S1-01-add-tests-for-folder-model-with-hierarch</td><td>Add tests for Folder model with hierarchy and circular reference detec</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">396ea24</td></tr>
-<tr><td class="mono">S1-01-add-tests-for-user-model-with-bcrypt</td><td>Add tests for User model with bcrypt</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">f3ca5a0</td></tr>
-<tr><td class="mono">S1-01-add-user-model-with-bcrypt-password-hash</td><td>Add User model with bcrypt password hashing</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">1252488</td></tr>
-<tr><td class="mono">S1-01-feature-user-model-with-bcrypt-password-</td><td>Feature: User Model with bcrypt Password Hashing</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">7792700</td></tr>
-<tr><td class="mono">S1-01-implement-jwt-auth-login-token-refresh-a</td><td>Implement JWT auth: login, token refresh, and protected endpoints</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">b3a5d10</td></tr>
-<tr><td class="mono">S1-01-implement-jwt-auth-middleware-and-refres</td><td>Implement JWT auth middleware and refresh endpoint</td><td>security</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">a138626</td></tr>
-<tr><td class="mono">S1-01-s2-02-implement-folder-model-with-hierar</td><td>S2-02 - Implement Folder model with hierarchical tree structure</td><td>feature</td><td class="num">8</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-01-s2-02-implement-user-model-with-bcrypt-p</td><td>S2-02 - Implement User model with bcrypt password hashing</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">a2c1f75</td></tr>
-<tr><td class="mono">S1-02-add-notes-crud-with-owner-scoping-and-fo</td><td>Add Notes CRUD with owner scoping and folder association</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">4be45fa</td></tr>
-<tr><td class="mono">S1-02-add-rate-limiting-on-write-endpoints</td><td>Add rate limiting on write endpoints</td><td>feature</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-02-feature-jwt-auth-endpoints-register-logi</td><td>Feature: JWT Auth Endpoints (Register/Login/Refresh)</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">3d4239e</td></tr>
-<tr><td class="mono">S1-02-implement-folder-model-with-hierarchical</td><td>Implement Folder model with hierarchical tree structure</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">1010b5b</td></tr>
-<tr><td class="mono">S1-02-implement-jwt-auth-register-login-refres</td><td>Implement JWT auth (register/login/refresh)</td><td>security</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">bfa734b</td></tr>
-<tr><td class="mono">S1-02-implement-notes-crud-with-owner-scoping-</td><td>Implement Notes CRUD with owner scoping and folder association</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">a7648f4</td></tr>
-<tr><td class="mono">S1-02-s2-03-implement-jwt-authentication-regis</td><td>S2-03 - Implement JWT authentication (register/login/refresh)</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">0060d3d</td></tr>
-<tr><td class="mono">S1-02-s2-03-implement-notes-crud-with-owner-sc</td><td>S2-03 - Implement Notes CRUD with owner scoping and folder association</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">99544ab</td></tr>
-<tr><td class="mono">S1-03-add-health-endpoint-and-openapi-docs</td><td>Add health endpoint and OpenAPI docs</td><td>feature</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-03-add-tags-with-many-to-many-to-notes</td><td>Add Tags with many-to-many to notes</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">3aad002</td></tr>
-<tr><td class="mono">S1-03-add-tests-for-jwt-auth-implementation</td><td>Add tests for JWT auth implementation</td><td>test</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono">50f43bd</td></tr>
-<tr><td class="mono">S1-03-feature-folders-model-with-hierarchical-</td><td>Feature: Folders Model with Hierarchical Tree</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">a760075</td></tr>
-<tr><td class="mono">S1-03-implement-folder-model-with-hierarchical</td><td>Implement Folder model with hierarchical tree structure</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">66f7ce4</td></tr>
-<tr><td class="mono">S1-03-implement-notes-crud-with-owner-scoping-</td><td>Implement Notes CRUD with owner scoping and folder association</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">d8dc04f</td></tr>
-<tr><td class="mono">S1-03-s2-04-implement-notes-crud-with-owner-sc</td><td>S2-04 - Implement Notes CRUD with owner scoping</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">7379df8</td></tr>
-<tr><td class="mono">S1-03-s2-04-implement-tags-with-many-to-many-r</td><td>S2-04 - Implement Tags with many-to-many relationship to Notes</td><td>feature</td><td class="num">8</td><td><span class="tag done">done</span></td><td class="mono">87586f3</td></tr>
-<tr><td class="mono">S1-04-add-folder-model-with-hierarchical-tree-</td><td>Add Folder model with hierarchical tree structure</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">fb94d6f</td></tr>
-<tr><td class="mono">S1-04-feature-notes-crud-with-owner-scoping</td><td>Feature: Notes CRUD with Owner Scoping</td><td>feature</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">93204c1</td></tr>
-<tr><td class="mono">S1-04-implement-full-text-search-on-notes-with</td><td>Implement full-text search on Notes with sqlite FTS5</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-04-implement-tags-with-many-to-many-relatio</td><td>Implement Tags with many-to-many relationship to Notes</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">c867810</td></tr>
-<tr><td class="mono">S1-04-implement-tags-with-many-to-many-to-note</td><td>Implement Tags with many-to-many to Notes</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">b796435</td></tr>
-<tr><td class="mono">S1-04-s2-05-implement-folder-model-with-hierar</td><td>S2-05 - Implement Folder model with hierarchical structure</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">5526b07</td></tr>
-<tr><td class="mono">S1-04-s2-05-implement-full-text-search-on-note</td><td>S2-05 - Implement full-text search on Notes with FTS5</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-04-write-wiki-decisions-for-architecture-ch</td><td>Write wiki decisions for architecture choices</td><td>docs</td><td class="num">2</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-05-add-notes-crud-with-owner-scoping-and-fo</td><td>Add Notes CRUD with owner scoping and folder association</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">ac3f1d8</td></tr>
-<tr><td class="mono">S1-05-add-pagination-filtering-sorting-on-all-</td><td>Add pagination, filtering, sorting on all list endpoints</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-05-feature-tags-with-many-to-many-to-notes</td><td>Feature: Tags with Many-to-Many to Notes</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">04f73c2</td></tr>
-<tr><td class="mono">S1-05-implement-full-text-search-on-notes-with-5</td><td>Implement full-text search on Notes with FTS5</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-05-implement-full-text-search-on-notes-with</td><td>Implement full-text search on Notes with SQLite FTS5</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">57ecfc2</td></tr>
-<tr><td class="mono">S1-05-s2-06-implement-pagination-filtering-sor</td><td>S2-06 - Implement pagination, filtering, sorting on all list endpoints</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-05-s2-06-implement-tags-with-many-to-many-t</td><td>S2-06 - Implement Tags with many-to-many to Notes</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-06-add-pagination-filtering-sorting-on-all--6</td><td>Add pagination, filtering, sorting on all list endpoints</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-06-add-pagination-filtering-sorting-on-all-</td><td>Add pagination, filtering, sorting on all list endpoints</td><td>feature</td><td class="num">8</td><td><span class="tag done">done</span></td><td class="mono">1ac1ccc</td></tr>
-<tr><td class="mono">S1-06-add-rate-limiting-on-write-endpoints</td><td>Add rate limiting on write endpoints</td><td>feature</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-06-add-wiki-decisions-for-architecture-choi</td><td>Add wiki decisions for architecture choices</td><td>docs</td><td class="num">2</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-06-feature-full-text-search-on-notes</td><td>Feature: Full-Text Search on Notes</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-06-s2-07-add-full-text-search-on-notes-with</td><td>S2-07 - Add full-text search on Notes with FTS5</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-06-s2-07-add-rate-limiting-health-endpoint-</td><td>S2-07 - Add rate limiting, health endpoint, and OpenAPI docs</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-07-add-health-endpoint-and-openapi-document</td><td>Add health endpoint and OpenAPI documentation</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-07-add-rate-limiting-on-write-endpoints-and</td><td>Add rate limiting on write endpoints and health endpoint with OpenAPI </td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-07-add-rate-limiting-on-write-endpoints</td><td>Add rate limiting on write endpoints</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-07-feature-health-endpoint-environment-conf</td><td>Feature: Health Endpoint &amp; Environment Configuration</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-07-s2-08-add-pagination-filtering-sorting-o</td><td>S2-08 - Add pagination, filtering, sorting on all list endpoints</td><td>feature</td><td class="num">8</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
-<tr><td class="mono">S1-07-s2-08-write-architecture-decisions-for-s</td><td>S2-08 - Write architecture decisions for sprint 2</td><td>docs</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr></tbody></table>
+<h2>Stories — scrum (46)</h2>
+<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-add-folder-and-tag-models-to-app-py</td><td>Add folder and tag models to app.py</td><td>architecture</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">029a3a5</td></tr>
+<tr><td class="mono">GS-01-add-tests-for-folder-and-tag-models</td><td>Add tests for folder and tag models</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">ec24c65</td></tr>
+<tr><td class="mono">GS-02-implement-jwt-auth-with-register-login-r</td><td>Implement JWT auth with register, login, refresh, bcrypt hashing</td><td>security</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-03-add-tests-for-jwt-auth-endpoints</td><td>Add tests for JWT auth endpoints</td><td>test</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-04-add-owner-scoped-crud-for-notes-with-fol</td><td>Add owner-scoped CRUD for Notes with folder support</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-05-add-tests-for-notes-crud-with-auth-bound</td><td>Add tests for Notes CRUD with auth boundaries and search</td><td>test</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-06-add-owner-scoped-crud-for-folders-with-h</td><td>Add owner-scoped CRUD for Folders with hierarchical tree</td><td>feature</td><td class="num">8</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-07-add-rate-limiting-health-endpoint-openap</td><td>Add rate limiting, health endpoint, OpenAPI docs, and wiki decisions</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-00-design-jwt-auth-architecture-decision-re</td><td>Design JWT Auth Architecture (decision record)</td><td>architecture</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono">19a2091</td></tr>
+<tr><td class="mono">S1-00-establish-flask-project-structure-and-ba</td><td>Establish Flask project structure and base dependencies</td><td>feature</td><td class="num">3</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-00-resolve-jwt-auth-architecture-decision</td><td>Resolve JWT Auth Architecture Decision</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">0edfa22</td></tr>
+<tr><td class="mono">S1-00-s2-00-resolve-jwt-auth-architecture-deci</td><td>S2-00-resolve-jwt-auth-architecture-decision</td><td>architecture</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">92eb315</td></tr>
+<tr><td class="mono">S1-00-split-s1-00-into-architecture-decision-i</td><td>Split S1-00 into architecture decision + implementation spike</td><td>architecture</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">b81ba44</td></tr>
+<tr><td class="mono">S1-01-add-tags-model-with-many-to-many-relatio</td><td>Add Tags model with many-to-many relationship to Notes</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">f4ceb98</td></tr>
+<tr><td class="mono">S1-01-apply-jwt-architecture-decision-to-gs-02</td><td>Apply JWT Architecture Decision to GS-02</td><td>architecture</td><td class="num">2</td><td><span class="tag done">done</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-01-implement-user-model-and-database-migrat</td><td>Implement User model and database migration</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-01-s2-01-implement-user-registration-endpoi</td><td>S2-01-implement-user-registration-endpoint</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">278995a</td></tr>
+<tr><td class="mono">S1-01-verify-and-unblock-gs-02-by-applying-the</td><td>Verify and unblock GS-02 by applying the architecture decision from S1</td><td>security</td><td class="num">1</td><td><span class="tag blocked">blocked</span></td><td class="mono">fb54b23</td></tr>
+<tr><td class="mono">S1-02-add-pagination-and-filtering-sorting-to-</td><td>Add pagination and filtering/sorting to Notes list endpoint</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">b22a257</td></tr>
+<tr><td class="mono">S1-02-implement-jwt-auth-register-and-login-en</td><td>Implement JWT Auth – Register and Login endpoints</td><td>security</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">91922b4</td></tr>
+<tr><td class="mono">S1-02-implement-jwt-auth-with-register-login-r</td><td>Implement JWT Auth with Register/Login/Refresh</td><td>security</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">385eeb8</td></tr>
+<tr><td class="mono">S1-02-s2-02-implement-user-login-and-token-end</td><td>S2-02-implement-user-login-and-token-endpoints</td><td>security</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">9f454a2</td></tr>
+<tr><td class="mono">S1-02-unblock-s1-05-by-confirming-full-text-se</td><td>Unblock S1-05 by confirming full-text search approach</td><td>architecture</td><td class="num">2</td><td><span class="tag done">done</span></td><td class="mono">003779d</td></tr>
+<tr><td class="mono">S1-03-add-pagination-and-filtering-sorting-to-</td><td>Add pagination and filtering/sorting to Folders list endpoint</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-03-add-rate-limiting-configuration-decision</td><td>Add rate-limiting configuration decision</td><td>architecture</td><td class="num">1</td><td><span class="tag done">done</span></td><td class="mono">816adea</td></tr>
+<tr><td class="mono">S1-03-implement-jwt-auth-refresh-and-logout-en</td><td>Implement JWT Auth – Refresh and Logout endpoints</td><td>security</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">d936889</td></tr>
+<tr><td class="mono">S1-03-s2-03-implement-owner-scoped-notes-crud</td><td>S2-03-implement-owner-scoped-notes-crud</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">2e640cc</td></tr>
+<tr><td class="mono">S1-03-write-integration-tests-for-jwt-auth</td><td>Write Integration Tests for JWT Auth</td><td>test</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono">d9830e4</td></tr>
+<tr><td class="mono">S1-04-add-pagination-and-filtering-sorting-to-</td><td>Add pagination and filtering/sorting to Tags list endpoint</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-04-design-folder-hierarchy-architecture</td><td>Design Folder Hierarchy Architecture</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">b9a20ca</td></tr>
+<tr><td class="mono">S1-04-implement-folder-model-with-parent-child</td><td>Implement Folder model with parent-child hierarchy</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-04-s2-04-add-basic-folder-model-and-hierarc</td><td>S2-04-add-basic-folder-model-and-hierarchy</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">7c0b1c2</td></tr>
+<tr><td class="mono">S1-04-unblock-s1-07-by-applying-the-rate-limit</td><td>Unblock S1-07 by applying the rate-limiting decision</td><td>security</td><td class="num">1</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-05-add-owner-scoped-crud-for-notes-with-fol-5</td><td>Add Owner-Scoped CRUD for Notes with Folder Support</td><td>feature</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">72f7640</td></tr>
+<tr><td class="mono">S1-05-add-owner-scoped-crud-for-notes-with-fol</td><td>Add owner-scoped CRUD for Notes with folder support (GS-04 already rea</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">44c5f2d</td></tr>
+<tr><td class="mono">S1-05-implement-full-text-search-on-notes</td><td>Implement full-text search on Notes</td><td>feature</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">e7d8454</td></tr>
+<tr><td class="mono">S1-05-implement-note-model-with-folder-associa</td><td>Implement Note model with folder association and owner scoping</td><td>feature</td><td class="num">8</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-05-s2-05-implement-folder-notes-association</td><td>S2-05-implement-folder-notes-association</td><td>feature</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">302d15e</td></tr>
+<tr><td class="mono">S1-06-add-integration-tests-for-tags-crud-and-</td><td>Add integration tests for Tags CRUD and search</td><td>test</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-06-add-owner-scoped-crud-for-folders-with-h</td><td>Add Owner-Scoped CRUD for Folders with Hierarchy</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-06-implement-tag-model-with-many-to-many-as</td><td>Implement Tag model with many-to-many association to Notes</td><td>feature</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-06-s2-06-add-basic-tags-model-and-endpoints</td><td>S2-06-add-basic-tags-model-and-endpoints</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">a99afc9</td></tr>
+<tr><td class="mono">S1-07-add-rate-limiting-health-endpoint-and-op</td><td>Add rate limiting, health endpoint, and OpenAPI docs</td><td>feature</td><td class="num">8</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-07-add-rate-limiting-to-write-endpoints</td><td>Add rate limiting to write endpoints</td><td>security</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr>
+<tr><td class="mono">S1-07-s2-07-write-core-integration-tests</td><td>S2-07-write-core-integration-tests</td><td>test</td><td class="num">5</td><td><span class="tag blocked">blocked</span></td><td class="mono">58667b2</td></tr>
+<tr><td class="mono">S1-07-write-core-integration-tests-for-notes-f</td><td>Write Core Integration Tests for Notes &amp; Folders</td><td>test</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr></tbody></table>
 
 <h2>Scrum sprint history</h2>
-<table><thead><tr><th>sprint</th><th>done/committed</th><th>pts done</th><th>final_commit (pts)</th><th>duration</th><th>SPE</th><th>band</th><th>status</th></tr></thead><tbody><tr><td class='num'>1</td><td>2/6</td><td class='num'>10</td><td class='num'>20</td><td class='num'>0.32h</td><td class='num'>1.337</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>10</td><td>3/6</td><td class='num'>18</td><td class='num'>33</td><td class='num'>0.33h</td><td class='num'>0.654</td><td>Excellent</td><td>scheduled</td></tr><tr><td class='num'>11</td><td>5/6</td><td class='num'>21</td><td class='num'>26</td><td class='num'>0.33h</td><td class='num'>1.315</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>12</td><td>3/6</td><td class='num'>21</td><td class='num'>31</td><td class='num'>0.33h</td><td class='num'>1.236</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>13</td><td>0/6</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0.00h</td><td class='num'>0.000</td><td>(open)</td><td>open</td></tr><tr><td class='num'>2</td><td>4/6</td><td class='num'>16</td><td class='num'>21</td><td class='num'>0.33h</td><td class='num'>2.136</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>3</td><td>3/6</td><td class='num'>13</td><td class='num'>28</td><td class='num'>0.33h</td><td class='num'>0.705</td><td>Excellent</td><td>scheduled</td></tr><tr><td class='num'>4</td><td>0/6</td><td class='num'>0</td><td class='num'>30</td><td class='num'>0.33h</td><td class='num'>0.000</td><td>No Delivery</td><td>scheduled</td></tr><tr><td class='num'>5</td><td>3/6</td><td class='num'>13</td><td class='num'>28</td><td class='num'>0.33h</td><td class='num'>0.846</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>6</td><td>4/6</td><td class='num'>16</td><td class='num'>21</td><td class='num'>0.33h</td><td class='num'>1.106</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>7</td><td>2/6</td><td class='num'>10</td><td class='num'>30</td><td class='num'>0.33h</td><td class='num'>0.393</td><td>Good</td><td>scheduled</td></tr><tr><td class='num'>8</td><td>5/6</td><td class='num'>25</td><td class='num'>30</td><td class='num'>0.33h</td><td class='num'>1.690</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>9</td><td>2/6</td><td class='num'>10</td><td class='num'>20</td><td class='num'>0.33h</td><td class='num'>0.502</td><td>Excellent</td><td>scheduled</td></tr></tbody></table>
+<table><thead><tr><th>sprint</th><th>done/committed</th><th>pts done</th><th>final_commit (pts)</th><th>duration</th><th>SPE</th><th>band</th><th>status</th></tr></thead><tbody><tr><td class='num'>1</td><td>2/6</td><td class='num'>8</td><td class='num'>21</td><td class='num'>0.33h</td><td class='num'>0.842</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>10</td><td>0/6</td><td class='num'>0</td><td class='num'>26</td><td class='num'>0.33h</td><td class='num'>0.000</td><td>No Delivery</td><td>scheduled</td></tr><tr><td class='num'>11</td><td>2/6</td><td class='num'>5</td><td class='num'>13</td><td class='num'>0.33h</td><td class='num'>3.770</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>12</td><td>0/6</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0.00h</td><td class='num'>0.000</td><td>(open)</td><td>open</td></tr><tr><td class='num'>2</td><td>0/5</td><td class='num'>0</td><td class='num'>26</td><td class='num'>0.33h</td><td class='num'>0.000</td><td>No Delivery</td><td>scheduled</td></tr><tr><td class='num'>3</td><td>0/6</td><td class='num'>0</td><td class='num'>21</td><td class='num'>0.33h</td><td class='num'>0.000</td><td>No Delivery</td><td>scheduled</td></tr><tr><td class='num'>4</td><td>1/6</td><td class='num'>5</td><td class='num'>31</td><td class='num'>0.33h</td><td class='num'>0.219</td><td>Needs Improvement</td><td>scheduled</td></tr><tr><td class='num'>5</td><td>1/6</td><td class='num'>5</td><td class='num'>31</td><td class='num'>0.33h</td><td class='num'>0.236</td><td>Needs Improvement</td><td>scheduled</td></tr><tr><td class='num'>6</td><td>2/6</td><td class='num'>7</td><td class='num'>15</td><td class='num'>0.33h</td><td class='num'>1.128</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>7</td><td>1/6</td><td class='num'>1</td><td class='num'>27</td><td class='num'>0.33h</td><td class='num'>0.022</td><td>Needs Improvement</td><td>scheduled</td></tr><tr><td class='num'>8</td><td>4/6</td><td class='num'>20</td><td class='num'>23</td><td class='num'>0.33h</td><td class='num'>2.772</td><td>Verify Data</td><td>scheduled</td></tr><tr><td class='num'>9</td><td>1/6</td><td class='num'>5</td><td class='num'>26</td><td class='num'>0.33h</td><td class='num'>0.247</td><td>Needs Improvement</td><td>scheduled</td></tr></tbody></table>
 
 <h2>Scrum event histogram</h2>
-<table><thead><tr><th>event</th><th>count</th></tr></thead><tbody><tr><td class='mono'>story_refined</td><td class='num'>74</td></tr>
-<tr><td class='mono'>story_pulled</td><td class='num'>55</td></tr>
-<tr><td class='mono'>commit_landed</td><td class='num'>42</td></tr>
-<tr><td class='mono'>merge_queued</td><td class='num'>42</td></tr>
-<tr><td class='mono'>merge_completed</td><td class='num'>37</td></tr>
-<tr><td class='mono'>stories_accepted</td><td class='num'>37</td></tr>
-<tr><td class='mono'>scheduled_noop</td><td class='num'>22</td></tr>
-<tr><td class='mono'>sprint_opened</td><td class='num'>13</td></tr>
-<tr><td class='mono'>story_no_commit</td><td class='num'>13</td></tr>
-<tr><td class='mono'>sprint_closed</td><td class='num'>12</td></tr>
+<table><thead><tr><th>event</th><th>count</th></tr></thead><tbody><tr><td class='mono'>scheduled_noop</td><td class='num'>65</td></tr>
+<tr><td class='mono'>story_refined</td><td class='num'>46</td></tr>
+<tr><td class='mono'>story_pulled</td><td class='num'>28</td></tr>
+<tr><td class='mono'>commit_landed</td><td class='num'>27</td></tr>
+<tr><td class='mono'>merge_queued</td><td class='num'>27</td></tr>
+<tr><td class='mono'>merge_completed</td><td class='num'>15</td></tr>
+<tr><td class='mono'>stories_accepted</td><td class='num'>13</td></tr>
+<tr><td class='mono'>agent_started</td><td class='num'>12</td></tr>
+<tr><td class='mono'>sprint_opened</td><td class='num'>12</td></tr>
+<tr><td class='mono'>merge_conflict</td><td class='num'>12</td></tr>
+<tr><td class='mono'>sprint_closed</td><td class='num'>11</td></tr>
+<tr><td class='mono'>agent_stopped</td><td class='num'>11</td></tr>
 <tr><td class='mono'>replan_started</td><td class='num'>8</td></tr>
-<tr><td class='mono'>replan_done</td><td class='num'>8</td></tr>
-<tr><td class='mono'>agent_started</td><td class='num'>5</td></tr>
-<tr><td class='mono'>merge_conflict</td><td class='num'>5</td></tr>
-<tr><td class='mono'>agent_stopped</td><td class='num'>5</td></tr></tbody></table>
+<tr><td class='mono'>replan_done</td><td class='num'>7</td></tr>
+<tr><td class='mono'>replan_failed</td><td class='num'>1</td></tr>
+<tr><td class='mono'>agent_crashed</td><td class='num'>1</td></tr>
+<tr><td class='mono'>agent_restarted</td><td class='num'>1</td></tr></tbody></table>
 
 </div></body></html>

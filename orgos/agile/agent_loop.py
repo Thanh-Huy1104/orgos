@@ -275,8 +275,14 @@ class AsyncAgent:
                     closed = close_sprint(
                         self.workspace, self.board, reason="scheduled",
                     )
+                # Scale velocity_target with team size — a 6-story ceiling
+                # starves parallelism at N>1 delivery agents. Falls back to
+                # 6 for the historical single-agent-per-role layout.
+                vt = getattr(self.workspace, "velocity_target", None)
+                velocity_target = vt if isinstance(vt, int) and vt > 0 else 6
                 new_sprint = open_sprint(
-                    self.workspace, self.board, velocity_target=6,
+                    self.workspace, self.board,
+                    velocity_target=velocity_target,
                 )
                 return closed, new_sprint
 
