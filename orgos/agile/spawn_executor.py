@@ -28,121 +28,91 @@ from orgos.subagents import architect_role, devsecops_role, test_role
 from orgos.tools.bash import BashTool
 
 
-_ARCH_BRIEF = """You are the Architect. Build the story below.
+_ARCH_BRIEF = """You are the Architect. Ship the story below in ONE commit.
 
-STORY
-  issue_id: {issue_id}
-  title:    {title}
-  type:     {type}
-  files_to_touch (hint): {files_hint}
+STORY {issue_id}  (type={type})
+  title: {title}
+  files hint: {files_hint}
 
-BODY
 {body}
 
-WORKTREE: {worktree}
-UNIX shell available. Use `cat`, heredocs, `pytest`, `git`.
+WORKTREE: {worktree}    (UNIX shell + cat + heredocs + pytest + git)
 
-STEPS
-1. Write the code the story asks for. If tests are implied, add them.
-2. **IF THIS STORY'S TYPE IS `architecture`:** you MUST append a decision
-   record to `wiki/DECISIONS.md` with EXACTLY these three fields on the
-   same block, then a body:
+═══ CRITICAL: THE COMMIT IS THE ONLY THING THAT COUNTS ═══
+Success = `git rev-parse HEAD` advances past its baseline.
+The envelope JSON at the end is optional bookkeeping — SKIP IT if you're
+running low on iterations. The commit is not optional.
+
+═══ ORDER (do these in this order, do not skip commit) ═══
+1. Write code with heredoc (`cat > path <<'EOF' … EOF`). First bash call is
+   productive, not exploration.
+2. If this story is type=architecture, append to wiki/DECISIONS.md:
 
        ## <one-line decision summary>
        **author:** architect-agent
-       **timestamp:** <ISO-8601 UTC, e.g. 2026-07-16T20:00:00Z>
+       **timestamp:** <ISO-8601 UTC>
        **source:** {issue_id}
 
-       <2-4 sentences: what you decided, why, what you rejected>
+       <2-4 sentences>
 
-   Without this entry, PO's Definition-of-Done gate will reject the story
-   and it will be blocked. This is not optional for architecture stories.
-3. Run any tests you added: `pytest <path> -v` (keep going even if warnings).
-4. Commit:
-     git add -A
-     git -c user.name=orgos-arch -c user.email=arch@orgos.local commit -m "{type}: {title}"
-5. `git rev-parse HEAD`
-6. Emit ONLY this envelope JSON as your final message:
+   Without this, PO's DoD gate blocks the story on acceptance.
+3. **COMMIT NOW** — even before running tests:
+       git add -A
+       git -c user.name=orgos-arch -c user.email=arch@orgos.local commit -m "{type}: {title}"
+4. Then run tests: `pytest <path> -v` (informational; not required to pass).
+5. (Optional) Emit envelope JSON:
+   {{"role":"architect","status":"completed","summary":"<what>","payload":{{"commit_sha":"<sha>","files_touched":[...]}}}}
 
-{{
-  "role": "architect",
-  "status": "completed",
-  "summary": "<what you did>",
-  "payload": {{
-    "commit_sha": "<sha>",
-    "files_touched": ["<paths>"],
-    "test_command": "<pytest cmd or empty>",
-    "test_output": "<tail 500 chars>",
-    "test_passed": true
-  }}
-}}
-
-RULES
-  - **THE COMMIT STEP IS NOT OPTIONAL.** Even if you're not fully confident
-    the code is right, commit whatever you have. A partial commit is
-    infinitely better than no commit — a later story can build on it. An
-    uncommitted diff is thrown away and the story goes to `blocked`.
-  - First bash call is productive (heredoc), not exploration.
+═══ RULES ═══
+  - Committed partial progress > uncommitted "clean" code. ALWAYS commit
+    whatever you have before your turn ends.
   - Do not modify governance files (orgos/spawn/**).
-  - Never edit `wiki/DECISIONS.md` for a non-architecture story (only add
-    entries when your story is type=architecture).
+  - Only touch wiki/DECISIONS.md if this story is type=architecture.
 """
 
-_TEST_BRIEF = """You are Test. Add or improve tests for the story below.
+_TEST_BRIEF = """You are Test. Ship tests for the story below in ONE commit.
 
-STORY
-  issue_id: {issue_id}
-  title:    {title}
-  files_to_touch (hint): {files_hint}
+STORY {issue_id}
+  title: {title}
+  files hint: {files_hint}
 
-BODY
 {body}
 
 WORKTREE: {worktree}
 
-STEPS
-1. Read the existing code that this story tests: `cat <path>`.
-2. Write test file(s) via heredoc. Run them: `pytest <path> -v`.
-3. Commit:
-     git add -A
-     git -c user.name=orgos-test -c user.email=test@orgos.local commit -m "test: {title}"
-4. `git rev-parse HEAD`
-5. Emit envelope:
+═══ CRITICAL: THE COMMIT IS THE ONLY THING THAT COUNTS ═══
+Success = HEAD advances. Envelope JSON is optional.
 
-{{
-  "role": "test",
-  "status": "completed",
-  "summary": "<what you added>",
-  "payload": {{
-    "commit_sha": "<sha>",
-    "files_touched": ["<paths>"],
-    "test_command": "<cmd>",
-    "test_output": "<tail>",
-    "test_passed": true
-  }}
-}}
+═══ ORDER ═══
+1. Read the code under test: `cat <path>`.
+2. Write test file(s) with heredoc.
+3. **COMMIT NOW**:
+       git add -A
+       git -c user.name=orgos-test -c user.email=test@orgos.local commit -m "test: {title}"
+4. Then run tests (informational): `pytest <path> -v`.
+5. (Optional) Envelope: {{"role":"test","status":"completed","payload":{{"commit_sha":"<sha>"}}}}
 """
 
-_SEC_BRIEF = """You are DevSecOps. Add security guards / validation for the story below.
+_SEC_BRIEF = """You are DevSecOps. Ship security guards for the story below in ONE commit.
 
-STORY
-  issue_id: {issue_id}
-  title:    {title}
-  files_to_touch (hint): {files_hint}
+STORY {issue_id}
+  title: {title}
+  files hint: {files_hint}
 
-BODY
 {body}
 
 WORKTREE: {worktree}
 
-STEPS
-1. Read the target code.
-2. Add validation / auth / secret-handling as the story describes.
-3. Commit:
-     git add -A
-     git -c user.name=orgos-sec -c user.email=sec@orgos.local commit -m "sec: {title}"
-4. `git rev-parse HEAD`
-5. Emit envelope with role=devsecops.
+═══ CRITICAL: THE COMMIT IS THE ONLY THING THAT COUNTS ═══
+Success = HEAD advances. Envelope JSON is optional.
+
+═══ ORDER ═══
+1. Read target code.
+2. Add validation / auth / secret handling.
+3. **COMMIT NOW**:
+       git add -A
+       git -c user.name=orgos-sec -c user.email=sec@orgos.local commit -m "sec: {title}"
+4. (Optional) Envelope: {{"role":"devsecops","status":"completed","payload":{{"commit_sha":"<sha>"}}}}
 """
 
 
@@ -206,6 +176,40 @@ class SpawnCodingExecutor:
         )
         return [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
 
+    def _has_uncommitted_changes(self, worktree: Path) -> bool:
+        """True if `git status --porcelain` reports any tracked or untracked change."""
+        import subprocess as _sp
+        r = _sp.run(
+            ["git", "status", "--porcelain"], cwd=str(worktree),
+            capture_output=True, text=True, timeout=10,
+        )
+        return bool((r.stdout or "").strip())
+
+    def _wip_commit(self, worktree: Path, *, message: str) -> str:
+        """Stage everything + commit with a WIP message. Returns new HEAD sha
+        or '' on failure. Used as the auto-commit fallback when the LLM
+        wrote files but skipped `git commit`.
+        """
+        import subprocess as _sp
+        try:
+            _sp.run(["git", "add", "-A"], cwd=str(worktree),
+                    check=True, capture_output=True, timeout=15)
+            r = _sp.run(
+                ["git", "-c", "user.name=orgos-wip",
+                 "-c", "user.email=wip@orgos.local",
+                 "commit", "-m", message],
+                cwd=str(worktree), capture_output=True, text=True, timeout=15,
+            )
+            if r.returncode != 0:
+                return ""
+            head = _sp.run(
+                ["git", "rev-parse", "HEAD"], cwd=str(worktree),
+                capture_output=True, text=True, timeout=10,
+            )
+            return (head.stdout or "").strip()
+        except (_sp.SubprocessError, OSError):
+            return ""
+
     def run_story(
         self, *,
         worktree: Path,
@@ -232,6 +236,12 @@ class SpawnCodingExecutor:
             extra_tools=[BashTool(default_working_dir=str(worktree))],
         )
         role.mcp_servers = []  # no wiki MCP inside the coding path
+        # Bump reasoning cap for coding work. Default (20) was too tight in
+        # the 4h at-scale run — "write code + tests + pytest + git commit
+        # + emit envelope" often needs 25-35 turns on complex stories, and
+        # hitting the cap = LLM stops without committing (was 29/39 no_commits
+        # in Run 4). Bump to 40 for headroom.
+        role.max_iter = 40
 
         brief = TaskBrief(
             objective=prompt,
@@ -280,9 +290,28 @@ class SpawnCodingExecutor:
             pass
 
         if not head or head == baseline:
+            # LLM didn't run `git commit`. Check if it at least wrote files —
+            # if so, auto-commit them with a WIP prefix and treat as success.
+            # This turns "LLM forgot the commit step" from a total loss into
+            # a partial delivery. Zero extra LLM cost.
+            if self._has_uncommitted_changes(worktree):
+                wip_sha = self._wip_commit(
+                    worktree,
+                    message=f"WIP: {getattr(story, 'title', 'story')} [{getattr(story, 'issue_id', '')}]",
+                )
+                if wip_sha and wip_sha != baseline:
+                    return ExecutionResult(
+                        success=True,
+                        commit_sha=wip_sha,
+                        files_touched=self._files_touched(worktree, baseline),
+                        learnings=(summary_text + " [auto-committed: LLM wrote code but did not run git commit]")[:1000],
+                        tokens_input=tokens_in,
+                        tokens_output=tokens_out,
+                        wall_seconds=wall,
+                    )
             return ExecutionResult(
                 success=False,
-                error="no commit landed (HEAD unchanged from baseline)",
+                error="no commit landed (HEAD unchanged from baseline; no uncommitted changes either)",
                 wall_seconds=wall,
                 tokens_input=tokens_in,
                 tokens_output=tokens_out,

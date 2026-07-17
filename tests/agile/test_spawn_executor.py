@@ -147,3 +147,62 @@ class TestSpawnCodingExecutorRoleRouting:
         ex.run_story(worktree=repo, story=FakeStory(), persona_scaffold="",
                      session_id="test")
         assert captured["called"] == "test_role"
+
+
+class TestWipAutoCommitFallback:
+    """When the LLM writes files but skips `git commit`, the executor should
+    auto-commit them with a WIP: prefix and return success. Turns 'LLM
+    forgot the commit step' from total loss into partial delivery.
+    """
+    def test_wip_autocommit_when_llm_wrote_files_but_did_not_commit(
+        self, repo, monkeypatch,
+    ):
+        baseline = _baseline(repo)
+
+        def fake_spawn(role, brief, run_budget_tokens=1_200_000):
+            # Simulate: LLM wrote a file but did NOT run `git commit`.
+            (repo / "app.py").write_text("def ping(): return 'pong'\n")
+            r = MagicMock()
+            r.token_usage = {"prompt_tokens": 100, "completion_tokens": 50}
+            r.tasks_output = [MagicMock(raw='{"summary": "wrote ping but forgot commit"}')]
+            return r
+
+        monkeypatch.setattr("orgos.agile.spawn_executor.spawn", fake_spawn)
+        monkeypatch.setattr("orgos.agile.spawn_executor.architect_role",
+                            lambda **kw: MagicMock(mcp_servers=[]))
+
+        ex = SpawnCodingExecutor(
+            model="m", baseline_sha_provider=lambda: baseline,
+        )
+        result = ex.run_story(
+            worktree=repo, story=FakeStory(),
+            persona_scaffold="", session_id="architect",
+        )
+        assert result.success is True, f"expected auto-commit fallback, got error={result.error}"
+        assert result.commit_sha != baseline
+        assert "app.py" in result.files_touched
+        assert "auto-committed" in result.learnings.lower()
+
+    def test_no_fallback_when_no_uncommitted_changes(self, repo, monkeypatch):
+        baseline = _baseline(repo)
+
+        def fake_spawn(role, brief, run_budget_tokens=1_200_000):
+            # LLM didn't write anything AND didn't commit
+            r = MagicMock()
+            r.token_usage = {}
+            r.tasks_output = [MagicMock(raw='I gave up')]
+            return r
+
+        monkeypatch.setattr("orgos.agile.spawn_executor.spawn", fake_spawn)
+        monkeypatch.setattr("orgos.agile.spawn_executor.architect_role",
+                            lambda **kw: MagicMock(mcp_servers=[]))
+
+        ex = SpawnCodingExecutor(
+            model="m", baseline_sha_provider=lambda: baseline,
+        )
+        result = ex.run_story(
+            worktree=repo, story=FakeStory(),
+            persona_scaffold="", session_id="architect",
+        )
+        assert result.success is False
+        assert "no commit" in result.error.lower()
