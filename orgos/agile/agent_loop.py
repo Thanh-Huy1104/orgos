@@ -309,18 +309,34 @@ class AsyncAgent:
         recorded its decision in wiki/DECISIONS.md with the mandatory three
         fields (author, timestamp, source) citing this story's issue_id.
 
+        Reads from the INTEGRATION worktree (where agent commits land after
+        merge) — NOT from source_repo (which is the target's main working
+        tree, never touched by orgos agents). Falls back to source_repo only
+        if the integration worktree doesn't exist yet (bootstrap case).
+
         Returns False (blocking acceptance) if the wiki is unreadable or the
         story is not cited — fabricated/undocumented decisions must not pass.
         """
         from orgos.mcps.wiki_mcp import decisions_cite_source
+        # Check integration worktree first (where merged agent work lives)
+        candidates = []
         try:
-            p = self.workspace.source_repo / "wiki" / "DECISIONS.md"
-            if not p.exists():
-                return False
-            content = p.read_text(encoding="utf-8")
-        except (OSError, TypeError, AttributeError):
-            return False
-        return decisions_cite_source(content, issue_id)
+            candidates.append(self.workspace.integration_worktree / "wiki" / "DECISIONS.md")
+        except (AttributeError, TypeError):
+            pass
+        try:
+            candidates.append(self.workspace.source_repo / "wiki" / "DECISIONS.md")
+        except (AttributeError, TypeError):
+            pass
+        for p in candidates:
+            try:
+                if p.exists():
+                    content = p.read_text(encoding="utf-8")
+                    if decisions_cite_source(content, issue_id):
+                        return True
+            except OSError:
+                continue
+        return False
 
     async def _run_acceptance(self) -> None:
         """PO acceptance gate: review stories in pending_acceptance and
