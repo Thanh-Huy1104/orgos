@@ -44,12 +44,25 @@ UNIX shell available. Use `cat`, heredocs, `pytest`, `git`.
 
 STEPS
 1. Write the code the story asks for. If tests are implied, add them.
-2. Run any tests you added: `pytest <path> -v` (keep going even if warnings).
-3. Commit:
+2. **IF THIS STORY'S TYPE IS `architecture`:** you MUST append a decision
+   record to `wiki/DECISIONS.md` with EXACTLY these three fields on the
+   same block, then a body:
+
+       ## <one-line decision summary>
+       **author:** architect-agent
+       **timestamp:** <ISO-8601 UTC, e.g. 2026-07-16T20:00:00Z>
+       **source:** {issue_id}
+
+       <2-4 sentences: what you decided, why, what you rejected>
+
+   Without this entry, PO's Definition-of-Done gate will reject the story
+   and it will be blocked. This is not optional for architecture stories.
+3. Run any tests you added: `pytest <path> -v` (keep going even if warnings).
+4. Commit:
      git add -A
      git -c user.name=orgos-arch -c user.email=arch@orgos.local commit -m "{type}: {title}"
-4. `git rev-parse HEAD`
-5. Emit ONLY this envelope JSON:
+5. `git rev-parse HEAD`
+6. Emit ONLY this envelope JSON as your final message:
 
 {{
   "role": "architect",
@@ -65,10 +78,14 @@ STEPS
 }}
 
 RULES
+  - **THE COMMIT STEP IS NOT OPTIONAL.** Even if you're not fully confident
+    the code is right, commit whatever you have. A partial commit is
+    infinitely better than no commit — a later story can build on it. An
+    uncommitted diff is thrown away and the story goes to `blocked`.
   - First bash call is productive (heredoc), not exploration.
   - Do not modify governance files (orgos/spawn/**).
-  - If you cannot complete the story in one attempt, still commit whatever
-    progress you made so the next agent has state to build on.
+  - Never edit `wiki/DECISIONS.md` for a non-architecture story (only add
+    entries when your story is type=architecture).
 """
 
 _TEST_BRIEF = """You are Test. Add or improve tests for the story below.

@@ -31,8 +31,9 @@ Five progressive comparison runs on `/tmp/flask-target` (minimal Flask app) with
 | 1 | `/notes-count` endpoint | v2 async, no DoD/sprints/acceptance | Infrastructure worked. Both delivered. Scrum did more stories but at similar cost. |
 | 2 | full CRUD (Notes + Projects) | v2 async, no DoD/sprints/acceptance | Scrum edged out on 6/7 axes: 10 vs 8 stories done, 2.52M vs 2.62M tokens, ~$0.02 cheaper. Waterfall produced more test files (57 vs 43). |
 | 3 | full CRUD (same) | **+ DoD paired test subtasks + sprints + PO acceptance gate** | **Scrum spent 57% less money** ($0.22 vs $0.51) but delivered fewer stories (3 vs 7). Real-Scrum machinery is real overhead in a short window. |
+| 4 | production-shape Notes API (JWT + Users + Notes + Folders + Tags + search + rate-limits + OpenAPI + DoD wiki) | Full real-Scrum + **20-min sprints** for 4 hours | **Waterfall dominated on delivery** — 10 vs 4 done, 26 min vs 4 h. Scrum blocked 35/52 stories (67% failure). Multi-sprint at scale surfaced 4 real bugs (sprint roll-over, executor retry, DoD wiki, SPE bimodal). |
 
-Runs 1-2 were "async scrum, more or less"; run 3 is the first defensible apples-to-apples where scrum implements real Scrum mechanics.
+Runs 1-2 were "async scrum, more or less"; run 3 is the first defensible apples-to-apples where scrum implements real Scrum mechanics; run 4 is the first at-scale multi-sprint benchmark and the one that exposed the real failure modes.
 
 ### Run 3 — the honest one
 
@@ -63,6 +64,54 @@ Waterfall's linear pipeline runs Architect + Test + DevSecOps on **every** story
 4. **`files_to_touch` overlap.** Paired feature+test both touch `tests/*.py` — the collision guard blocks concurrent claim. 2 `merge_conflict` events in run 3 vs the usual 1.
 
 Sprint boundary fired once (`sprint_opened`) but the automatic close didn't reach — SM's HEARTBEAT is at 4h cadence, and the run window was 12 min. Multi-sprint compounding effects are not visible at this scale.
+
+### Run 4 — the at-scale multi-sprint run (the harsh one)
+
+Configuration:
+- **Goal**: production-shape Notes API — JWT auth, User model, CRUD for Notes AND Folders (hierarchical tree), Tags with many-to-many, full-text search, pagination/filter/sort, rate limiting, OpenAPI docs, `wiki/DECISIONS.md` entries per architectural decision
+- **Budget**: `--scrum-seconds 14400 --sprint-duration-seconds 1200` (4-hour window, 20-min sprints)
+- **Executor**: `spawn` on DeepSeek Chat for both topologies
+- **Sleep prevention**: `caffeinate -disu`
+
+Results:
+
+| Metric | Waterfall | Real Scrum |
+|---|---|---|
+| Wall time | **26 min** | 4 h 0 m |
+| Stories drafted | 14 | **52** |
+| Stories done | **10** | 4 |
+| Stories blocked | 4 | **35 (67% failure rate)** |
+| Tokens in | 4.9 M | 9.76 M (2×) |
+| Tokens out | 130 k | 263 k |
+| Est. cost (DeepSeek) | ~$1.46 | ~$2.92 |
+| Sprints closed | — | 12 (+1 open) |
+| Integration tests | 42 pass / 119 fail | 48 pass / 48 fail |
+
+**Sprint-level SPE data:**
+
+```
+sprint  1:  0/6   final_commit=24  SPE=0.000  (PO drafting, nothing shipped yet)
+sprint  2:  0/6   final_commit=8   SPE=0.000
+sprint  3:  0/6   final_commit=10  SPE=0.000
+sprint  4:  1/4   final_commit=13  SPE=1.381  ← first delivery (Excellent band)
+sprint  5:  0/0   —                SPE=0.000  ← roll-over bug: stranded stories
+sprint  6:  0/0   —                SPE=0.000
+sprint  7:  0/0   —                SPE=0.000
+sprint  8:  2/6   final_commit=10  SPE=8.006  ← acceptance queue drained (artifact)
+sprint  9:  0/6   —                SPE=0.000
+sprint 10:  1/3   final_commit=3   SPE=8.682  ← same artifact
+sprint 11:  0/6   —                SPE=0.000
+sprint 12:  0/6   —                SPE=0.000
+```
+
+**Only 3 of 12 closed sprints scored non-zero SPE**, and two of those were `Verify Data` band (>0.80 = measurement artifact from delayed `pending_acceptance` acceptance, not real efficiency). Total cost across both topologies: ~$4.38 of the $20 budget.
+
+**Four real bugs at scale (fixed in the follow-up commit — see §Direction #A/B/C below):**
+
+1. **Sprint roll-over bug (biggest empty-sprint driver).** Unfinished stories in a closed sprint kept `sprint_number=N`, so the next sprint's planner (which only picks stories with `sprint_number=0`) couldn't touch them. Sprints 5-7 and 9-13 mostly opened empty because of this. **Fix:** on `close_sprint`, reset each unfinished story's `sprint_number` to 0. ~10 lines in `sprints.py`.
+2. **Executor success rate = 25%** (10 commits / 39 pulls). 29 `story_no_commit` events. Failed pulls went straight to `blocked` — no retry. **Fix:** new `Story.attempts` counter; on `no_commit`, transition back to `ready` and let another agent retry, up to `MAX_ATTEMPTS_PER_STORY = 3` before permanent block. ~30 lines in `agent_loop.py`.
+3. **DoD wiki gate rejected 3 architecture stories.** The architect executor prompt didn't tell the LLM it needed to add a `wiki/DECISIONS.md` entry — so PO's DoD gate correctly rejected them. **Fix:** architect brief now explicitly requires the wiki entry (with the three mandatory fields) when `story.type == "architecture"`, and calls out that the commit step is non-optional even for partial progress. ~20 lines in `spawn_executor.py`.
+4. **SPE is bimodal at this scale.** With PO acceptance queuing, a story might be worked in sprint N but only accepted in sprint N+3. Its `activated_at→closed_at` delta captures the fast execution, sprint duration is 20 min, so PE spikes to 8+. **Not fixed** — this is a real modeling issue with the metric itself. Recommend tracking cycle-time separately from sprint-time in a future iteration.
 
 ---
 
@@ -98,12 +147,19 @@ Sprint boundary fired once (`sprint_opened`) but the automatic close didn't reac
 
 ## Direction
 
-Ranked by impact-to-effort, low-risk to high-risk:
+Ranked by impact-to-effort, low-risk to high-risk.
 
-### Immediate wins (each < 1 day)
+### Post-Run-4 fixes (landed in the follow-up commit)
+
+- **A. Sprint roll-over on close.** Unfinished stories now have `sprint_number` reset to `0` when their sprint closes, so the next planner can re-commit them. Directly addresses the "8 out of 12 sprints scored 0" pattern from Run 4.
+- **B. Retry-on-no-commit.** New `Story.attempts` field. On `story_no_commit`, story goes back to `ready` for another agent (or the same one) to retry, up to `MAX_ATTEMPTS_PER_STORY = 3`. Should lift the 25% executor success rate — most no-commits in Run 4 were transient (LLM skipped the commit step, timed out mid-turn).
+- **C. Architect prompt requires wiki entry for architecture stories.** The DoD gate rejections in Run 4 were legitimate — the executor prompt now explicitly tells the LLM to write the `wiki/DECISIONS.md` entry with the three mandatory fields when the story type is `architecture`. Also strengthens the "commit is not optional, even partial progress" instruction to reduce no-commit rate.
+- **D. `--sprint-duration-seconds` on `orgos start`.** Runtime override for SM's HEARTBEAT.md cadence. Enables multi-sprint runs in short windows without editing persona files.
+
+### Still-open (each < 1 day)
 1. **Multi-run statistics.** Wrap `run_comparison.sh` to loop N times per topology and emit mean/stddev in the HTML. Gets us defensible n≥5 comparisons.
-2. **SM sprint cadence knob.** `--sprint-duration-seconds` on `orgos start` so demo/CI runs can see 3-4 sprints in a short window without editing HEARTBEAT.md.
-3. **Velocity-informed replan.** PO's replan reads previous sprint's `points_completed` and right-sizes the next sprint's commitment.
+2. **Velocity-informed replan.** PO's replan reads previous sprint's `points_completed` and right-sizes the next sprint's commitment.
+3. **Cycle-time vs sprint-time separation.** SPE is bimodal because the metric conflates the two. Track story cycle-time (`created_at → done`) alongside per-sprint SPE.
 
 ### Meaningful features (1-3 days each)
 4. **Enforce `files_to_touch` non-overlap in the decomposer.** Post-process PO output: if feature and test share files, split test file path (`tests/test_<feature_slug>.py`).

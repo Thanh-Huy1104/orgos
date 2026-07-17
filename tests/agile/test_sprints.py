@@ -119,13 +119,27 @@ class TestSprintLifecycle:
         s2 = open_sprint(ws, board, velocity_target=2)
         assert s2.number == 2
         assert current_sprint_number(ws) == 2
-        # S3 should be in sprint 2; S1/S2 should still be in sprint 1
-        assert board.read("S3").sprint_number == 2
-        assert board.read("S1").sprint_number == 1
-        assert board.read("S2").sprint_number == 1
         # Sprint 1 should have been auto-closed by the second open_sprint
         s1_reread = read_sprint(ws, 1)
         assert s1_reread.ended_at != ""
+        # Roll-over: sprint 1 committed S1+S2 but neither finished, so on
+        # sprint 1 close they were reset to sprint_number=0, then sprint 2's
+        # planner picked 2 of the 3 unassigned candidates {S1, S2, S3}.
+        # Sprint 1's committed_backlog is a *snapshot* at open time and
+        # remains [S1, S2] — the *stories'* sprint_number is what rolled over.
+        assert set(s1_reread.committed_backlog) == {"S1", "S2"}
+        # All three stories are candidates now; sprint 2 picked 2 of them.
+        picked_by_sprint_2 = {
+            iid for iid in ("S1", "S2", "S3")
+            if board.read(iid).sprint_number == 2
+        }
+        assert len(picked_by_sprint_2) == 2
+        # The remaining one has sprint_number == 0 (still un-committed).
+        unassigned = {
+            iid for iid in ("S1", "S2", "S3")
+            if board.read(iid).sprint_number == 0
+        }
+        assert len(unassigned) == 1
 
     def test_sprint_filter_hides_other_sprints_from_pull(self, tmp_path):
         board = BoardStore(tmp_path / "board")

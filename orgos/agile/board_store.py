@@ -99,6 +99,7 @@ class Story:
     files_to_touch: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     sprint_number: int = 0   # 0 = unassigned (not in any sprint yet)
+    attempts: int = 0        # executor attempts — retry until MAX before block
     created_at: str = ""
     updated_at: str = ""
 
@@ -433,6 +434,17 @@ class BoardStore:
         story.sprint_number = sprint_number
         self._write_story(story)
         self._audit(issue_id, actor, "set_sprint_number", sprint_number=sprint_number)
+        return story
+
+    def increment_attempts(self, issue_id: str, actor: str) -> Story:
+        """Bump the executor-attempt counter. Called on story_no_commit before
+        deciding whether to retry (attempts < MAX) or permanently block.
+        """
+        story = self.read(issue_id)
+        story.attempts += 1
+        self._write_story(story)
+        self._audit(issue_id, actor, "increment_attempts",
+                    attempts=story.attempts)
         return story
 
     def increment_refinement_round(self, issue_id: str) -> Story:

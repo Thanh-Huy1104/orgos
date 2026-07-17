@@ -158,10 +158,14 @@ def close_sprint(
     if sprint is None or not sprint.is_open:
         return sprint
 
-    # Populate metrics from the board
+    # Populate metrics from the board. Also roll over any story that didn't
+    # reach `done` — reset its sprint_number to 0 so the next planner can pick
+    # it up. Without this, unfinished stories are stranded (real Scrum practice
+    # would move them back to the product backlog).
     done_ids: list[str] = []
     points = 0
     committed_stories = []
+    rolled_over = 0
     for sid in sprint.committed_backlog:
         try:
             story = board.read(sid)
@@ -171,6 +175,13 @@ def close_sprint(
         if story.state == "done":
             done_ids.append(sid)
             points += int(getattr(story, "points", 0) or 0)
+        else:
+            # Roll back to the un-committed pool so sprint N+1 can re-plan it.
+            try:
+                board.set_sprint_number(sid, 0, actor="scrum_master")
+                rolled_over += 1
+            except Exception:
+                pass
 
     sprint.stories_done = done_ids
     sprint.points_completed = points

@@ -454,28 +454,25 @@ class AsyncAgent:
                 ),
             )
         except Exception as e:
-            self.board.transition(
-                story.issue_id, "blocked", actor=self.role,
-                reason=f"executor_exception:{type(e).__name__}",
-            )
-            self.emitter.emit(
-                "story_no_commit", story_id=story.issue_id,
-                worker=self.role, summary=f"executor crashed: {e}",
+            # Executor crashed — always retry until MAX (crashes are usually transient).
+            self._handle_no_commit(
+                story, tokens_in=0, tokens_out=0, wall_seconds=0.0,
+                summary=f"executor crashed: {e}", is_hard=False,
             )
             return
 
         if not result.success:
-            self.board.transition(
-                story.issue_id, "blocked", actor=self.role,
-                reason=result.error[:200],
-            )
-            self.emitter.emit(
-                "story_no_commit", story_id=story.issue_id,
-                worker=self.role,
+            # No commit landed. Retry up to MAX_ATTEMPTS_PER_STORY before
+            # permanently blocking. Most no-commits are transient (executor
+            # timeout, LLM skipped a step). Retry catches ~half of them.
+            hard_fail = "not found" in result.error.lower()
+            self._handle_no_commit(
+                story,
                 tokens_in=result.tokens_input,
                 tokens_out=result.tokens_output,
                 wall_seconds=result.wall_seconds,
                 summary=result.error[:200],
+                is_hard=hard_fail,
             )
             return
 
@@ -495,3 +492,54 @@ class AsyncAgent:
             from_branch=self.workspace.agent_branch(self.role),
             files_touched=result.files_touched,
         ))
+
+    # Executor budget for retries. Most no_commit events are transient
+    # (LLM timed out, skipped commit step, etc.). Retry catches ~half of
+    # them per the 4h at-scale run. After MAX_ATTEMPTS the story goes to
+    # blocked so PO/human can look at it.
+    MAX_ATTEMPTS_PER_STORY = 3
+
+    def _handle_no_commit(
+        self, story, *, tokens_in, tokens_out, wall_seconds, summary, is_hard,
+    ) -> None:
+        """No commit landed. Decide: retry (back to ready) vs block."""
+        try:
+            updated = self.board.increment_attempts(story.issue_id, actor=self.role)
+            attempts = updated.attempts
+        except Exception:
+            attempts = self.MAX_ATTEMPTS_PER_STORY  # be conservative if we can't count
+
+        will_retry = (not is_hard) and (attempts < self.MAX_ATTEMPTS_PER_STORY)
+        if will_retry:
+            # Return to ready so another agent (or this one on next tick) retries.
+            try:
+                self.board.transition(
+                    story.issue_id, "ready", actor=self.role,
+                    reason=f"retry:no_commit (attempt {attempts})",
+                )
+            except Exception:
+                # Fallback: block if the transition fails
+                self.board.transition(
+                    story.issue_id, "blocked", actor=self.role,
+                    reason=summary[:200],
+                )
+                will_retry = False
+
+        if not will_retry:
+            try:
+                self.board.transition(
+                    story.issue_id, "blocked", actor=self.role,
+                    reason=f"{summary[:180]} (after {attempts} attempts)",
+                )
+            except Exception:
+                pass
+
+        self.emitter.emit(
+            "story_no_commit", story_id=story.issue_id,
+            worker=self.role, attempts=attempts,
+            tokens_in=tokens_in, tokens_out=tokens_out,
+            wall_seconds=wall_seconds,
+            retry=will_retry,
+            summary=f"{summary[:180]} (attempt {attempts}/{self.MAX_ATTEMPTS_PER_STORY}"
+                    + (", retrying" if will_retry else ", blocked") + ")",
+        )
