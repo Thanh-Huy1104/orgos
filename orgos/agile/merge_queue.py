@@ -99,7 +99,14 @@ def _attempt_merge(
         return False, f"merge_setup:cannot resolve agent worktree for {last}: {e}"
 
     # 1. Rebase inside the agent's worktree (where from_branch is checked out).
-    rc, out, err = _run_git(["rebase", integ_branch], agent_worktree)
+    # --autostash: if the worktree has uncommitted changes (from a next-story
+    # executor call already writing files in the same worktree, common at
+    # N>1 dev agents), stash them before rebasing and re-apply after. Without
+    # --autostash the rebase aborts with "cannot rebase: You have unstaged
+    # changes" — real race we hit in the N=2 smoke.
+    rc, out, err = _run_git(
+        ["rebase", "--autostash", integ_branch], agent_worktree,
+    )
     if rc != 0:
         _run_git(["rebase", "--abort"], agent_worktree)
         # RESET AGENT BRANCH TO INTEGRATION HEAD. Without this reset, an
