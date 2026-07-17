@@ -145,3 +145,65 @@ class TestPerAgentWorktrees:
         # Even if there are no tests to run, baseline is a dict with a status
         assert isinstance(ws.baseline_test_result, dict)
         assert "status" in ws.baseline_test_result
+
+
+class TestNDevAgentInstances:
+    """N>1 delivery agents of the same role each get their own worktree +
+    branch. Enables real Scrum team-scale runs (3-9 devs)."""
+
+    def test_instance_0_matches_historical_layout(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        ws.ensure_agent_workspace("architect", 0)
+        # Historical: agents/architect/worktree (no -0 suffix)
+        assert ws.agent_dir("architect", 0) == ws.agents_root / "architect"
+        assert ws.agent_worktree("architect", 0).exists()
+        assert ws.agent_branch("architect", 0) == "team/t1/agent/architect"
+
+    def test_instance_N_uses_suffixed_layout(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        ws.ensure_agent_workspace("architect", 0)
+        ws.ensure_agent_workspace("architect", 1)
+        ws.ensure_agent_workspace("architect", 2)
+        for i in (0, 1, 2):
+            wt = ws.agent_worktree("architect", i)
+            assert wt.exists(), f"instance {i} worktree missing: {wt}"
+        # Independent branches — no sharing
+        branches = subprocess.run(
+            ["git", "branch", "--format=%(refname:short)"],
+            cwd=repo, capture_output=True, text=True,
+        ).stdout.strip().splitlines()
+        assert "team/t1/agent/architect" in branches
+        assert "team/t1/agent/architect-1" in branches
+        assert "team/t1/agent/architect-2" in branches
+
+    def test_reset_cleans_all_instances(self, repo):
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        for i in range(3):
+            ws.ensure_agent_workspace("architect", i)
+            ws.ensure_agent_workspace("test", i)
+        ws.reset()
+        # All 3×2 = 6 delivery worktrees gone + all 6 branches gone
+        branches = subprocess.run(
+            ["git", "branch", "--format=%(refname:short)"],
+            cwd=repo, capture_output=True, text=True,
+        ).stdout.strip().splitlines()
+        for r in ("architect", "test"):
+            assert f"team/t1/agent/{r}" not in branches
+            for i in (1, 2):
+                assert f"team/t1/agent/{r}-{i}" not in branches
+
+    def test_independent_worktrees_do_not_share_working_dir(self, repo):
+        """Each instance's worktree must be a physically separate directory."""
+        ws = TeamWorkspace.create("t1", repo, goal="g", model="m")
+        ws.ensure_agent_workspace("architect", 0)
+        ws.ensure_agent_workspace("architect", 1)
+        wt0 = ws.agent_worktree("architect", 0)
+        wt1 = ws.agent_worktree("architect", 1)
+        assert wt0 != wt1
+        # Write different files in each — verify they don't collide
+        (wt0 / "instance0.txt").write_text("only in 0")
+        (wt1 / "instance1.txt").write_text("only in 1")
+        assert (wt0 / "instance0.txt").exists()
+        assert not (wt0 / "instance1.txt").exists()
+        assert (wt1 / "instance1.txt").exists()
+        assert not (wt1 / "instance0.txt").exists()

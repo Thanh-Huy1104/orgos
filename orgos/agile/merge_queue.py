@@ -81,12 +81,22 @@ def _attempt_merge(
     integ = workspace.integration_worktree
     integ_branch = workspace.integration_branch
 
-    # from_branch is 'team/<team_id>/agent/<role>' → role is the last segment
-    role = from_branch.rsplit("/", 1)[-1]
+    # from_branch is 'team/<team_id>/agent/<role>[-<instance>]'.
+    # The last segment is either '<role>' (instance 0) or '<role>-<N>' for
+    # N>0 delivery-agent instances. Split to recover both.
+    last = from_branch.rsplit("/", 1)[-1]
+    if "-" in last and last.rsplit("-", 1)[-1].isdigit():
+        role, inst_str = last.rsplit("-", 1)
+        instance = int(inst_str)
+    else:
+        role, instance = last, 0
     try:
+        agent_worktree = workspace.agent_worktree(role, instance)
+    except TypeError:
+        # Older workspace mock in tests may not accept instance kwarg
         agent_worktree = workspace.agent_worktree(role)
     except Exception as e:
-        return False, f"merge_setup:cannot resolve agent worktree for {role}: {e}"
+        return False, f"merge_setup:cannot resolve agent worktree for {last}: {e}"
 
     # 1. Rebase inside the agent's worktree (where from_branch is checked out).
     rc, out, err = _run_git(["rebase", integ_branch], agent_worktree)

@@ -158,6 +158,89 @@ s6: 1.11  Verify Data     s12: 1.24 Verify Data
 
 **The chapter's thesis now shows up cleanly on both axes.** Scrum out-delivers waterfall (37 vs 6 done in same 4h) AND scrum is cheaper per-story ($0.17 vs $0.28 for waterfall). All while producing 100% passing integration tests on the merged branch.
 
+### Actual measured cost (from DeepSeek billing) vs the estimates above
+
+The `est. cost` numbers in the tables above were computed at raw
+`deepseek-chat` prices ($0.27 in / $1.10 out per M tokens) and IGNORED
+prompt caching. Real usage tells a different story:
+
+| Real DeepSeek billing | 2026-07-16 | 2026-07-17 | Combined |
+|---|---|---|---|
+| input_cache_hit (78.5 M tokens @ $0.0028/M) | | | $0.22 |
+| input_cache_miss (7.05 M tokens @ $0.14/M) | | | $0.99 |
+| output (1.85 M tokens @ $0.28/M) | | | $0.52 |
+| **Actual $** | **$0.97** | **$0.75** | **$1.72** |
+
+Two things this changes:
+
+1. **91-93% cache hit rate.** Scrum's repeated prompt scaffolding
+   (persona files, brief templates, story shape) hits prompt cache
+   almost every time after the first request. Cache-hit tokens are
+   **~100× cheaper** than cache-miss tokens on DeepSeek v4-flash.
+2. **Model = `deepseek-v4-flash`, not `deepseek-chat`.** Output is
+   $0.28/M (not $1.10). The pricing gap alone put our estimates
+   ~4× too high.
+
+**Real full-session spend (all Runs 1-5, all smokes, both days): ~$1.72.**
+Not ~$8. The per-story cost claims above are proportionally right (scrum
+still cheaper per feature) but the absolute numbers were wrong. Working
+on wiring this into `build_comparison_html.py` — it should read the
+CSV export or query DeepSeek billing API directly rather than compute
+from a hardcoded price table.
+
+### Fairness caveats — is this a truly fair comparison?
+
+**Both topologies use the same LLM, same executor, same repo, same
+goal, same wall-time budget.** That part IS controlled. But there are
+several asymmetries the current head-to-head does NOT isolate. Anyone
+citing these results should acknowledge them:
+
+1. **Parallelism asymmetry.** Scrum runs 3 delivery agents (architect
+   + test + devsecops) concurrently on the asyncio event loop. Waterfall
+   runs the 3 roles sequentially per story, one story at a time. That's
+   not a Scrum-topology advantage — that's a runtime-parallelism
+   advantage. A "parallel waterfall" (3 stories at a time, each still
+   going through the linear pipeline) would close a lot of the gap.
+2. **Refinement asymmetry.** Scrum stories go through planning poker
+   (3-role vote + optional discussion) and get sized. Waterfall stories
+   are architected on the fly. Scrum has richer per-story specs
+   entering the executor.
+3. **Memory asymmetry.** Scrum's `wiki/DECISIONS.md` compounds across
+   stories — future architects can grep past decisions. Waterfall has
+   no shared cross-story memory. This is a Scrum feature, not a runtime
+   feature — legit to attribute.
+4. **DoD asymmetry.** Scrum has a PO acceptance gate + wiki-decision
+   requirement. Waterfall has neither. Different quality bars entering
+   the "done" state, which is why waterfall's integration tests were
+   91% pass and scrum's were 100%.
+5. **Single-dev per role in both.** Neither topology tests team
+   scaling. Real Scrum teams are 3-9 developers, not 1. Real waterfall
+   pipelines can also run in parallel per story.
+
+**What's still true after these caveats:** the comparison shows that
+async-Scrum-with-DoD produces cleaner code with more delivery per unit
+time and less cost per delivered feature. **What's not yet
+established:** whether the topology paradigm itself (as opposed to the
+runtime + DoD + memory) is the dominant factor. Isolating that would
+require a "parallel waterfall on same runtime with same DoD" — that's
+a follow-up experiment, not this one.
+
+### Run 5b — N-dev scaling test (multiple architects/testers/devsecops)
+
+Not yet run. The current runs used N=1 for each role (1 architect, 1
+test, 1 devsecops). Real Scrum teams are 3-9 devs. Open question: does
+Scrum's coordination overhead pay off at team scale, or do the merge
+conflicts + files_to_touch collisions dominate?
+
+Concrete plan for the N-scaling test:
+- Add `--architects N --testers N --devsecops N` (default 1 each) to
+  `orgos start`. Each agent gets its own `agents/<role>-<i>/worktree/`
+  and its own `team/<id>/agent/<role>-<i>` branch.
+- Small smoke first (N=2, 10 min, `/tmp/flask-target`) — validate that
+  merge queue survives 6 delivery agents committing in parallel without
+  deadlock or persistent conflicts.
+- Then a full 4h comparison at N=3 on the production Notes API goal.
+
 ### The 9 fixes that took Run 4 → Run 5
 
 Landed across `788ff05`, `a253cde`, `11f0410`, `7b07644`, `9c0642b` on `main`. Full audit:

@@ -33,8 +33,8 @@ def _make_ws(root: Path, integration: Path):
     ws.root = root
     ws.integration_worktree = integration
     ws.integration_branch = "master"
-    ws.agent_worktree = lambda role: integration
-    ws.agent_branch = lambda role: "master"
+    ws.agent_worktree = lambda role, instance=0: integration
+    ws.agent_branch = lambda role, instance=0: "master"
     return ws
 
 

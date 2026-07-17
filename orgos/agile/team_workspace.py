@@ -87,14 +87,21 @@ class TeamWorkspace:
     def agents_root(self) -> Path:
         return self.root / "agents"
 
-    def agent_dir(self, role: str) -> Path:
-        return self.agents_root / role
+    def agent_dir(self, role: str, instance: int = 0) -> Path:
+        """Per-agent-instance directory. `instance=0` keeps the historical
+        single-agent-per-role layout (`agents/<role>/`). For N>0 delivery
+        agents of the same role, uses `agents/<role>-<instance>/`."""
+        if instance == 0:
+            return self.agents_root / role
+        return self.agents_root / f"{role}-{instance}"
 
-    def agent_worktree(self, role: str) -> Path:
-        return self.agent_dir(role) / "worktree"
+    def agent_worktree(self, role: str, instance: int = 0) -> Path:
+        return self.agent_dir(role, instance) / "worktree"
 
-    def agent_branch(self, role: str) -> str:
-        return f"team/{self.team_id}/agent/{role}"
+    def agent_branch(self, role: str, instance: int = 0) -> str:
+        if instance == 0:
+            return f"team/{self.team_id}/agent/{role}"
+        return f"team/{self.team_id}/agent/{role}-{instance}"
 
     @property
     def integration_worktree(self) -> Path:
@@ -109,16 +116,16 @@ class TeamWorkspace:
         """Legacy alias for integration_worktree — kept so v1 modules don't break."""
         return self.integration_worktree
 
-    def ensure_agent_workspace(self, role: str) -> None:
-        """Idempotent: create the per-agent dir + worktree + branch. Enable
-        git rerere in the worktree.
+    def ensure_agent_workspace(self, role: str, instance: int = 0) -> None:
+        """Idempotent: create the per-agent-instance dir + worktree + branch.
+        Enable git rerere in the worktree.
         """
-        agent_dir = self.agent_dir(role)
+        agent_dir = self.agent_dir(role, instance)
         agent_dir.mkdir(parents=True, exist_ok=True)
 
-        worktree = self.agent_worktree(role)
+        worktree = self.agent_worktree(role, instance)
         if not worktree.exists():
-            branch = self.agent_branch(role)
+            branch = self.agent_branch(role, instance)
             subprocess.run(
                 ["git", "worktree", "add", "-b", branch,
                  str(worktree), self.integration_branch],
@@ -273,18 +280,24 @@ class TeamWorkspace:
 
         Destructive. Only call when you want a clean re-create.
         """
-        # Remove per-agent worktrees first
-        for role in self.ROLE_NAMES:
-            aw = self.agent_worktree(role)
-            if aw.exists():
-                subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(aw)],
-                    cwd=self.source_repo, check=False, capture_output=True,
-                )
-                subprocess.run(
-                    ["git", "branch", "-D", self.agent_branch(role)],
-                    cwd=self.source_repo, check=False, capture_output=True,
-                )
+        # Remove per-agent worktrees first. Enumerate what's actually on
+        # disk under agents/ (covers both role and role-N instance dirs).
+        if self.agents_root.exists():
+            for agent_dir in self.agents_root.iterdir():
+                if not agent_dir.is_dir():
+                    continue
+                aw = agent_dir / "worktree"
+                if aw.exists():
+                    subprocess.run(
+                        ["git", "worktree", "remove", "--force", str(aw)],
+                        cwd=self.source_repo, check=False, capture_output=True,
+                    )
+                    # Branch name mirrors the dir name (role or role-N)
+                    branch = f"team/{self.team_id}/agent/{agent_dir.name}"
+                    subprocess.run(
+                        ["git", "branch", "-D", branch],
+                        cwd=self.source_repo, check=False, capture_output=True,
+                    )
 
         if self.worktree.exists():
             # Try `git worktree remove --force`; fall back to rmtree + prune.

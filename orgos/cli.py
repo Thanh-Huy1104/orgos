@@ -248,9 +248,21 @@ def _cmd_start(args: argparse.Namespace) -> int:
             ws = TeamWorkspace.open(args.team_id, repo)
             print(f"[cli] resuming existing workspace {args.team_id}", flush=True)
 
-    roles = ["po", "scrum_master", "architect", "test", "devsecops"]
-    for r in roles:
-        ws.ensure_agent_workspace(r)
+    # Team shape: PO + SM are singletons; delivery roles can scale via
+    # --architects/--testers/--devsecops (default 1 each).
+    n_arch = max(1, int(getattr(args, "architects", 1) or 1))
+    n_test = max(1, int(getattr(args, "testers", 1) or 1))
+    n_sec  = max(1, int(getattr(args, "devsecops", 1) or 1))
+    # (role, instance) pairs. Instance 0 keeps historical layout.
+    delivery_instances: list[tuple[str, int]] = (
+        [("architect", i) for i in range(n_arch)]
+        + [("test",     i) for i in range(n_test)]
+        + [("devsecops",i) for i in range(n_sec)]
+    )
+    coord_instances = [("po", 0), ("scrum_master", 0)]
+    all_instances = coord_instances + delivery_instances
+    for r, i in all_instances:
+        ws.ensure_agent_workspace(r, i)
 
     board = BoardStore(ws.root / "board")
     emitter = EventEmitter(ws.root)
@@ -319,13 +331,20 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
     delivery_roles = {"architect", "test", "devsecops"}
     agents = {}
-    for r in roles:
-        agents[r] = AsyncAgent(
-            role=r, workspace=ws, board=board, executor=executor,
+    for r, i in all_instances:
+        key = r if i == 0 else f"{r}#{i}"
+        agents[key] = AsyncAgent(
+            role=r, instance=i,
+            workspace=ws, board=board, executor=executor,
             merge_queue=merge_queue, emitter=emitter,
             heartbeat_md=_load_heartbeat(r),
             is_delivery_agent=(r in delivery_roles),
         )
+    print(
+        f"[cli] team shape: {n_arch} architect(s), {n_test} test(s), "
+        f"{n_sec} devsecops + 1 PO + 1 SM = {len(agents)} agents total",
+        flush=True,
+    )
 
     supervisor = TeamSupervisor(agents, emitter)
 
@@ -652,6 +671,20 @@ def main(argv: list[str] | None = None) -> int:
              "Useful for demos and comparison runs — e.g. 300 makes SM close+open "
              "sprints every 5 minutes, so a 30-min run sees ~6 sprints and SPE "
              "becomes measurable per sprint.",
+    )
+    start_p.add_argument(
+        "--architects", type=int, default=1,
+        help="Number of concurrent architect agents (default 1). Each gets its "
+             "own worktree + branch (agents/architect-N/). Tests whether Scrum's "
+             "coordination overhead pays off at team scale.",
+    )
+    start_p.add_argument(
+        "--testers", type=int, default=1,
+        help="Number of concurrent test agents (default 1). Same as --architects.",
+    )
+    start_p.add_argument(
+        "--devsecops", type=int, default=1,
+        help="Number of concurrent devsecops agents (default 1). Same as --architects.",
     )
     start_p.set_defaults(func=_cmd_start)
 

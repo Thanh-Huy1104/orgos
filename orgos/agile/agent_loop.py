@@ -44,8 +44,16 @@ class AsyncAgent:
         heartbeat_md: str,
         is_delivery_agent: bool = True,
         persona_scaffold: str = "",
+        instance: int = 0,
     ):
         self.role = role
+        # instance = 0 → historical single-agent-per-role layout.
+        # instance > 0 → this is the Nth extra agent of the same role
+        # (uses agents/<role>-<i>/worktree and team/T/agent/<role>-<i>).
+        self.instance = instance
+        # Actor label carries the instance so audit trails are unambiguous
+        # when N>1 agents of the same role are pulling.
+        self.actor = role if instance == 0 else f"{role}#{instance}"
         self.workspace = workspace
         self.board = board
         self.executor = executor
@@ -447,26 +455,27 @@ class AsyncAgent:
         except Exception:
             sn = 0
         story = self.board.try_claim_next_for(
-            self.role, actor=self.role, sprint_number=sn,
+            self.role, actor=self.actor, sprint_number=sn,
         )
         if story is None:
             return
 
         self.emitter.emit(
             "story_pulled", story_id=story.issue_id,
-            worker=self.role, story_type=story.type,
+            worker=self.actor, story_type=story.type,
             title=story.title[:80],
         )
 
-        # Run the coding executor in a thread pool (it may be blocking I/O)
+        # Run the coding executor in a thread pool (it may be blocking I/O).
+        # Uses this instance's OWN worktree (per-instance for N>1).
         try:
             result: ExecutionResult = await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: self.executor.run_story(
-                    worktree=self.workspace.agent_worktree(self.role),
+                    worktree=self.workspace.agent_worktree(self.role, self.instance),
                     story=story,
                     persona_scaffold=self.persona_scaffold,
-                    session_id=self.role,
+                    session_id=self.actor,
                 ),
             )
         except Exception as e:
@@ -493,19 +502,19 @@ class AsyncAgent:
             return
 
         # Success: transition to review, enqueue merge
-        self.board.transition(story.issue_id, "review", actor=self.role)
-        self.board.set_commit(story.issue_id, result.commit_sha, actor=self.role)
+        self.board.transition(story.issue_id, "review", actor=self.actor)
+        self.board.set_commit(story.issue_id, result.commit_sha, actor=self.actor)
         self.emitter.emit(
             "commit_landed", story_id=story.issue_id,
-            commit_sha=result.commit_sha[:7], worker=self.role,
+            commit_sha=result.commit_sha[:7], worker=self.actor,
             tokens_in=result.tokens_input,
             tokens_out=result.tokens_output,
             wall_seconds=result.wall_seconds,
-            summary=f"{self.role} committed {result.commit_sha[:7]}",
+            summary=f"{self.actor} committed {result.commit_sha[:7]}",
         )
         await self.merge_queue.enqueue(MergeRequest(
             story_id=story.issue_id,
-            from_branch=self.workspace.agent_branch(self.role),
+            from_branch=self.workspace.agent_branch(self.role, self.instance),
             files_touched=result.files_touched,
         ))
 
@@ -520,7 +529,7 @@ class AsyncAgent:
     ) -> None:
         """No commit landed. Decide: retry (back to ready) vs block."""
         try:
-            updated = self.board.increment_attempts(story.issue_id, actor=self.role)
+            updated = self.board.increment_attempts(story.issue_id, actor=self.actor)
             attempts = updated.attempts
         except Exception:
             attempts = self.MAX_ATTEMPTS_PER_STORY  # be conservative if we can't count
@@ -530,13 +539,13 @@ class AsyncAgent:
             # Return to ready so another agent (or this one on next tick) retries.
             try:
                 self.board.transition(
-                    story.issue_id, "ready", actor=self.role,
+                    story.issue_id, "ready", actor=self.actor,
                     reason=f"retry:no_commit (attempt {attempts})",
                 )
             except Exception:
                 # Fallback: block if the transition fails
                 self.board.transition(
-                    story.issue_id, "blocked", actor=self.role,
+                    story.issue_id, "blocked", actor=self.actor,
                     reason=summary[:200],
                 )
                 will_retry = False
@@ -544,7 +553,7 @@ class AsyncAgent:
         if not will_retry:
             try:
                 self.board.transition(
-                    story.issue_id, "blocked", actor=self.role,
+                    story.issue_id, "blocked", actor=self.actor,
                     reason=f"{summary[:180]} (after {attempts} attempts)",
                 )
             except Exception:
@@ -552,7 +561,7 @@ class AsyncAgent:
 
         self.emitter.emit(
             "story_no_commit", story_id=story.issue_id,
-            worker=self.role, attempts=attempts,
+            worker=self.actor, attempts=attempts,
             tokens_in=tokens_in, tokens_out=tokens_out,
             wall_seconds=wall_seconds,
             retry=will_retry,
