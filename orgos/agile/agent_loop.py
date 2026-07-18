@@ -123,6 +123,9 @@ class AsyncAgent:
                 if _matches_any(text, "backlog", "spec"):
                     await self._run_replan()
                     continue
+                if _matches_any(text, "elevate", "elevation", "reclaim", "stuck"):
+                    await self._run_elevation()
+                    continue
                 if _matches_any(text, "poker", "refinement"):
                     await self._run_poker()
                     continue
@@ -175,6 +178,34 @@ class AsyncAgent:
             )
         except Exception as e:
             self.emitter.emit("replan_failed", role=self.role, summary=str(e)[:200])
+
+    async def _run_elevation(self) -> None:
+        """Fix §B7 — bump stale ready stories, reclaim stuck in_progress.
+
+        Scheduled from SM's `Every 3 minutes` heartbeat block. All the real
+        logic lives in orgos.agile.elevate for testability; this is just the
+        async wrapper that dispatches to a thread.
+        """
+        try:
+            from orgos.agile.elevate import run_elevation_pass
+            counts = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: run_elevation_pass(self.board, self.emitter),
+            )
+            if counts.get("elevated_ready") or counts.get("reclaimed_in_progress"):
+                self.emitter.emit(
+                    "elevation_pass",
+                    elevated=counts["elevated_ready"],
+                    reclaimed=counts["reclaimed_in_progress"],
+                    summary=(
+                        f"elevated {counts['elevated_ready']} ready, "
+                        f"reclaimed {counts['reclaimed_in_progress']} in_progress"
+                    ),
+                )
+        except Exception as e:
+            self.emitter.emit(
+                "elevation_failed", role=self.role, summary=str(e)[:200],
+            )
 
     async def _run_poker(self) -> None:
         """Refinement ceremony: vote on each draft/refinement story, converge

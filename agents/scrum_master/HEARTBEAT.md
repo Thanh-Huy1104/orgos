@@ -11,6 +11,13 @@ Check the board for stories in `draft` or `refinement`. Run planning poker
 on any: architect / test / devsecops each vote, discuss if divergent,
 converge on story points. Move refined stories to `ready`.
 
+## Every 3 minutes
+Run auto-elevation pass on the board: for any ready story older than 30
+minutes bump its priority, and for any in_progress story where the
+executor started but never committed (>15 minutes with no advance),
+reclaim it back to ready so another agent can pick it up. Prevents the
+tail-stall pattern where a stuck agent holds a story indefinitely.
+
 ## Every 20 minutes
 Sprint boundary: close the current sprint and open the next one. This runs
 sprint planning — pick up to velocity_target ready stories and commit them

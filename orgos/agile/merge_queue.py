@@ -60,18 +60,17 @@ def _run_git(args: list[str], cwd: Any, timeout: int = 60) -> tuple[int, str, st
 
 def _attempt_merge(
     workspace: Any, from_branch: str,
+    *, resolve_llm: bool = True, model: str = "deepseek/deepseek-chat",
 ) -> tuple[bool, str]:
     """Rebase from_branch onto integration branch, then fast-forward integration.
 
     Sequence (§5 spec — keeps integration history linear):
       1. In the AGENT worktree that already has from_branch checked out:
-         `git rebase <integration_branch>`. On failure: abort rebase and
-         return (False, 'merge_conflict:<err>').
-
-         (We cannot rebase in the source repo — the branch is already
-         checked out in the agent worktree, and git refuses to check out
-         the same branch in a second place.)
-
+         `git rebase <integration_branch>`.
+         On failure: try LLM-driven auto-resolution (Fix §B6) for safe
+         file classes (__init__.py, markdown, test files). If resolution
+         succeeds → `git rebase --continue` and proceed. Otherwise:
+         abort + reset agent branch to integ HEAD, return merge_conflict.
       2. In INTEGRATION worktree: `git checkout <integration_branch>`,
          then `git merge --ff-only <from_branch>`. Fast-forward is
          guaranteed after a clean rebase.
@@ -101,23 +100,48 @@ def _attempt_merge(
     # 1. Rebase inside the agent's worktree (where from_branch is checked out).
     # --autostash: if the worktree has uncommitted changes (from a next-story
     # executor call already writing files in the same worktree, common at
-    # N>1 dev agents), stash them before rebasing and re-apply after. Without
-    # --autostash the rebase aborts with "cannot rebase: You have unstaged
-    # changes" — real race we hit in the N=2 smoke.
+    # N>1 dev agents), stash them before rebasing and re-apply after.
     rc, out, err = _run_git(
         ["rebase", "--autostash", integ_branch], agent_worktree,
     )
     if rc != 0:
-        _run_git(["rebase", "--abort"], agent_worktree)
-        # RESET AGENT BRANCH TO INTEGRATION HEAD. Without this reset, an
-        # un-rebasable commit stays on the agent branch and every future
-        # commit stacks on top of it → every subsequent rebase attempt
-        # fails on the same first commit → cascade of merge_conflicts.
-        # Losing the conflicting story's commit is the correct outcome
-        # (that story is already going to `blocked`); the reset unblocks
-        # the branch for the next story.
-        _run_git(["reset", "--hard", integ_branch], agent_worktree)
-        return False, f"merge_conflict:{err.strip() or out.strip()}"
+        # Fix §B6 — before aborting, try LLM-driven auto-resolution for
+        # safe file classes (init.py, markdown, test files). Only kicks
+        # in when resolve_llm=True (default) and every conflicted file
+        # passes the safety gate.
+        resolved_by_llm = False
+        resolve_note = ""
+        if resolve_llm:
+            try:
+                from orgos.agile.merge_resolver import try_resolve_rebase_conflicts
+                ok, msg = try_resolve_rebase_conflicts(
+                    agent_worktree, model=model,
+                )
+                if ok:
+                    rc2, out2, err2 = _run_git(
+                        ["-c", "core.editor=true", "rebase", "--continue"],
+                        agent_worktree, timeout=30,
+                    )
+                    if rc2 == 0:
+                        resolved_by_llm = True
+                        resolve_note = f"llm_resolved:{msg}"
+                    else:
+                        # LLM resolution didn't clear rebase — abort
+                        _run_git(["rebase", "--abort"], agent_worktree)
+                        resolve_note = f"llm_resolve_ok_but_continue_failed:{err2[:100]}"
+                else:
+                    resolve_note = f"llm_declined:{msg}"
+            except Exception as e:
+                resolve_note = f"llm_resolver_error:{e}"[:200]
+
+        if not resolved_by_llm:
+            _run_git(["rebase", "--abort"], agent_worktree)
+            # RESET AGENT BRANCH TO INTEGRATION HEAD (cascade fix from §J).
+            _run_git(["reset", "--hard", integ_branch], agent_worktree)
+            base_msg = err.strip() or out.strip()
+            if resolve_note:
+                return False, f"merge_conflict:{base_msg} [{resolve_note[:100]}]"
+            return False, f"merge_conflict:{base_msg}"
 
     # 2. Fast-forward integration onto from_branch's new tip.
     rc, out, err = _run_git(["checkout", integ_branch], integ)
@@ -138,6 +162,8 @@ async def run_merge_worker(
     emitter: Any,
     *,
     stop_when_empty: bool = False,
+    resolve_llm: bool = True,
+    model: str = "deepseek/deepseek-chat",
 ) -> None:
     """Drain the merge queue serially. Exits when stop_when_empty and queue is drained."""
     while True:
@@ -158,8 +184,20 @@ async def run_merge_worker(
 
         async with git_op_lock:
             ok, msg = await asyncio.get_running_loop().run_in_executor(
-                None, _attempt_merge, workspace, request.from_branch,
+                None,
+                lambda: _attempt_merge(
+                    workspace, request.from_branch,
+                    resolve_llm=resolve_llm, model=model,
+                ),
             )
+            if "llm_resolved:" in msg:
+                try:
+                    emitter.emit(
+                        "merge_llm_resolved", story_id=request.story_id,
+                        branch=request.from_branch, summary=msg,
+                    )
+                except Exception:
+                    pass
 
         if ok:
             try:

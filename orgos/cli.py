@@ -514,7 +514,13 @@ def _cmd_start(args: argparse.Namespace) -> int:
         print(f"[cli] budget cap: ${max_usd:.2f}", flush=True)
 
     async def _run_all():
-        merge_task = asyncio.create_task(run_merge_worker(merge_queue, ws, board, emitter))
+        # §B6 — pass model into merge worker so its LLM conflict resolver
+        # (safe file classes only: __init__.py, markdown, test files) uses
+        # the same backend as delivery agents.
+        merge_task = asyncio.create_task(run_merge_worker(
+            merge_queue, ws, board, emitter,
+            resolve_llm=True, model=args.model,
+        ))
         sup_task = asyncio.create_task(supervisor.run())
 
         # Optional wall-clock timeout — useful for CI, comparison runs, and
@@ -856,6 +862,174 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             print(f"       AC: {a[:100]}")
         if len(ac) > 3:
             print(f"       AC: (+{len(ac)-3} more)")
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    """Fix §C10 — Overall Definition of Done.
+
+    Runs the team's built code through its own pytest suite. Answers the
+    single question orgos couldn't answer before: does the code actually
+    work? Writes verification.json to the workspace and prints a summary.
+    """
+    from orgos.agile.team_workspace import TeamWorkspace, TeamWorkspaceMissing
+    from orgos.agile.verifier import verify_integration
+    from dataclasses import asdict
+    import json as _json
+
+    repo = Path(args.repo).resolve()
+    try:
+        ws = TeamWorkspace.open(args.team_id, repo)
+    except TeamWorkspaceMissing as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+    print(
+        f"[verify] running pytest in {ws.integration_worktree} "
+        f"(timeout {args.timeout_seconds}s)...",
+        flush=True,
+    )
+    result = verify_integration(
+        integration_worktree=ws.integration_worktree,
+        pytest_args=None,
+        timeout_seconds=int(args.timeout_seconds or 240),
+    )
+    out = ws.root / "verification.json"
+    out.write_text(_json.dumps(asdict(result), indent=2, default=str))
+    print(f"[verify] {result.summary()}")
+    print(f"[verify] wrote {out}")
+
+    if not result.verified:
+        return 3  # not verified is not "failed", but still non-zero for CI
+    if result.failed or result.errors:
+        return 1
+    return 0
+
+
+def _cmd_ship(args: argparse.Namespace) -> int:
+    """Fix §C11 — Ship a successful run as a PR.
+
+    Gate: >=80% delivered AND (if verified) >=90% pass rate.
+    Pushes the team's integration branch to origin and opens a draft PR
+    via `gh pr create`, using the delivery-receipt as body.
+    """
+    from orgos.agile.board_store import BoardStore
+    from orgos.agile.deliver import build_report, format_receipt
+    from orgos.agile.team_workspace import TeamWorkspace, TeamWorkspaceMissing
+    from orgos.agile.verifier import verify_integration
+    from dataclasses import asdict
+    import json as _json
+    import shutil as _shutil
+    import subprocess as _sp
+
+    repo = Path(args.repo).resolve()
+    try:
+        ws = TeamWorkspace.open(args.team_id, repo)
+    except TeamWorkspaceMissing as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+    if not _shutil.which("gh"):
+        print("ERROR: gh CLI not on PATH — install it or use `orgos deliver` "
+              "to write the receipt and push manually.", file=sys.stderr)
+        return 2
+
+    # Locate spec-file: --spec-file, else wiki/SPEC.md fallbacks
+    spec_path = getattr(args, "spec_file", None)
+    if spec_path:
+        spec_path = Path(spec_path).resolve()
+    else:
+        for cand in (
+            ws.wiki_dir / "SPEC.md",
+            ws.integration_worktree / "wiki" / "SPEC.md",
+            repo / "wiki" / "SPEC.md",
+        ):
+            if cand.exists():
+                spec_path = cand
+                break
+    if spec_path is None or not spec_path.exists():
+        print("ERROR: no spec-file found; pass --spec-file", file=sys.stderr)
+        return 2
+
+    board = BoardStore(ws.root / "board")
+    report = build_report(
+        workspace=ws, board=board,
+        spec_text=spec_path.read_text(encoding="utf-8"),
+        spec_path=spec_path,
+    )
+    delivered_pct = (
+        100.0 * report.delivered_count / report.declared_count
+        if report.declared_count else 0.0
+    )
+    threshold_deliver = float(getattr(args, "min_delivered_pct", 80.0))
+    if delivered_pct < threshold_deliver:
+        print(
+            f"ERROR: delivery too low: {delivered_pct:.0f}% < "
+            f"{threshold_deliver:.0f}% threshold. Not shipping. "
+            f"Override with --force.",
+            file=sys.stderr,
+        )
+        if not args.force:
+            return 3
+
+    # Run verify unless --skip-verify
+    verify_result = None
+    if not args.skip_verify:
+        print("[ship] running verify before shipping...", flush=True)
+        verify_result = verify_integration(
+            integration_worktree=ws.integration_worktree,
+            timeout_seconds=int(args.verify_timeout or 300),
+        )
+        threshold_pass = float(getattr(args, "min_pass_rate", 0.90))
+        if verify_result.verified and verify_result.pass_rate < threshold_pass:
+            print(
+                f"ERROR: pass rate too low: {verify_result.pass_rate:.0%} < "
+                f"{threshold_pass:.0%}. Not shipping. Override with --force.",
+                file=sys.stderr,
+            )
+            if not args.force:
+                return 3
+
+    # Push integration branch
+    m = ws.manifest()
+    branch = m.branch
+    print(f"[ship] pushing {branch} to origin...", flush=True)
+    r = _sp.run(
+        ["git", "push", "-u", "origin", branch],
+        cwd=str(ws.integration_worktree),
+        capture_output=True, text=True, timeout=60,
+    )
+    if r.returncode != 0:
+        print(f"ERROR: git push failed: {r.stderr[:400]}", file=sys.stderr)
+        return 4
+
+    # Build PR body from receipt + verify result
+    body_parts = [format_receipt(report)]
+    if verify_result:
+        body_parts.append("\n## Runtime verification\n")
+        body_parts.append(f"- {verify_result.summary()}\n")
+        if verify_result.verified:
+            body_parts.append(f"- Pass rate: {verify_result.pass_rate:.0%}\n")
+            body_parts.append(f"- Duration: {verify_result.duration_seconds:.1f}s\n")
+    body = "\n".join(body_parts)
+
+    title = f"orgos: {report.team_id} — {report.delivered_count}/{report.declared_count} delivered"
+    print(f"[ship] opening draft PR: {title}", flush=True)
+    r = _sp.run(
+        ["gh", "pr", "create", "--draft",
+         "--title", title, "--body", body,
+         "--base", args.pr_base, "--head", branch],
+        cwd=str(ws.integration_worktree),
+        capture_output=True, text=True, timeout=60,
+    )
+    if r.returncode != 0:
+        print(f"ERROR: gh pr create failed: {r.stderr[:400]}", file=sys.stderr)
+        return 4
+
+    pr_url = (r.stdout or "").strip().splitlines()[-1] if r.stdout else ""
+    print(f"[ship] 🔀 draft PR opened: {pr_url}")
+    if pr_url:
+        (ws.root / "pr_url.txt").write_text(pr_url, encoding="utf-8")
     return 0
 
 
@@ -1329,6 +1503,48 @@ def main(argv: list[str] | None = None) -> int:
                         choices=("auto", "claude", "copilot", "spawn", "mock"),
                         default="auto")
     doc_p.set_defaults(func=_cmd_doctor)
+
+    # verify — run the built code's own test suite (Fix §C10)
+    verify_p = sub.add_parser(
+        "verify",
+        help="Run the team's built code through its own pytest suite (overall DoD).",
+        description=(
+            "Creates a venv in the team's integration worktree, pip-installs "
+            "the built package, and runs pytest. Answers 'did the code we "
+            "shipped actually work.' Writes verification.json. Exits with 0 "
+            "on green, 1 on failure, 3 if unable to verify (missing test infra)."
+        ),
+    )
+    verify_p.add_argument("--repo", type=str, default=".")
+    verify_p.add_argument("--team-id", type=str, required=True)
+    verify_p.add_argument("--timeout-seconds", type=int, default=240,
+                           help="Kill pytest after N seconds (default 240).")
+    verify_p.set_defaults(func=_cmd_verify)
+
+    # ship — push branch + open PR gated on delivery + verify (Fix §C11)
+    ship_p = sub.add_parser(
+        "ship",
+        help="Push integration branch + open draft PR when delivery/verify pass thresholds.",
+        description=(
+            "Ship a successful run as a PR. Gate: >=80%% delivered AND >=90%% "
+            "pytest pass rate (both configurable). Uses gh CLI. Requires an "
+            "origin remote."
+        ),
+    )
+    ship_p.add_argument("--repo", type=str, default=".")
+    ship_p.add_argument("--team-id", type=str, required=True)
+    ship_p.add_argument("--spec-file", type=str, default=None)
+    ship_p.add_argument("--pr-base", type=str, default="main")
+    ship_p.add_argument("--min-delivered-pct", type=float, default=80.0,
+                         help="Minimum delivery % to open PR (default 80).")
+    ship_p.add_argument("--min-pass-rate", type=float, default=0.90,
+                         help="Minimum pytest pass rate (0.0-1.0) to open PR (default 0.9).")
+    ship_p.add_argument("--skip-verify", action="store_true",
+                         help="Skip runtime verification (only apply delivery threshold).")
+    ship_p.add_argument("--verify-timeout", type=int, default=300)
+    ship_p.add_argument("--force", action="store_true",
+                         help="Push even when thresholds aren't met.")
+    ship_p.set_defaults(func=_cmd_ship)
 
     # deliver — spec-vs-delivered reconciliation
     deliver_p = sub.add_parser(
