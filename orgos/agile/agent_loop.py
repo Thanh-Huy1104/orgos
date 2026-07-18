@@ -14,6 +14,7 @@ provides the pull-and-work loop + the tick-per-schedule mechanic.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import time
 from pathlib import Path
@@ -527,8 +528,32 @@ class AsyncAgent:
     # Executor budget for retries. Most no_commit events are transient
     # (LLM timed out, skipped commit step, etc.). Retry catches ~half of
     # them per the 4h at-scale run. After MAX_ATTEMPTS the story goes to
-    # blocked so PO/human can look at it.
-    MAX_ATTEMPTS_PER_STORY = 3
+    # blocked so PO/human can look at it. Overridable via env var
+    # ORGOS_MAX_ATTEMPTS_PER_STORY for experiments.
+    try:
+        MAX_ATTEMPTS_PER_STORY = max(1, int(os.environ.get(
+            "ORGOS_MAX_ATTEMPTS_PER_STORY", "3",
+        )))
+    except (TypeError, ValueError):
+        MAX_ATTEMPTS_PER_STORY = 3
+
+    def _persist_failure_log(self, story_id: str, attempts: int, summary: str) -> None:
+        """Write the full failure body to agents/<role>/failures/<story>.log.
+
+        The event stream only carries the first 200 chars of `summary` (kept
+        small for the report). But when a story hits its MAX_ATTEMPTS wall
+        we want the full diagnostic on disk for the retro/human to read.
+        """
+        try:
+            failures_dir = self.workspace.agent_dir(self.role, self.instance) / "failures"
+            failures_dir.mkdir(parents=True, exist_ok=True)
+            log_path = failures_dir / f"{story_id}.log"
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"----- attempt {attempts} by {self.actor} -----\n")
+                f.write(summary or "(no summary provided)")
+                f.write("\n\n")
+        except (OSError, AttributeError):
+            pass  # never let disk trouble kill the agent loop
 
     def _handle_no_commit(
         self, story, *, tokens_in, tokens_out, wall_seconds, summary, is_hard,
@@ -539,6 +564,9 @@ class AsyncAgent:
             attempts = updated.attempts
         except Exception:
             attempts = self.MAX_ATTEMPTS_PER_STORY  # be conservative if we can't count
+
+        # §l — persist FULL failure text (not just 200 chars) to disk.
+        self._persist_failure_log(story.issue_id, attempts, summary)
 
         will_retry = (not is_hard) and (attempts < self.MAX_ATTEMPTS_PER_STORY)
         if will_retry:
@@ -574,3 +602,20 @@ class AsyncAgent:
             summary=f"{summary[:180]} (attempt {attempts}/{self.MAX_ATTEMPTS_PER_STORY}"
                     + (", retrying" if will_retry else ", blocked") + ")",
         )
+        # §n — dedicated final_block event when the story permanently
+        # blocks. Downstream tools can group by this to build a "why
+        # each story failed" panel.
+        if not will_retry:
+            try:
+                failure_log_path = str(
+                    self.workspace.agent_dir(self.role, self.instance)
+                    / "failures" / f"{story.issue_id}.log"
+                )
+            except (AttributeError, TypeError):
+                failure_log_path = ""
+            self.emitter.emit(
+                "story_final_block", story_id=story.issue_id,
+                worker=self.actor, attempts=attempts,
+                failure_log=failure_log_path,
+                summary=f"blocked after {attempts} attempts: {summary[:120]}",
+            )

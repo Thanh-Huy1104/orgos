@@ -36,6 +36,72 @@ can measure the gap on a real goal on a real repo.
 
 ---
 
+## 🚀 5-minute quickstart
+
+The fastest way to see orgos work end-to-end — no LLM cost, no API key,
+just infrastructure smoke through the full board → merge → acceptance cycle.
+
+```bash
+# 1. Install
+git clone <this repo> && cd orgos
+pip install -e ".[dev]"
+
+# 2. Pre-flight health check (validates git, executor, env)
+python -m orgos.cli doctor --repo .
+
+# 3. Start a mock run — 60-second infrastructure smoke, zero LLM cost
+python -m orgos.cli start --repo . --team-id smoke \
+    --goal "any goal — mock ignores it" \
+    --executor mock \
+    --architects 2 --testers 1 --devsecops 1 \
+    --sprint-duration-seconds 20 \
+    --timeout-seconds 60 --fresh
+```
+
+While it runs, in another terminal:
+
+```bash
+python -m orgos.cli status --watch --team-id smoke
+python -m orgos.cli logs --follow --team-id smoke
+python -m orgos.cli serve --team-id smoke        # → http://127.0.0.1:8080/
+```
+
+When it stops (~60s):
+
+```bash
+python -m orgos.cli report --team-id smoke
+open .orgos_teams/smoke/report.html
+```
+
+You should see ~12 stories drafted, ~10 done, all agents committed at least
+once, and a green integration branch. **If that works, real LLM runs will
+work too** — the only variable that changes is the executor.
+
+**Want to try with a real spec?** Write a markdown file with `## Story:` blocks:
+
+```markdown
+## Story: Add /health endpoint
+Files: app.py
+Priority: 90
+AC:
+  - GET /health returns 200
+  - Response body is JSON {"status": "ok"}
+
+## Story: Add tests for /health
+Files: tests/test_health.py
+Priority: 89
+Depends: 1
+```
+
+Then: `orgos plan --spec-file spec.md --repo .` prints the story list without
+spending a token. `orgos start --spec-file spec.md ...` runs it. When your
+spec has explicit `## Story:` blocks, orgos honors them directly — no LLM
+decomposition, no re-invention.
+
+**Full CLI reference:** `orgos --help` and `orgos <cmd> --help`.
+
+---
+
 ## 1. Install
 
 ```bash

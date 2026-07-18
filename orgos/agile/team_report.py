@@ -907,25 +907,99 @@ tryEnterLiveMode();
 """
 
 
+def collect_blocked_reasons(workspace) -> dict:
+    """Bucket blocked stories by category so the team knows what's hurting.
+
+    Categories: no_commit, merge_conflict, dod, dropped, other.
+    Read from board audit trails (the reason text is stamped on the
+    `transition ... to blocked` action).
+    """
+    board = BoardStore(workspace.board_dir)
+    buckets = {"no_commit": 0, "merge_conflict": 0, "dod": 0,
+               "dropped": 0, "other": 0}
+    reason_by_story: dict[str, str] = {}
+    for s in board.list_state("blocked"):
+        trail = board.audit_trail(s.issue_id)
+        last_reason = ""
+        for e in reversed(trail):
+            if e.get("action") == "transition" and e.get("to_state") == "blocked":
+                last_reason = e.get("reason", "") or ""
+                break
+        reason_by_story[s.issue_id] = last_reason
+        text = last_reason.lower()
+        if "no_commit" in text or "no commit" in text or "attempts" in text:
+            buckets["no_commit"] += 1
+        elif "merge_conflict" in text or "merge conflict" in text or "ff_failed" in text:
+            buckets["merge_conflict"] += 1
+        elif "dod" in text:
+            buckets["dod"] += 1
+        elif "dropped" in text:
+            buckets["dropped"] += 1
+        else:
+            buckets["other"] += 1
+    return {"totals": buckets, "by_story": reason_by_story}
+
+
+def _enumerate_agent_instances(workspace) -> list[str]:
+    """Return every agent instance key that has a worktree on disk.
+
+    Keys look like `po`, `scrum_master`, `architect`, `architect#1`,
+    `architect#2`, `test`, `test#1`, `devsecops`, etc. — matching the
+    `actor` string an AsyncAgent uses to emit events.
+
+    Falls back to the historical singleton list if the workspace has no
+    agents/ dir yet (bootstrap/tests).
+    """
+    fallback = ["po", "scrum_master", "architect", "test", "devsecops"]
+    try:
+        agents_root = getattr(workspace, "agents_root", None)
+        if agents_root is None or not agents_root.exists():
+            return fallback
+        keys: list[str] = []
+        for d in sorted(agents_root.iterdir()):
+            if not d.is_dir():
+                continue
+            name = d.name  # e.g. 'architect' or 'architect-1'
+            if "-" in name and name.rsplit("-", 1)[-1].isdigit():
+                role, inst = name.rsplit("-", 1)
+                key = role if inst == "0" else f"{role}#{inst}"
+            else:
+                key = name
+            if key not in keys:
+                keys.append(key)
+        return keys or fallback
+    except (OSError, AttributeError):
+        return fallback
+
+
 def collect_agent_statuses(workspace) -> list[dict]:
     """Read each agent's current status from disk. Best-effort.
 
-    Returns a list of dicts: {role, is_alive, current_story, last_event_at, restart_count}.
-    Sourced from live.jsonl events (agent_started, agent_stopped, story_pulled, agent_crashed).
+    Returns a list of dicts, one per agent INSTANCE (not per role) so
+    N>1 delivery agents render as distinct rows: `architect`,
+    `architect#1`, `architect#2`. Sourced from live.jsonl events.
     """
     events = read_events(workspace.root)
-    roles = ("po", "scrum_master", "architect", "test", "devsecops")
-    status = {r: {"role": r, "is_alive": False,
-                  "current_story": "", "last_event_at": "",
-                  "restart_count": 0}
-              for r in roles}
+    keys = _enumerate_agent_instances(workspace)
+    status = {
+        k: {
+            "role": k, "is_alive": False,
+            "current_story": "", "last_event_at": "",
+            "restart_count": 0,
+        }
+        for k in keys
+    }
     for e in events:
         r = e.get("role") or e.get("worker") or ""
-        # Peel off any '#N' suffix from worker labels
-        base = r.split("#", 1)[0] if r else ""
-        if base not in status:
+        if not r:
             continue
-        s = status[base]
+        # Event 'role' from an AsyncAgent is bare (`architect`), but
+        # 'worker' is the actor (`architect#1`). Look up the actor first,
+        # fall back to the role for singletons.
+        key = r if r in status else r.split("#", 1)[0]
+        if key not in status:
+            continue
+        s = status[key]
         s["last_event_at"] = e.get("timestamp", s["last_event_at"])
         action = e.get("action", "")
         if action == "agent_started":
@@ -940,7 +1014,7 @@ def collect_agent_statuses(workspace) -> list[dict]:
         elif action in ("commit_landed", "story_done_noop",
                         "story_no_commit", "story_review_pass"):
             s["current_story"] = ""
-    return [status[r] for r in roles]
+    return [status[k] for k in keys]
 
 
 def render_team_report(workspace: TeamWorkspace) -> Path:

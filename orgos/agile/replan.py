@@ -41,11 +41,17 @@ _REPLAN_BRIEF_TEMPLATE = """You are the Product Owner. Sprint {last_sprint_num} 
 ORIGINAL GOAL
 {goal}
 
+PRODUCT SPEC (from wiki/SPEC.md — the source of truth for what must be built)
+{spec_block}
+
 SPRINT HISTORY (most recent first)
 {history_block}
 
 CURRENT BACKLOG SNAPSHOT
 {backlog_block}
+
+RETRO HIGHLIGHTS FROM PRIOR SPRINTS
+{prior_retros_block}
 
 LAST SPRINT'S RETRO
   What went well:  {retro_well}
@@ -116,6 +122,84 @@ def _fmt_backlog(board: BoardStore) -> str:
             title = s.title[:70]
             lines.append(f"  [{state:12s}] [{s.type:12s}] {s.issue_id[:36]:36s} p={s.priority:3d}  {title}")
     return "\n".join(lines) if lines else "  (backlog empty)"
+
+
+def _load_spec(workspace: TeamWorkspace, max_chars: int = 6000) -> str:
+    """Load wiki/SPEC.md so the PO stays anchored to the original spec on
+    every replan. Look in the team's wiki first (persistent), then the
+    source repo's wiki (initial `orgos start --spec-file` copy).
+
+    Truncated to `max_chars` so the prompt stays bounded on large PRDs.
+    """
+    candidates = [
+        getattr(workspace, "wiki_dir", None),
+        (workspace.source_repo / "wiki") if getattr(workspace, "source_repo", None) else None,
+        (workspace.integration_worktree / "wiki") if getattr(workspace, "integration_worktree", None) else None,
+    ]
+    for wiki_dir in candidates:
+        if wiki_dir is None:
+            continue
+        p = wiki_dir / "SPEC.md"
+        try:
+            if p.exists():
+                text = p.read_text(encoding="utf-8")
+                if len(text) > max_chars:
+                    head = text[: max_chars * 2 // 3]
+                    tail = text[-max_chars // 3:]
+                    return f"{head}\n\n… (spec truncated — {len(text)} chars total) …\n\n{tail}"
+                return text
+        except OSError:
+            continue
+    return "(no wiki/SPEC.md found — plan against the goal string above)"
+
+
+def _prior_retros_block(workspace: TeamWorkspace, max_sprints: int = 5) -> str:
+    """Pull the last N sprint retros out of wiki/RETRO.md so the PO can
+    see recurring pain points, not just the most recent sprint's retro.
+    """
+    candidates = [
+        getattr(workspace, "wiki_dir", None),
+        (workspace.integration_worktree / "wiki") if getattr(workspace, "integration_worktree", None) else None,
+        (workspace.source_repo / "wiki") if getattr(workspace, "source_repo", None) else None,
+    ]
+    text = ""
+    for wiki_dir in candidates:
+        if wiki_dir is None:
+            continue
+        p = wiki_dir / "RETRO.md"
+        try:
+            if p.exists():
+                text = p.read_text(encoding="utf-8")
+                if text.strip():
+                    break
+        except OSError:
+            continue
+    if not text.strip():
+        return "  (no prior retros)"
+    # Split by top-level H2 (## Retro …). Take the last N.
+    blocks = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## ") and current:
+            blocks.append("\n".join(current))
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        blocks.append("\n".join(current))
+    tail = blocks[-max_sprints:]
+    # Compact each block: just keep the action items and any "went wrong" bullets
+    out: list[str] = []
+    for b in tail:
+        head = b.splitlines()[0] if b.splitlines() else ""
+        out.append(f"  {head}")
+        for line in b.splitlines()[1:]:
+            s = line.strip()
+            if s.startswith("- ") or s.startswith("* "):
+                out.append(f"    {s[:200]}")
+            elif s.lower().startswith(("action", "went wrong")):
+                out.append(f"    {s[:200]}")
+    return "\n".join(out) if out else "  (retros present but no structured content parseable)"
 
 
 def _draft_new_stories(
@@ -233,8 +317,10 @@ def run_replan(
     brief_obj = _REPLAN_BRIEF_TEMPLATE.format(
         last_sprint_num=last_num,
         goal=(goal or "")[:600],
+        spec_block=_load_spec(workspace),
         history_block=_fmt_history(history),
         backlog_block=_fmt_backlog(board),
+        prior_retros_block=_prior_retros_block(workspace),
         retro_well=retro_well[:400],
         retro_wrong=retro_wrong[:400],
         retro_action=retro_action[:300],

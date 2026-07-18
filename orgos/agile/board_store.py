@@ -157,6 +157,12 @@ class Story:
                              # in flight simultaneously — mirrors how real
                              # Scrum teams avoid stepping on each other by
                              # module/component ownership.
+    acceptance_criteria: list[str] = field(default_factory=list)
+                             # PO's Definition of Done bullets. When a spec-file
+                             # is provided, these are extracted from `## AC:`
+                             # blocks; otherwise the PO produces them during
+                             # decomposition. The acceptance ceremony checks
+                             # each bullet against the merged code.
     created_at: str = ""
     updated_at: str = ""
 
@@ -411,6 +417,7 @@ class BoardStore:
         actor: str = "po",
         files_to_touch: Optional[list[str]] = None,
         component: Optional[str] = None,
+        acceptance_criteria: Optional[list[str]] = None,
     ) -> Story:
         if story_type not in VALID_TYPES:
             raise BoardError(
@@ -436,6 +443,9 @@ class BoardStore:
             priority=priority,
             files_to_touch=ftt,
             component=comp,
+            acceptance_criteria=[
+                str(c).strip() for c in (acceptance_criteria or []) if str(c).strip()
+            ],
             created_at=now,
             updated_at=now,
         )

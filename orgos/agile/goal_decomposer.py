@@ -19,6 +19,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from typing import Optional
+
 from orgos.agile.board_store import BoardStore, VALID_TYPES
 from orgos.spawn import TaskBrief, spawn
 from orgos.subagents import po_role
@@ -152,7 +154,7 @@ RULES:
          "component": "notes", "priority": 79, "depends_on": [0]}},
      ]
 
-9. Output the JSON array. If you wrap in an envelope (your persona may
+10. Output the JSON array. If you wrap in an envelope (your persona may
    push you to), put the ARRAY inside the `payload` field. Either of these
    is accepted:
 
@@ -252,6 +254,51 @@ def _slugify(title: str, max_len: int = 40) -> str:
     return slug[:max_len] or "story"
 
 
+def _guess_files_for_story(
+    title: str, body: str, repo_root: Path, model: str,
+) -> list[str]:
+    """One-shot LLM call: if PO left files_to_touch empty, ask a follow-up
+    to list the exact paths for this story. Kills the biggest merge-conflict
+    class (empty files → all stories serialize on the `core` lock).
+
+    Returns [] on any failure — caller falls back to the empty list (the
+    story will still be usable, just serialized on `core`).
+    """
+    try:
+        po = po_role(model=model)
+        po.mcp_servers = []
+        tree = _repo_tree_snapshot(repo_root, max_entries=80)
+        brief = TaskBrief(
+            objective=(
+                "Given the story below and the repo tree, list the EXACT "
+                "files this story will create or modify. Output ONLY a "
+                "JSON array of relative paths, nothing else.\n\n"
+                f"STORY TITLE: {title}\n\n"
+                f"STORY BODY:\n{body[:1500]}\n\n"
+                f"REPO TREE:\n{tree}\n\n"
+                'Example valid output: ["auth/routes.py", "tests/test_auth.py"]\n'
+                "If truly unknowable, output []."
+            ),
+            expected_output="A JSON array of relative file paths.",
+            success_criteria=["Output is a JSON array of strings."],
+        )
+        result = spawn(po, brief, run_budget_tokens=40_000)
+        for tout in result.tasks_output:
+            raw = getattr(tout, "raw", "") or ""
+            for blob in _extract_json_arrays(raw):
+                try:
+                    data = json.loads(blob)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(data, list):
+                    paths = [str(p).strip() for p in data if isinstance(p, str) and str(p).strip()]
+                    if paths:
+                        return paths[:6]  # cap to keep component-lock tight
+    except Exception:
+        pass
+    return []
+
+
 def decompose_goal(
     *,
     goal: str,
@@ -260,11 +307,33 @@ def decompose_goal(
     model: str,
     run_budget_tokens: int = 400_000,
     id_prefix: str = "GS",
+    prewritten_stories: Optional[list[dict]] = None,
+    autofill_files_to_touch: bool = True,
 ) -> list[str]:
     """Spawn PO, decompose the goal, draft each story into the board.
 
     Returns the list of created issue_ids in priority order.
+
+    If `prewritten_stories` is provided (from a `--spec-file` parse), skip
+    the PO spawn and use those directly — the human already declared the
+    story boundaries in the spec, so honor them.
+
+    When a story arrives with an empty `files_to_touch` and
+    `autofill_files_to_touch=True`, a one-shot LLM call fills it in so the
+    component lock isn't stuck on `core` for every ambiguous story.
     """
+    if prewritten_stories:
+        parsed_stories = list(prewritten_stories)
+        last_raw = "(from spec-file)"
+        # Skip the LLM decomposition spawn entirely.
+        return _draft_parsed_stories(
+            parsed_stories=parsed_stories,
+            repo_root=repo_root,
+            board=board,
+            model=model,
+            id_prefix=id_prefix,
+            autofill_files_to_touch=autofill_files_to_touch,
+        )
     po = po_role(model=model)
     brief = TaskBrief(
         objective=_DECOMPOSE_BRIEF_TEMPLATE.format(
@@ -331,6 +400,26 @@ def decompose_goal(
             f"Raw output tail: {last_raw[-500:]!r}"
         )
 
+    return _draft_parsed_stories(
+        parsed_stories=parsed_stories,
+        repo_root=repo_root,
+        board=board,
+        model=model,
+        id_prefix=id_prefix,
+        autofill_files_to_touch=autofill_files_to_touch,
+    )
+
+
+def _draft_parsed_stories(
+    *,
+    parsed_stories: list[dict],
+    repo_root: Path,
+    board: BoardStore,
+    model: str,
+    id_prefix: str,
+    autofill_files_to_touch: bool,
+) -> list[str]:
+    """Common draft path — used by both PO-LLM output and spec-file parse."""
     # Sanitize, then draft each (first pass: assign ids without deps).
     created: list[str] = []
     dep_specs: list[list] = []
@@ -356,12 +445,32 @@ def decompose_goal(
             raw_ftt = []
         files_to_touch = [str(p).strip() for p in raw_ftt if str(p).strip()]
 
+        # Auto-fill via a one-shot LLM call when PO left files empty.
+        # Without files_to_touch, the story's component defaults to "core"
+        # and it serializes with every other empty-files story — the top
+        # merge-conflict driver at N>1 (was 18 conflicts in Run 5d).
+        if not files_to_touch and autofill_files_to_touch:
+            guessed = _guess_files_for_story(title, body, repo_root, model)
+            if guessed:
+                files_to_touch = guessed
+                print(
+                    f"[decomposer] auto-filled files_to_touch for '{title[:60]}': "
+                    f"{files_to_touch}", flush=True,
+                )
+
         if not files_to_touch:
             print(
                 f"[decomposer] WARNING: story '{title[:60]}' drafted with empty "
                 f"files_to_touch — file-overlap safety net is inert for this story.",
                 flush=True,
             )
+
+        # Acceptance criteria from spec-file OR from PO LLM output (rare but
+        # accepted). Stored on the story for the PO acceptance ceremony.
+        raw_ac = s.get("acceptance_criteria") or s.get("ac") or []
+        if not isinstance(raw_ac, list):
+            raw_ac = []
+        acceptance_criteria = [str(c).strip() for c in raw_ac if str(c).strip()]
 
         # Component (ownership boundary). If PO explicitly declared one,
         # honor it; otherwise pass None so BoardStore.draft_story derives
@@ -383,6 +492,7 @@ def decompose_goal(
             actor="po",
             files_to_touch=files_to_touch,
             component=component,
+            acceptance_criteria=acceptance_criteria,
         )
         created.append(issue_id)
 
