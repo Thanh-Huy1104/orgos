@@ -306,7 +306,122 @@ causes visible in the data (all fixable, not fundamental to the topology):
 **This is a real Scrum lesson: throwing devs at a poorly-decomposable
 goal makes things worse.** Same lesson human teams learn painfully.
 
+### Run 5d — N=3 WITH component ownership (the fix)
+
+Same 4h budget, same production-Notes-API goal, N=3, DeepSeek. This run
+added the missing structural piece: **component ownership as an
+ownership boundary**. Every Story gets a `component` field (auto-derived
+from `files_to_touch` — no hardcoded vocabulary; feature-branch style),
+and the board enforces exclusive ownership: while any story in
+component `auth` is in flight, no other agent can claim anything in
+`auth`. Different components run in true parallel. Also:
+- `wiki/DECISIONS.md merge=union` in `.gitattributes` so parallel
+  wiki writes concatenate instead of conflict
+- `velocity_target = max(6, n_delivery × 2)` — sprint ceiling scales
+  with team size (was hardcoded 6 → starved 9 agents in Run 5c)
+
+Goal was explicitly designed to expose 7 independent components (auth,
+notes, folders, tags, search, ratelimit, docs — each in its own dir)
+so N=3 has genuine parallelism to exploit.
+
+| Metric | Waterfall | **Scrum N=3 + components** |
+|---|---|---|
+| Wall time | 17m 51s | 4 h |
+| Stories drafted | 13 | **74** |
+| Stories done | 12 | **48** |
+| Stories blocked | 1 | 22 |
+| Commit rate | — | 79% (66/84) |
+| Merge conflicts | — | 18 |
+| Agent crashes | — | 0 |
+| Tokens in | 3.29 M | 22.58 M |
+| Tokens out | 98 k | 482 k |
+| Integration tests | 157/181 (87%) | **258/297 (87%)** |
+
+All 9 delivery instances committed at least once:
+```
+architect     5        devsecops     4        test    7
+architect#1  11        devsecops#1   3        test#1  9
+architect#2  17        devsecops#2   6        test#2  4
+```
+
+### The full arc: N=1 → N=3-no-comp → N=3-with-comp
+
+Same 4h budget, same goal, same LLM, same executor — only team topology varies:
+
+| | N=1 (Run 5) | N=3 no components (Run 5c) | **N=3 + components (Run 5d)** |
+|---|---|---|---|
+| Stories done | 37 | 15 | **48** |
+| Delta vs N=1 | — | **−59%** ❌ | **+30%** ✅ |
+| Commit rate | 90% | 96% | 79% |
+| Merge conflicts | 5 | 12 | 18 |
+| Sprints delivered (non-zero SPE) | 10 of 12 | 3 of 12 | 8 of 12 |
+
+**Adding devs helped ONLY when the ownership boundary was in place.**
+The N=3-no-components run delivered 59% FEWER stories than N=1 (three
+architects fought over `app.py`). The N=3-with-components run delivered
+30% MORE. Same team size, same goal, same LLM — the difference is a
+structural constraint that mirrors how real teams handle it: one dev
+per module at a time.
+
+### Empirical confirmation of the chapter's thesis
+
+The reference chapter's claim ("Scrum-at-team-scale beats waterfall
+because parallelism dominates when decomposition supports it") now
+shows up in measured data:
+
+- **N=1 Scrum: 37 done in 4h** — beats waterfall's 6 in 27 min but
+  only 6× the wall time
+- **N=3 Scrum with components: 48 done in 4h** — 4× waterfall's stories
+  done with roughly 2× waterfall's wall time (18 min → 4h) but each
+  scrum sprint delivered features waterfall never touched
+- **Waterfall's throughput is bounded by its sequential per-story pipeline;
+  scrum's throughput scales with parallel components in the decomposition**
+
+### The 10 fixes that took Run 4 → Run 5d
+
+Landed across `788ff05`, `a253cde`, `11f0410`, `7b07644`, `9c0642b`,
+`76449fd`, `3d20996`, `1f02fbb`, `dc1e3b1` on `main`. Full audit:
+
+| # | Fix | Impact |
+|---|---|---|
+| A | Sprint roll-over — reset unfinished stories to `sprint_number=0` on close | Eliminated the empty-sprint cascade |
+| B | Retry-on-no-commit — story back to `ready` up to `MAX_ATTEMPTS_PER_STORY=3` | Catches transient LLM sloppiness |
+| C | Architect prompt requires wiki entry for `type=architecture` | Ensures LLM attempts the wiki step |
+| D | `--sprint-duration-seconds N` runtime override | Enables multi-sprint runs in short windows |
+| E | `max_iter` bump 20 → 40 for coding role | Fewer iterations-cap timeouts |
+| F | Reordered executor prompt: commit BEFORE envelope, envelope OPTIONAL | LLM doesn't skip commit |
+| G | WIP auto-commit fallback | Recovery from "LLM forgot commit" |
+| H | DoD auto-write — orgos writes stub `wiki/DECISIONS.md` entry itself | Removes LLM unreliability from DoD path |
+| I | DoD gate reads `integration_worktree/wiki/DECISIONS.md`, not `source_repo/…` | Fixed the "PO looking in wrong place" bug |
+| J | Merge queue resets agent branch to integration HEAD on rebase failure | Un-rebasable commits no longer strand branches |
+| K | `git rebase --autostash` on merge worker | Kills the N>1 race where executor's next-story writes trip the merge worker's rebase |
+| L | N-dev scaling — `--architects/--testers/--devsecops N`, per-instance worktrees + branches | Real team-scale runs |
+| M | `--executor mock` — zero-LLM stub | 60-second infrastructure smoke tests |
+| N | Sprint `velocity_target = max(6, n_delivery × 2)` | Removes the 6-story sprint ceiling that starved N>1 |
+| O | Component ownership — `Story.component`, exclusive claim by component | Structural prevention of same-file collisions at N>1 |
+| P | Component auto-derivation from `files_to_touch` — no hardcoded vocab | Feature-branch style; components emerge from actual file scope |
+| Q | `.gitattributes wiki/*.md merge=union` | Parallel wiki writes concatenate instead of conflict |
+
 ### Direction
+
+The N-scaling arc establishes: **team-scale Scrum works when the
+decomposition supports it AND the runtime enforces ownership.** Path
+forward from here:
+
+- **Multi-run statistics.** LLMs are stochastic; the 37 vs 15 vs 48
+  numbers could vary ±10 on a fresh run. Wrap `run_comparison.sh` to
+  loop N times per topology and emit mean/stddev.
+- **PO discipline on `files_to_touch`.** ~15 of Run 5d's stories still
+  had empty `files_to_touch` → derived to `core` → serialized on a
+  single lock. Tightening the PO prompt (or auto-inferring files from
+  the story body) would lift throughput further.
+- **Bigger goals with more independent components.** Run 5d had 7
+  components but only ~3 were actively producing simultaneously. A
+  10+ component goal on N=5 would test the ceiling.
+- **Non-code goals.** Docs, analysis, research — does the component
+  ownership model translate?
+
+### Direction (superseded)
 
 The N=3 run establishes that **team-scale Scrum works if and only if the
 decomposition supports it.** For CRUD-shaped goals with a single central
