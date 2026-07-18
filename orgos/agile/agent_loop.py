@@ -357,19 +357,35 @@ class AsyncAgent:
         """PO acceptance gate: review stories in pending_acceptance and
         transition to done (accept) or blocked (reject).
 
-        Acceptance policy:
-          - Every story must carry a commit_sha (proof of work).
-          - DoD wiki gate: architecture stories must additionally have
-            recorded their decision in wiki/DECISIONS.md (author, timestamp,
-            source citing the story). This enforces the brief's rule that any
-            story introducing/changing a technical decision updates the wiki
-            with the three mandatory fields before it can be marked done.
+        Acceptance policy (in order — first failure blocks):
+          1. Story must carry a commit_sha (proof of work).
+          2. DoD wiki gate: architecture stories must have recorded their
+             decision in wiki/DECISIONS.md (author, timestamp, source
+             citing the story).
+          3. AC gate (Fix §A1): if the story carries acceptance_criteria,
+             each bullet is LLM-graded against the commit's diff. Any
+             UNMET bullet rejects the story — this is what turns
+             "commit landed" into "commit actually satisfies the spec".
+
+        The AC gate fails OPEN: if the grading LLM call errors or returns
+        garbage, the story is accepted with degraded=True. Rationale:
+        stranding stories on infra hiccups is worse than accepting
+        occasionally-flawed work; the failure surfaces in the story_ac_check
+        event's degraded field.
         """
         try:
-            def _accept_batch() -> tuple[int, int]:
+            m = self.workspace.manifest()
+        except Exception:
+            m = None
+        model = m.model if m else "deepseek/deepseek-chat"
+
+        try:
+            def _accept_batch() -> tuple[int, int, int]:
+                from orgos.agile.ac_gate import grade_acceptance_criteria
                 pending = self.board.list_state("pending_acceptance")
                 accepted = 0
                 rejected_dod = 0
+                rejected_ac = 0
                 for story in pending:
                     reason = ""
                     accept = bool(story.commit_sha)
@@ -384,6 +400,42 @@ class AsyncAgent:
                             "source) citing this story"
                         )
                         rejected_dod += 1
+                    # AC gate — only run when the story has criteria to grade
+                    # AND passed the earlier gates. Grading is one LLM call
+                    # per story per accept-tick, so keep pending queue small.
+                    ac_verdict = None
+                    if accept and (getattr(story, "acceptance_criteria", None) or []):
+                        try:
+                            ac_verdict = grade_acceptance_criteria(
+                                story=story,
+                                integration_worktree=self.workspace.integration_worktree,
+                                model=model,
+                            )
+                        except Exception as e:
+                            ac_verdict = None
+                            self.emitter.emit(
+                                "story_ac_check", story_id=story.issue_id,
+                                degraded=True,
+                                summary=f"AC grade crashed: {e}"[:200],
+                            )
+                        if ac_verdict is not None:
+                            self.emitter.emit(
+                                "story_ac_check", story_id=story.issue_id,
+                                accept=ac_verdict.accept,
+                                degraded=ac_verdict.degraded,
+                                met=ac_verdict.met_count,
+                                unmet=ac_verdict.unmet_count,
+                                total=len(ac_verdict.per_bullet),
+                                per_bullet=[
+                                    {"ac": v.ac[:80], "verdict": v.verdict}
+                                    for v in ac_verdict.per_bullet
+                                ],
+                                summary=f"AC: {ac_verdict.summary()}",
+                            )
+                            if not ac_verdict.accept:
+                                accept = False
+                                reason = f"AC: {ac_verdict.reason[:160]}"
+                                rejected_ac += 1
                     try:
                         if accept:
                             self.board.transition(
@@ -401,17 +453,27 @@ class AsyncAgent:
                                     "story_blocked_dod", story_id=story.issue_id,
                                     summary=reason,
                                 )
+                            elif reason.startswith("AC:"):
+                                self.emitter.emit(
+                                    "story_blocked_ac", story_id=story.issue_id,
+                                    summary=reason,
+                                )
                     except Exception:
                         continue
-                return accepted, rejected_dod
+                return accepted, rejected_dod, rejected_ac
 
-            count, rejected_dod = await asyncio.get_running_loop().run_in_executor(
+            count, rejected_dod, rejected_ac = await asyncio.get_running_loop().run_in_executor(
                 None, _accept_batch,
             )
             if count > 0:
                 self.emitter.emit(
                     "stories_accepted", accepted=count,
-                    summary=f"PO accepted {count} pending stories",
+                    rejected_dod=rejected_dod, rejected_ac=rejected_ac,
+                    summary=(
+                        f"PO accepted {count}"
+                        + (f", rejected {rejected_dod} DoD" if rejected_dod else "")
+                        + (f", rejected {rejected_ac} AC" if rejected_ac else "")
+                    ),
                 )
         except Exception as e:
             self.emitter.emit(
@@ -454,8 +516,112 @@ class AsyncAgent:
                 "pr_feedback_error", role=self.role, summary=str(e)[:200],
             )
 
+    def _build_sibling_context(self, story) -> str:
+        """Fix §A4 — Inject team context so executors know what siblings did.
+
+        Kills two collision classes we've measured:
+          1. Two agents both create `tests/<X>/__init__.py` (marker file
+             collisions — merge conflict on rebase).
+          2. An agent rewrites a module that a sibling just created (import
+             cycles + lost work).
+
+        Content:
+          - Recently-merged files (last 20-25) with the author
+          - In-flight peer stories with their component + files_to_touch
+          - A note about append-vs-overwrite for shared files
+
+        Never raises — an empty context string is fine; the executor just
+        doesn't get the extra info. Kept under ~2 KB so the prompt cache
+        stays warm.
+        """
+        try:
+            from orgos.agile.live_events import read_events
+        except Exception:
+            return ""
+
+        # 1. Recently-merged files — scan the last ~200 events for commit_landed
+        recent: list[tuple[str, str]] = []  # (file, actor)
+        seen: set[str] = set()
+        try:
+            all_events = read_events(self.workspace.root)
+            for e in reversed(all_events[-300:]):
+                if e.get("action") != "commit_landed":
+                    continue
+                actor = e.get("worker") or "unknown"
+                sha = (e.get("commit_sha") or "").strip()
+                if not sha:
+                    continue
+                # We don't have files_touched on commit_landed events; look up
+                # via the story's board record for files_to_touch as a proxy.
+                sid = e.get("story_id", "")
+                if not sid:
+                    continue
+                try:
+                    s = self.board.read(sid)
+                except Exception:
+                    continue
+                for f in (s.files_to_touch or []):
+                    if f not in seen:
+                        recent.append((f, actor))
+                        seen.add(f)
+                if len(recent) >= 20:
+                    break
+        except Exception:
+            pass
+
+        # 2. In-flight peer stories (same role or different — all in-flight
+        # peers matter). Exclude the current story.
+        peers: list[str] = []
+        try:
+            for state in ("in_progress", "review"):
+                for s in self.board.list_state(state):
+                    if s.issue_id == story.issue_id:
+                        continue
+                    files = ",".join((s.files_to_touch or [])[:3]) or "(no files)"
+                    peers.append(
+                        f"  - {s.issue_id[:32]} [{s.assignee or '?'}] {s.type} · "
+                        f"{s.component} · {files}"
+                    )
+                    if len(peers) >= 8:
+                        break
+        except Exception:
+            pass
+
+        if not recent and not peers:
+            return ""
+
+        block: list[str] = []
+        block.append("")
+        block.append("---")
+        block.append("## TEAM CONTEXT (updated at pull time — do not re-create sibling work)")
+        if recent:
+            block.append("")
+            block.append("Recently merged files (last 20):")
+            for f, actor in recent[:20]:
+                block.append(f"  - {f}  (by {actor})")
+            block.append("")
+            block.append(
+                "  RULE: if your story needs one of these files, `cat >>` to append, "
+                "NEVER `cat >` to overwrite. For __init__.py files, check if the "
+                "file already exists before creating — it usually does after a peer "
+                "landed their story."
+            )
+        if peers:
+            block.append("")
+            block.append("Peer stories currently in flight:")
+            for line in peers:
+                block.append(line)
+            block.append("")
+            block.append(
+                "  RULE: don't touch files listed in peer stories' file scope. If your "
+                "story naturally needs one of those files, comment on the story to "
+                "raise the conflict rather than racing."
+            )
+        return "\n".join(block)
+
     async def _pull_and_work_once(self) -> None:
         """Delivery-agent action: check board, pull if match, run executor, enqueue merge."""
+        from dataclasses import replace as _replace
         from orgos.agile.sprints import current_sprint_number
         try:
             sn = current_sprint_number(self.workspace)
@@ -473,6 +639,17 @@ class AsyncAgent:
             title=story.title[:80],
         )
 
+        # §A4 — inject sibling context so the executor knows what recently
+        # landed and what peers are working on. Mutates a story COPY (dataclass
+        # replace) so we don't persist context into the board itself.
+        sibling_ctx = self._build_sibling_context(story)
+        executor_story = story
+        if sibling_ctx:
+            try:
+                executor_story = _replace(story, body=f"{story.body or ''}\n{sibling_ctx}")
+            except (TypeError, ValueError):
+                executor_story = story  # fallback: send unmodified
+
         # Run the coding executor in a thread pool (it may be blocking I/O).
         # Uses this instance's OWN worktree (per-instance for N>1).
         try:
@@ -480,7 +657,7 @@ class AsyncAgent:
                 None,
                 lambda: self.executor.run_story(
                     worktree=self.workspace.agent_worktree(self.role, self.instance),
-                    story=story,
+                    story=executor_story,
                     persona_scaffold=self.persona_scaffold,
                     session_id=self.actor,
                 ),
@@ -507,6 +684,18 @@ class AsyncAgent:
                 is_hard=hard_fail,
             )
             return
+
+        # §A5 — charge every executor result against the run's budget.
+        # Called for success AND failure paths (no_commit path is handled in
+        # _handle_no_commit). Doing it here avoids double-counting.
+        try:
+            from orgos.agile.budget import charge_if_active
+            charge_if_active(
+                result.tokens_input or 0,
+                result.tokens_output or 0,
+            )
+        except Exception:
+            pass
 
         # Success: transition to review, enqueue merge
         self.board.transition(story.issue_id, "review", actor=self.actor)
@@ -559,6 +748,13 @@ class AsyncAgent:
         self, story, *, tokens_in, tokens_out, wall_seconds, summary, is_hard,
     ) -> None:
         """No commit landed. Decide: retry (back to ready) vs block."""
+        # §A5 — charge failed attempts too. The LLM burned real tokens.
+        try:
+            from orgos.agile.budget import charge_if_active
+            charge_if_active(tokens_in or 0, tokens_out or 0)
+        except Exception:
+            pass
+
         try:
             updated = self.board.increment_attempts(story.issue_id, actor=self.actor)
             attempts = updated.attempts

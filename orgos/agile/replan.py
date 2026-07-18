@@ -88,7 +88,10 @@ OUTPUT ONLY THIS JSON (no fences, no prose):
   "goal_met": false,
   "reasoning": "short honest read of where we are vs the goal",
   "new_stories": [
-    {{"title": "…", "body": "…", "type": "feature", "priority": 80, "depends_on": []}}
+    {{"title": "…", "body": "…", "type": "feature", "priority": 80,
+      "files_to_touch": ["exact/path/to/file.py"],
+      "acceptance_criteria": ["observable behavior 1", "observable behavior 2"],
+      "depends_on": []}}
   ],
   "unblock_stories": [],
   "drop_stories": []
@@ -98,6 +101,19 @@ Rules:
   - If goal_met=true, new_stories/unblock_stories/drop_stories can be empty.
   - Be honest — if the sprint made no progress, say so in reasoning.
   - Draft AT MOST 8 new stories. Sprints are timeboxed; don't over-plan.
+  - **files_to_touch is REQUIRED for every new story.** Without exact file
+    paths, orgos cannot enforce the component ownership boundary and every
+    story serializes on the same lock, causing merge conflicts. Look at the
+    SPRINT HISTORY + BACKLOG SNAPSHOT above to see which files already
+    exist and which are still needed. If truly unknowable, orgos will fill
+    files_to_touch via a follow-up LLM call — but declared paths are always
+    more accurate than guessed ones.
+  - **acceptance_criteria is REQUIRED for every new story.** Each bullet
+    must be an observable behavior that a human could check by reading the
+    diff (e.g. "GET /health returns 200", "Sharpe matches numpy to 4
+    decimals"). The DoD gate LLM-grades each bullet against the actual
+    commit before accepting the story. Empty acceptance_criteria means
+    the gate can only check that a commit exists — much weaker signal.
 """
 
 
@@ -204,8 +220,18 @@ def _prior_retros_block(workspace: TeamWorkspace, max_sprints: int = 5) -> str:
 
 def _draft_new_stories(
     board: BoardStore, new_stories: list, id_prefix: str,
+    *, workspace: Optional[TeamWorkspace] = None, model: Optional[str] = None,
+    autofill_files: bool = True,
 ) -> list[str]:
-    """Add PO's newly-drafted stories to the board. Returns created issue_ids."""
+    """Add PO's newly-drafted stories to the board. Returns created issue_ids.
+
+    When `autofill_files=True` and `workspace + model` are provided, stories
+    that arrive with empty `files_to_touch` get filled in via a one-shot LLM
+    call — same fix as in decompose_goal (Fix §o). Without this, replan
+    stories default to `component=core` and every one of them collides.
+    """
+    from orgos.agile.goal_decomposer import _guess_files_for_story
+
     created: list[str] = []
     dep_specs: list[list] = []
     for i, s in enumerate(new_stories):
@@ -224,6 +250,32 @@ def _draft_new_stories(
         raw_deps = s.get("depends_on") or []
         dep_specs.append(raw_deps if isinstance(raw_deps, list) else [])
 
+        raw_ftt = s.get("files_to_touch") or []
+        if not isinstance(raw_ftt, list):
+            raw_ftt = []
+        files_to_touch = [str(p).strip() for p in raw_ftt if str(p).strip()]
+
+        # Autofill files_to_touch when replan PO left them empty. Without
+        # this, every replan story defaults to component=core and races —
+        # exactly the S1-03 conflict pattern from the 2026-07-18 run.
+        if not files_to_touch and autofill_files and workspace and model:
+            try:
+                guessed = _guess_files_for_story(
+                    title, body, workspace.source_repo, model,
+                )
+                if guessed:
+                    files_to_touch = guessed
+            except Exception:
+                pass  # never let the autofill crash the whole replan
+
+        raw_ac = s.get("acceptance_criteria") or s.get("ac") or []
+        if not isinstance(raw_ac, list):
+            raw_ac = []
+        acceptance_criteria = [str(c).strip() for c in raw_ac if str(c).strip()]
+
+        raw_comp = s.get("component") or ""
+        component = str(raw_comp).strip().lower().replace(" ", "-") or None
+
         issue_id = f"{id_prefix}-{i:02d}-{_slugify(title)}"
         while board.exists(issue_id):
             issue_id = f"{issue_id}-{len(created)}"
@@ -231,6 +283,9 @@ def _draft_new_stories(
         board.draft_story(
             issue_id=issue_id, title=title, body=body,
             story_type=story_type, priority=priority, actor="po",
+            files_to_touch=files_to_touch,
+            component=component,
+            acceptance_criteria=acceptance_criteria,
         )
         created.append(issue_id)
 
@@ -365,10 +420,14 @@ def run_replan(
         emitter.emit("replan_failed", summary="PO produced no valid replan JSON")
         return {"goal_met": False, "new_stories": [], "unblock_stories": [], "drop_stories": []}
 
-    # Apply the decision to the board
+    # Apply the decision to the board. Pass workspace+model so the autofill
+    # helper (Fix §A2) can guess files_to_touch when PO omitted them —
+    # without this, replan stories default to component=core and every one
+    # of them races on the same lock.
     new_ids = _draft_new_stories(
         board, decision.get("new_stories", []) or [],
         id_prefix=f"S{last_num + 1}",
+        workspace=workspace, model=model,
     )
     unblocked = _unblock_stories(
         board, decision.get("unblock_stories", []) or [],

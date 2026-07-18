@@ -489,6 +489,30 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
     supervisor = TeamSupervisor(agents, emitter)
 
+    # §A5 — budget governor. If --max-usd is set, install a BudgetTracker
+    # with callbacks that emit events and (on exhaustion) signal supervisor
+    # to shut down cleanly. Delivery agents auto-charge via charge_if_active.
+    max_usd = float(getattr(args, "max_usd", 0) or 0)
+    if max_usd > 0:
+        from orgos.agile.budget import BudgetTracker, set_active_tracker
+        def _on_warn(snap):
+            emitter.emit(
+                "budget_warning", spent_usd=snap.spent_usd, max_usd=snap.max_usd,
+                percent=snap.percent_used, summary=f"budget 80%: {snap.as_line()}",
+            )
+        def _on_exhausted(snap):
+            emitter.emit(
+                "budget_exhausted", spent_usd=snap.spent_usd, max_usd=snap.max_usd,
+                summary=f"budget exhausted: {snap.as_line()} — stopping team",
+            )
+            supervisor.stop()
+        tracker = BudgetTracker(
+            max_usd=max_usd, model_default=args.model,
+            on_warning=_on_warn, on_exhausted=_on_exhausted,
+        )
+        set_active_tracker(tracker)
+        print(f"[cli] budget cap: ${max_usd:.2f}", flush=True)
+
     async def _run_all():
         merge_task = asyncio.create_task(run_merge_worker(merge_queue, ws, board, emitter))
         sup_task = asyncio.create_task(supervisor.run())
@@ -835,6 +859,67 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_deliver(args: argparse.Namespace) -> int:
+    """Reconcile spec-declared stories against what the team actually shipped.
+
+    Writes delivery-receipt.md to the team's workspace root. Also prints a
+    one-line summary to stdout. Safe to run mid-flight or post-run.
+    """
+    from orgos.agile.board_store import BoardStore
+    from orgos.agile.deliver import build_report, format_receipt
+    from orgos.agile.team_workspace import TeamWorkspace, TeamWorkspaceMissing
+
+    repo = Path(args.repo).resolve()
+    try:
+        ws = TeamWorkspace.open(args.team_id, repo)
+    except TeamWorkspaceMissing as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+    spec_path = getattr(args, "spec_file", None)
+    if spec_path:
+        spec_path = Path(spec_path).resolve()
+        if not spec_path.exists():
+            print(f"ERROR: --spec-file not found: {spec_path}", file=sys.stderr)
+            return 2
+    else:
+        # Fall back to the wiki/SPEC.md copy orgos wrote at start
+        for candidate in (
+            ws.wiki_dir / "SPEC.md",
+            ws.integration_worktree / "wiki" / "SPEC.md",
+            repo / "wiki" / "SPEC.md",
+        ):
+            if candidate.exists():
+                spec_path = candidate
+                break
+    if spec_path is None or not spec_path.exists():
+        print("ERROR: no spec file found. Pass --spec-file, or place one at "
+              "wiki/SPEC.md before running.", file=sys.stderr)
+        return 2
+
+    board = BoardStore(ws.root / "board")
+    spec_text = spec_path.read_text(encoding="utf-8")
+    report = build_report(
+        workspace=ws, board=board, spec_text=spec_text, spec_path=spec_path,
+    )
+    receipt = format_receipt(report)
+    out = ws.root / "delivery-receipt.md"
+    out.write_text(receipt, encoding="utf-8")
+
+    pct = (
+        100.0 * report.delivered_count / report.declared_count
+        if report.declared_count else 0.0
+    )
+    print(
+        f"[deliver] {report.delivered_count}/{report.declared_count} "
+        f"({pct:.0f}%) delivered · {report.blocked_count} blocked · "
+        f"{report.in_flight_count} in-flight · "
+        f"${report.estimated_cost_usd:.3f} spent",
+    )
+    print(f"[deliver] wrote {out}")
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Pre-flight health check. Verifies orgos can actually run on this box.
 
@@ -1170,6 +1255,13 @@ def main(argv: list[str] | None = None) -> int:
         "--devsecops", type=int, default=1,
         help="Number of concurrent devsecops agents (default 1). Same as --architects.",
     )
+    start_p.add_argument(
+        "--max-usd", type=float, default=0.0,
+        help="Budget cap in USD. When cumulative spend crosses this, the "
+             "team stops cleanly (finishes in-flight stories, then exits). "
+             "0 = no cap (default). Emits budget_warning at 80% and "
+             "budget_exhausted at 100%.",
+    )
     start_p.set_defaults(func=_cmd_start)
 
     # stop
@@ -1237,6 +1329,25 @@ def main(argv: list[str] | None = None) -> int:
                         choices=("auto", "claude", "copilot", "spawn", "mock"),
                         default="auto")
     doc_p.set_defaults(func=_cmd_doctor)
+
+    # deliver — spec-vs-delivered reconciliation
+    deliver_p = sub.add_parser(
+        "deliver",
+        help="Reconcile spec-declared stories vs what the team shipped; write delivery-receipt.md.",
+        description=(
+            "Compare a spec-file's declared stories against the team's board. "
+            "Writes delivery-receipt.md to the team's workspace root, listing "
+            "per-story delivered / blocked / not-matched. Safe to run mid-flight "
+            "or after --timeout-seconds fires. Uses wiki/SPEC.md as default "
+            "when --spec-file is omitted."
+        ),
+    )
+    deliver_p.add_argument("--repo", type=str, default=".")
+    deliver_p.add_argument("--team-id", type=str, required=True)
+    deliver_p.add_argument("--spec-file", type=str, default=None,
+                            help="Path to spec markdown. Defaults to wiki/SPEC.md "
+                                 "if the team was started with --spec-file.")
+    deliver_p.set_defaults(func=_cmd_deliver)
 
     # serve
     srv_p = sub.add_parser(
