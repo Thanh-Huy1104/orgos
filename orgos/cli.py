@@ -682,9 +682,15 @@ def _print_status_snapshot(ws) -> None:
         mark = "●" if a["is_alive"] else "○"
         story = a["current_story"] or "(idle)"
         restarts = f" ↺{a['restart_count']}" if a["restart_count"] else ""
+        # §H5 — show pull stats + heartbeat freshness for alive-idle diagnosis
+        pull_info = ""
+        if a.get("pull_attempts", 0) > 0:
+            pull_info = f" pulls:{a['pull_success']}/{a['pull_attempts']}"
+        hb = a.get("last_heartbeat_at") or ""
+        hb_info = f" hb:{hb[11:19]}" if hb else ""
         print(
-            f"  {mark} {a['role']:16s} {story[:40]:40s} "
-            f"last:{(a['last_event_at'] or '')[:19]}{restarts}"
+            f"  {mark} {a['role']:16s} {story[:32]:32s} "
+            f"last:{(a['last_event_at'] or '')[:19]}{hb_info}{pull_info}{restarts}"
         )
 
 

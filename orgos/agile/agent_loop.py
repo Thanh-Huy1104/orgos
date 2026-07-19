@@ -77,11 +77,45 @@ class AsyncAgent:
         # for up to one full cadence interval after restart).
         for t in self.scheduler.tasks:
             t._last_fired_at = -1.0
-        self.emitter.emit("agent_started", role=self.role,
-                          summary=f"{self.role} online")
+        # §H5 — emit agent_started with `worker` field so per-instance liveness
+        # is trackable. Previously all agent_started events had role only,
+        # making all 3 architects look identical in the log.
+        self.emitter.emit(
+            "agent_started", role=self.role, worker=self.actor,
+            summary=f"{self.actor} online",
+        )
+
+        # §H5 — per-agent counters for the alive-vs-idle diagnostic. Emitted
+        # via agent_heartbeat events every ~2 minutes so we can distinguish
+        # a stuck agent from a legitimately idle one.
+        self._pull_attempts = 0
+        self._pull_none = 0        # returned None from try_claim (idle)
+        self._pull_success = 0     # actually claimed a story
+        self._last_heartbeat = 0.0
+        HEARTBEAT_INTERVAL = 120   # seconds between agent_heartbeat events
 
         while self._alive:
             now = time.time() - self._start_wall
+
+            # Emit a heartbeat every HEARTBEAT_INTERVAL seconds regardless of
+            # whether the agent has real work to do. This is the diagnostic
+            # that distinguishes "alive-but-idle" from "dead" — an agent
+            # stuck inside an await never fires this.
+            if now - self._last_heartbeat >= HEARTBEAT_INTERVAL:
+                self._last_heartbeat = now
+                self.emitter.emit(
+                    "agent_heartbeat",
+                    role=self.role, worker=self.actor,
+                    uptime_seconds=int(now),
+                    pull_attempts=self._pull_attempts,
+                    pull_success=self._pull_success,
+                    pull_idle=self._pull_none,
+                    summary=(
+                        f"{self.actor} alive · uptime {int(now/60)}min · "
+                        f"pulls {self._pull_success}/{self._pull_attempts} succeeded"
+                    ),
+                )
+
             due_tasks = self.scheduler.pending(now)
 
             for task in due_tasks:
@@ -143,8 +177,11 @@ class AsyncAgent:
             # Sleep until next scheduled tick (or 1s min, so stop() is responsive)
             await asyncio.sleep(min(1.0, self.scheduler.next_tick_in(now)))
 
-        self.emitter.emit("agent_stopped", role=self.role,
-                          summary=f"{self.role} shut down cleanly")
+        # §H5 — emit agent_stopped with the same `worker` field for parity.
+        self.emitter.emit(
+            "agent_stopped", role=self.role, worker=self.actor,
+            summary=f"{self.actor} shut down cleanly",
+        )
 
     async def _run_retro(self) -> None:
         try:
@@ -768,6 +805,8 @@ class AsyncAgent:
         """Delivery-agent action: check board, pull if match, run executor, enqueue merge."""
         from dataclasses import replace as _replace
         from orgos.agile.sprints import current_sprint_number
+        # §H5 — count every pull attempt so agent_heartbeat can show it.
+        self._pull_attempts += 1
         try:
             sn = current_sprint_number(self.workspace)
         except Exception:
@@ -776,7 +815,9 @@ class AsyncAgent:
             self.role, actor=self.actor, sprint_number=sn,
         )
         if story is None:
+            self._pull_none += 1
             return
+        self._pull_success += 1
 
         self.emitter.emit(
             "story_pulled", story_id=story.issue_id,

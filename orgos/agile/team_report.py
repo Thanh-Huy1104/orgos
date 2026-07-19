@@ -975,9 +975,10 @@ def _enumerate_agent_instances(workspace) -> list[str]:
 def collect_agent_statuses(workspace) -> list[dict]:
     """Read each agent's current status from disk. Best-effort.
 
-    Returns a list of dicts, one per agent INSTANCE (not per role) so
-    N>1 delivery agents render as distinct rows: `architect`,
-    `architect#1`, `architect#2`. Sourced from live.jsonl events.
+    Returns a list of dicts, one per agent INSTANCE. Distinguishes
+    ALIVE-IDLE from DEAD via agent_heartbeat events (§H5) — an agent
+    that's ticking will fire a heartbeat every ~120s even when nothing
+    to pull, whereas a stuck agent stops firing them.
     """
     events = read_events(workspace.root)
     keys = _enumerate_agent_instances(workspace)
@@ -985,18 +986,22 @@ def collect_agent_statuses(workspace) -> list[dict]:
         k: {
             "role": k, "is_alive": False,
             "current_story": "", "last_event_at": "",
+            "last_heartbeat_at": "",
             "restart_count": 0,
+            "pull_success": 0, "pull_idle": 0, "pull_attempts": 0,
         }
         for k in keys
     }
     for e in events:
-        r = e.get("role") or e.get("worker") or ""
-        if not r:
-            continue
-        # Event 'role' from an AsyncAgent is bare (`architect`), but
-        # 'worker' is the actor (`architect#1`). Look up the actor first,
-        # fall back to the role for singletons.
-        key = r if r in status else r.split("#", 1)[0]
+        # Prefer per-instance worker field (§H5); fall back to bare role
+        worker = e.get("worker") or ""
+        role_bare = e.get("role") or ""
+        if worker and worker in status:
+            key = worker
+        elif worker:
+            key = worker.split("#", 1)[0]
+        else:
+            key = role_bare.split("#", 1)[0]
         if key not in status:
             continue
         s = status[key]
@@ -1009,6 +1014,13 @@ def collect_agent_statuses(workspace) -> list[dict]:
         elif action == "agent_restarted":
             s["is_alive"] = True
             s["restart_count"] += 1
+        elif action == "agent_heartbeat":
+            # §H5 — the definitive alive signal
+            s["is_alive"] = True
+            s["last_heartbeat_at"] = e.get("timestamp", "")
+            s["pull_attempts"] = e.get("pull_attempts", s["pull_attempts"])
+            s["pull_success"] = e.get("pull_success", s["pull_success"])
+            s["pull_idle"] = e.get("pull_idle", s["pull_idle"])
         elif action == "story_pulled":
             s["current_story"] = e.get("story_id", "")
         elif action in ("commit_landed", "story_done_noop",
