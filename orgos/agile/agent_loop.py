@@ -18,7 +18,48 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+
+
+# §H6 — hard timeouts on run_in_executor calls. Without these, a hung LLM
+# call (network timeout, rate-limit backoff, subprocess deadlock) holds a
+# thread-pool worker indefinitely and blocks the whole event loop. Root
+# cause of the "sprint 2 lasted 140 minutes" bug in quant-desk-v3.
+_TIMEOUT_LLM = int(os.environ.get("ORGOS_TIMEOUT_LLM_SECONDS", "180"))
+_TIMEOUT_EXECUTOR = int(os.environ.get("ORGOS_TIMEOUT_EXECUTOR_SECONDS", "300"))
+_TIMEOUT_NONLLM = int(os.environ.get("ORGOS_TIMEOUT_NONLLM_SECONDS", "60"))
+
+
+async def _bounded(fn: Callable, timeout: int, name: str, emitter: Any) -> Any:
+    """Run `fn` in the default thread-pool with a hard timeout.
+
+    On timeout, returns None and emits `ceremony_timeout`. The underlying
+    thread cannot be truly cancelled (Python has no thread-kill), but the
+    asyncio task unblocks, freeing the event loop.
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, fn),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        try:
+            emitter.emit(
+                "ceremony_timeout", ceremony=name, timeout_seconds=timeout,
+                summary=f"{name} exceeded {timeout}s — bailing out",
+            )
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        try:
+            emitter.emit(
+                "ceremony_error", ceremony=name, error=str(e)[:200],
+                summary=f"{name} raised: {e}"[:200],
+            )
+        except Exception:
+            pass
+        return None
 
 
 def _matches_any(text: str, *words: str) -> bool:
@@ -184,64 +225,56 @@ class AsyncAgent:
         )
 
     async def _run_retro(self) -> None:
+        from orgos.agile.retrospective import run_retrospective
         try:
-            from orgos.agile.retrospective import run_retrospective
             m = self.workspace.manifest()
-            await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: run_retrospective(
-                    workspace=self.workspace, board=self.board,
-                    emitter=self.emitter, model=m.model,
-                    goal=m.goal, reason_stopped="scheduled",
-                    started_at=m.created_at, ended_at=m.created_at,
-                    tokens_total=0,
-                ),
-            )
         except Exception as e:
             self.emitter.emit("retro_failed", role=self.role, summary=str(e)[:200])
+            return
+        await _bounded(
+            lambda: run_retrospective(
+                workspace=self.workspace, board=self.board,
+                emitter=self.emitter, model=m.model,
+                goal=m.goal, reason_stopped="scheduled",
+                started_at=m.created_at, ended_at=m.created_at,
+                tokens_total=0,
+            ),
+            timeout=_TIMEOUT_LLM, name="retro", emitter=self.emitter,
+        )
 
     async def _run_replan(self) -> None:
+        from orgos.agile.replan import run_replan
+        from orgos.agile.sprint_history import read_history
         try:
-            from orgos.agile.replan import run_replan
-            from orgos.agile.sprint_history import read_history
             m = self.workspace.manifest()
-            await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: run_replan(
-                    workspace=self.workspace, board=self.board,
-                    emitter=self.emitter, model=m.model,
-                    goal=m.goal, history=read_history(self.workspace.root),
-                ),
-            )
         except Exception as e:
             self.emitter.emit("replan_failed", role=self.role, summary=str(e)[:200])
+            return
+        await _bounded(
+            lambda: run_replan(
+                workspace=self.workspace, board=self.board,
+                emitter=self.emitter, model=m.model,
+                goal=m.goal, history=read_history(self.workspace.root),
+            ),
+            timeout=_TIMEOUT_LLM, name="replan", emitter=self.emitter,
+        )
 
     async def _run_elevation(self) -> None:
-        """Fix §B7 — bump stale ready stories, reclaim stuck in_progress.
-
-        Scheduled from SM's `Every 3 minutes` heartbeat block. All the real
-        logic lives in orgos.agile.elevate for testability; this is just the
-        async wrapper that dispatches to a thread.
-        """
-        try:
-            from orgos.agile.elevate import run_elevation_pass
-            counts = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: run_elevation_pass(self.board, self.emitter),
-            )
-            if counts.get("elevated_ready") or counts.get("reclaimed_in_progress"):
-                self.emitter.emit(
-                    "elevation_pass",
-                    elevated=counts["elevated_ready"],
-                    reclaimed=counts["reclaimed_in_progress"],
-                    summary=(
-                        f"elevated {counts['elevated_ready']} ready, "
-                        f"reclaimed {counts['reclaimed_in_progress']} in_progress"
-                    ),
-                )
-        except Exception as e:
+        """Fix §B7 — bump stale ready stories, reclaim stuck in_progress."""
+        from orgos.agile.elevate import run_elevation_pass
+        counts = await _bounded(
+            lambda: run_elevation_pass(self.board, self.emitter),
+            timeout=_TIMEOUT_NONLLM, name="elevation", emitter=self.emitter,
+        )
+        if counts and (counts.get("elevated_ready") or counts.get("reclaimed_in_progress")):
             self.emitter.emit(
-                "elevation_failed", role=self.role, summary=str(e)[:200],
+                "elevation_pass",
+                elevated=counts["elevated_ready"],
+                reclaimed=counts["reclaimed_in_progress"],
+                summary=(
+                    f"elevated {counts['elevated_ready']} ready, "
+                    f"reclaimed {counts['reclaimed_in_progress']} in_progress"
+                ),
             )
 
     async def _run_poker(self) -> None:
@@ -588,10 +621,16 @@ class AsyncAgent:
                         continue
                 return accepted, rejected_dod, rejected_ac_retry, rejected_ac_final
 
-            (count, rejected_dod, rejected_ac_retry,
-             rejected_ac_final) = await asyncio.get_running_loop().run_in_executor(
-                None, _accept_batch,
+            # §H6 — bounded to prevent AC batch from hanging the PO loop.
+            # The batch itself already caps at MAX_AC_BATCH_PER_TICK=2, so
+            # the timeout only fires on a truly hung LLM call.
+            _result = await _bounded(
+                _accept_batch, timeout=_TIMEOUT_LLM,
+                name="acceptance", emitter=self.emitter,
             )
+            if _result is None:
+                return  # timeout emitted; try again next tick
+            (count, rejected_dod, rejected_ac_retry, rejected_ac_final) = _result
             if count or rejected_ac_retry or rejected_ac_final or rejected_dod:
                 self.emitter.emit(
                     "stories_accepted", accepted=count,
@@ -836,18 +875,35 @@ class AsyncAgent:
             except (TypeError, ValueError):
                 executor_story = story  # fallback: send unmodified
 
-        # Run the coding executor in a thread pool (it may be blocking I/O).
-        # Uses this instance's OWN worktree (per-instance for N>1).
+        # §H6 — bounded executor call. LiteLLM/subprocess hangs are the top
+        # cause of "agent looks dead" — this timeout unblocks the agent so
+        # the story goes to retry (via _handle_no_commit) rather than
+        # holding the delivery agent forever.
         try:
-            result: ExecutionResult = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: self.executor.run_story(
-                    worktree=self.workspace.agent_worktree(self.role, self.instance),
-                    story=executor_story,
-                    persona_scaffold=self.persona_scaffold,
-                    session_id=self.actor,
+            result: ExecutionResult = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: self.executor.run_story(
+                        worktree=self.workspace.agent_worktree(self.role, self.instance),
+                        story=executor_story,
+                        persona_scaffold=self.persona_scaffold,
+                        session_id=self.actor,
+                    ),
                 ),
+                timeout=_TIMEOUT_EXECUTOR,
             )
+        except asyncio.TimeoutError:
+            self.emitter.emit(
+                "executor_timeout", story_id=story.issue_id, worker=self.actor,
+                timeout_seconds=_TIMEOUT_EXECUTOR,
+                summary=f"executor exceeded {_TIMEOUT_EXECUTOR}s — treating as no_commit",
+            )
+            self._handle_no_commit(
+                story, tokens_in=0, tokens_out=0, wall_seconds=_TIMEOUT_EXECUTOR,
+                summary=f"executor timeout after {_TIMEOUT_EXECUTOR}s",
+                is_hard=False,
+            )
+            return
         except Exception as e:
             # Executor crashed — always retry until MAX (crashes are usually transient).
             self._handle_no_commit(
