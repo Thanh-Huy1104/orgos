@@ -410,13 +410,30 @@ class AsyncAgent:
             m = None
         model = m.model if m else "deepseek/deepseek-chat"
 
+        # §H1 — AC-retry cap. After this many AC rejects on the SAME story,
+        # give up and block. Overridable via env var for experiments.
         try:
-            def _accept_batch() -> tuple[int, int, int]:
+            MAX_AC_RETRIES = max(1, int(os.environ.get("ORGOS_MAX_AC_RETRIES", "3")))
+        except (TypeError, ValueError):
+            MAX_AC_RETRIES = 3
+
+        # §H2 — cap the batch size per tick. When N stories are pending AC,
+        # grading all of them at once ties up the shared thread pool for
+        # 60+ seconds and starves delivery agents. Grade at most this many
+        # per tick; the rest wait for the next tick.
+        MAX_AC_BATCH_PER_TICK = 2
+
+        try:
+            def _accept_batch() -> tuple[int, int, int, int]:
                 from orgos.agile.ac_gate import grade_acceptance_criteria
                 pending = self.board.list_state("pending_acceptance")
+                # Grade oldest first so a backlogged story isn't skipped forever
+                pending = sorted(pending, key=lambda s: s.updated_at)
                 accepted = 0
                 rejected_dod = 0
-                rejected_ac = 0
+                rejected_ac_retry = 0
+                rejected_ac_final = 0
+                graded = 0
                 for story in pending:
                     reason = ""
                     accept = bool(story.commit_sha)
@@ -431,11 +448,12 @@ class AsyncAgent:
                             "source) citing this story"
                         )
                         rejected_dod += 1
-                    # AC gate — only run when the story has criteria to grade
-                    # AND passed the earlier gates. Grading is one LLM call
-                    # per story per accept-tick, so keep pending queue small.
+                    # AC gate — cap per tick to avoid thread-pool starvation.
                     ac_verdict = None
-                    if accept and (getattr(story, "acceptance_criteria", None) or []):
+                    if (accept
+                            and (getattr(story, "acceptance_criteria", None) or [])
+                            and graded < MAX_AC_BATCH_PER_TICK):
+                        graded += 1
                         try:
                             ac_verdict = grade_acceptance_criteria(
                                 story=story,
@@ -466,7 +484,6 @@ class AsyncAgent:
                             if not ac_verdict.accept:
                                 accept = False
                                 reason = f"AC: {ac_verdict.reason[:160]}"
-                                rejected_ac += 1
                     try:
                         if accept:
                             self.board.transition(
@@ -474,6 +491,47 @@ class AsyncAgent:
                                 reason="accepted",
                             )
                             accepted += 1
+                        elif reason.startswith("AC:") and ac_verdict is not None:
+                            # §H1 — retry loop, not filter.
+                            # Increment attempts; if under cap, send back to
+                            # ready with the AC feedback injected into body.
+                            try:
+                                bumped = self.board.increment_attempts(
+                                    story.issue_id, actor="po",
+                                )
+                                ac_attempt = bumped.attempts
+                            except Exception:
+                                ac_attempt = MAX_AC_RETRIES  # be conservative
+                            if ac_attempt <= MAX_AC_RETRIES:
+                                self._inject_ac_feedback_and_retry(
+                                    story, ac_verdict, ac_attempt,
+                                )
+                                rejected_ac_retry += 1
+                                self.emitter.emit(
+                                    "story_ac_retry", story_id=story.issue_id,
+                                    attempt=ac_attempt,
+                                    summary=(
+                                        f"{story.issue_id} AC retry #{ac_attempt}: "
+                                        f"{ac_verdict.unmet_count} unmet, back to ready"
+                                    ),
+                                )
+                            else:
+                                # Exhausted — now block
+                                self.board.transition(
+                                    story.issue_id, "blocked", actor="po",
+                                    reason=(
+                                        f"AC exhausted after {ac_attempt} retries: "
+                                        f"{ac_verdict.reason[:120]}"
+                                    )[:200],
+                                )
+                                rejected_ac_final += 1
+                                self.emitter.emit(
+                                    "story_blocked_ac", story_id=story.issue_id,
+                                    summary=(
+                                        f"AC exhausted after {ac_attempt} retries: "
+                                        f"{reason[:120]}"
+                                    ),
+                                )
                         else:
                             self.board.transition(
                                 story.issue_id, "blocked", actor="po",
@@ -491,25 +549,76 @@ class AsyncAgent:
                                 )
                     except Exception:
                         continue
-                return accepted, rejected_dod, rejected_ac
+                return accepted, rejected_dod, rejected_ac_retry, rejected_ac_final
 
-            count, rejected_dod, rejected_ac = await asyncio.get_running_loop().run_in_executor(
+            (count, rejected_dod, rejected_ac_retry,
+             rejected_ac_final) = await asyncio.get_running_loop().run_in_executor(
                 None, _accept_batch,
             )
-            if count > 0:
+            if count or rejected_ac_retry or rejected_ac_final or rejected_dod:
                 self.emitter.emit(
                     "stories_accepted", accepted=count,
-                    rejected_dod=rejected_dod, rejected_ac=rejected_ac,
+                    rejected_dod=rejected_dod,
+                    ac_retried=rejected_ac_retry,
+                    ac_final_blocked=rejected_ac_final,
                     summary=(
                         f"PO accepted {count}"
-                        + (f", rejected {rejected_dod} DoD" if rejected_dod else "")
-                        + (f", rejected {rejected_ac} AC" if rejected_ac else "")
+                        + (f", DoD-blocked {rejected_dod}" if rejected_dod else "")
+                        + (f", AC-retry {rejected_ac_retry}" if rejected_ac_retry else "")
+                        + (f", AC-exhausted {rejected_ac_final}" if rejected_ac_final else "")
                     ),
                 )
         except Exception as e:
             self.emitter.emit(
                 "acceptance_failed", role=self.role, summary=str(e)[:200],
             )
+
+    def _inject_ac_feedback_and_retry(
+        self, story, ac_verdict, attempt: int,
+    ) -> None:
+        """Send an AC-rejected story back to ready with the reject reason
+        injected into the body so the next executor sees precisely what
+        failed. Called from _run_acceptance when ac_attempt <= MAX_AC_RETRIES.
+        """
+        try:
+            fresh = self.board.read(story.issue_id)
+            feedback_lines = [
+                "", "---",
+                f"## PREVIOUS ATTEMPT FAILED — AC FEEDBACK (attempt {attempt})",
+                "",
+                "The last commit was rejected by the acceptance gate. "
+                "Fix the specific issues below and commit again — do NOT "
+                "start over, extend the existing code.",
+                "",
+                "### Unmet acceptance criteria",
+                "",
+            ]
+            for v in ac_verdict.per_bullet or []:
+                if v.verdict == "UNMET":
+                    feedback_lines.append(f"- **UNMET**: {v.ac}")
+                    if v.reason:
+                        feedback_lines.append(f"  - Why: {v.reason}")
+            if ac_verdict.reason:
+                feedback_lines.extend(["", f"Overall: {ac_verdict.reason}"])
+            fresh.body = (fresh.body or "") + "\n" + "\n".join(feedback_lines) + "\n"
+            # Clear stale commit_sha so next attempt is a fresh commit
+            fresh.commit_sha = ""
+            self.board._write_story(fresh)
+            # pending_acceptance → ready (added to TRANSITIONS)
+            self.board.transition(
+                story.issue_id, "ready", actor="po",
+                reason=f"ac_retry_{attempt}: {ac_verdict.reason[:100]}",
+            )
+        except Exception as e:
+            # If injection fails, fall back to blocking the story — better than
+            # leaving it in a weird state.
+            try:
+                self.board.transition(
+                    story.issue_id, "blocked", actor="po",
+                    reason=f"ac_retry_injection_failed: {e}"[:200],
+                )
+            except Exception:
+                pass
 
     async def _run_pr_feedback(self) -> None:
         try:
@@ -570,20 +679,25 @@ class AsyncAgent:
         except Exception:
             return ""
 
-        # 1. Recently-merged files — scan the last ~200 events for commit_landed
+        # §H2 — cap event scan to bounded window. Without this cap, live.jsonl
+        # scan cost grows O(N events) per pull. At N=1000+ events, this ties
+        # up thread-pool workers long enough to starve extra-instance agents
+        # (measured in quant-desk-v2: 5 of 8 delivery agents died at T+30min).
+        # Only look at the last ~100 events (usually ~10-15 min of activity).
+        RECENT_EVENT_WINDOW = 100
+
+        # 1. Recently-merged files — scan the bounded window for commit_landed
         recent: list[tuple[str, str]] = []  # (file, actor)
         seen: set[str] = set()
         try:
             all_events = read_events(self.workspace.root)
-            for e in reversed(all_events[-300:]):
+            for e in reversed(all_events[-RECENT_EVENT_WINDOW:]):
                 if e.get("action") != "commit_landed":
                     continue
                 actor = e.get("worker") or "unknown"
                 sha = (e.get("commit_sha") or "").strip()
                 if not sha:
                     continue
-                # We don't have files_touched on commit_landed events; look up
-                # via the story's board record for files_to_touch as a proxy.
                 sid = e.get("story_id", "")
                 if not sid:
                     continue
@@ -595,7 +709,7 @@ class AsyncAgent:
                     if f not in seen:
                         recent.append((f, actor))
                         seen.add(f)
-                if len(recent) >= 20:
+                if len(recent) >= 15:
                     break
         except Exception:
             pass

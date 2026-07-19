@@ -116,7 +116,11 @@ TRANSITIONS: dict[str, tuple[str, ...]] = {
     "ready":              ("in_progress", "blocked"),
     "in_progress":        ("review", "blocked", "ready"),   # ready → return-to-queue
     "review":             ("pending_acceptance", "done", "in_progress", "blocked"),
-    "pending_acceptance": ("done", "blocked", "review"),    # PO's gate
+    # pending_acceptance → ready enables the §H1 AC-retry loop: PO rejects
+    # a story on AC, but the code is already merged. Send it back to ready
+    # with the rejection reason injected into the body so the next puller
+    # can fix specifically what was unmet. Only block after N=3 AC rejects.
+    "pending_acceptance": ("done", "blocked", "review", "ready"),
     "done":               (),
     "blocked":            ("draft", "refinement", "ready", "in_progress", "review", "pending_acceptance"),
 }

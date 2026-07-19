@@ -534,6 +534,30 @@ def _cmd_start(args: argparse.Namespace) -> int:
                     f"shutting down team", flush=True,
                 )
                 supervisor.stop()
+                # §H4 — hard-exit watchdog. supervisor.stop() sets flags but
+                # if an agent is blocked inside a long-running run_in_executor
+                # call (a subprocess LLM call in the shared thread pool),
+                # the asyncio task can't cancel the underlying thread. Give
+                # graceful shutdown 60s, then force-exit. This is the fix
+                # for the v1 5h-runaway bug.
+                await asyncio.sleep(60)
+                print(
+                    "[cli] graceful shutdown did not exit within 60s — "
+                    "forcing os._exit(0)", flush=True,
+                )
+                # Try to flush the campaign result before hard exit.
+                try:
+                    from orgos.agile.campaign_summary import write_campaign_result
+                    write_campaign_result(
+                        ws, board, executor=choice, reason_stopped="timeout_force",
+                    )
+                except Exception:
+                    pass
+                try:
+                    pid_file.unlink()
+                except (OSError, NameError):
+                    pass
+                os._exit(0)
             timeout_task = asyncio.create_task(_auto_stop())
 
         try:

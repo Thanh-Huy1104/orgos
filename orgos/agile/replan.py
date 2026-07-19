@@ -101,6 +101,17 @@ Rules:
   - If goal_met=true, new_stories/unblock_stories/drop_stories can be empty.
   - Be honest — if the sprint made no progress, say so in reasoning.
   - Draft AT MOST 8 new stories. Sprints are timeboxed; don't over-plan.
+  - **DO NOT draft META-STORIES about the process.** Forbidden titles:
+    "Move X to ready", "Reopen Y", "Unblock Z", "Investigate why...",
+    "Debug the...", "Improve decomposition", etc. These are NOT work —
+    they're process instructions. To move a blocked story back to work,
+    use the `unblock_stories` field. To retire a story, use `drop_stories`.
+    Every story in `new_stories` must be code-shipping work that ends with
+    a git commit changing files.
+  - **DO NOT duplicate blocked stories.** If a story is blocked because the
+    previous attempt failed AC, the ORIGINAL story (with AC feedback
+    injected into its body) will retry automatically. Drafting a "similar"
+    new story just competes with the retry and confuses agents.
   - **files_to_touch is REQUIRED for every new story.** Without exact file
     paths, orgos cannot enforce the component ownership boundary and every
     story serializes on the same lock, causing merge conflicts. Look at the
