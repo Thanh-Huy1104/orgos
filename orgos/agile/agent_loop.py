@@ -166,6 +166,14 @@ class AsyncAgent:
                    and ("board" in text or "story" in text or "check" in text):
                     await self._pull_and_work_once()
                     continue
+                # §H12 — Role-first routing for coord agents. Each coord
+                # role has ONE primary ceremony; check that first so
+                # incidental word matches (e.g. customer's "check the
+                # diff against the spec" hitting the "spec"→replan rule)
+                # don't misroute to the wrong ceremony.
+                if self.role == "customer":
+                    await self._run_customer_review()
+                    continue
                 # Ceremony routing. Order matters because persona text may
                 # mention several action nouns; the most-specific-first order:
                 #   1. 'retrospective' → retro (SM's primary verb)
