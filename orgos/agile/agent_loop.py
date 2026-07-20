@@ -201,6 +201,12 @@ class AsyncAgent:
                 if _matches_any(text, "elevate", "elevation", "reclaim", "stuck"):
                     await self._run_elevation()
                     continue
+                # §D2 — customer review ceremony (independent of AC gate)
+                if _matches_any(text, "customer", "review") and _matches_any(
+                    text, "increment", "shipped", "spec", "reject"
+                ):
+                    await self._run_customer_review()
+                    continue
                 if _matches_any(text, "poker", "refinement"):
                     await self._run_poker()
                     continue
@@ -257,6 +263,33 @@ class AsyncAgent:
                 goal=m.goal, history=read_history(self.workspace.root),
             ),
             timeout=_TIMEOUT_LLM, name="replan", emitter=self.emitter,
+        )
+
+    async def _run_customer_review(self) -> None:
+        """§D2 — Customer agent reviews the shipped increment against the spec.
+
+        Runs once per Customer heartbeat cadence (typically every 15 min).
+        Only fires when this agent's role is 'customer' — the routing check
+        prevents other roles from triggering it accidentally.
+        """
+        if self.role != "customer":
+            return
+        try:
+            from orgos.agile.customer_review import run_customer_review
+            m = self.workspace.manifest()
+            model = m.model
+        except Exception as e:
+            self.emitter.emit(
+                "customer_review_failed", role=self.role, summary=str(e)[:200],
+            )
+            return
+        await _bounded(
+            lambda: run_customer_review(
+                workspace=self.workspace, board=self.board,
+                model=model, emitter=self.emitter,
+            ),
+            timeout=_TIMEOUT_LLM, name="customer_review",
+            emitter=self.emitter,
         )
 
     async def _run_elevation(self) -> None:
@@ -364,10 +397,21 @@ class AsyncAgent:
         Runs sprint planning: picks up to `velocity_target` ready stories that
         are not yet in a sprint and assigns them the new sprint's number.
         Emits sprint_closed + sprint_opened events with metrics.
+
+        §D1 — After closing the sprint, run the team adaptation pass to
+        tune velocity_target / max_ac_retries / sprint_duration_seconds
+        from the recent sprint history. Then open the next sprint using
+        the NEW velocity_target. This is the "team-level inspect + adapt"
+        loop that turns Scrum-mechanics into closer-to-real Scrum.
         """
         try:
             from orgos.agile.sprints import (
                 close_sprint, open_sprint, current_sprint_number,
+            )
+            from orgos.agile.sprint_history import read_history
+            from orgos.agile.live_events import read_events
+            from orgos.agile.team_adaptation import (
+                load_or_init, run_adaptation_pass,
             )
 
             def _boundary() -> tuple:
@@ -377,11 +421,36 @@ class AsyncAgent:
                     closed = close_sprint(
                         self.workspace, self.board, reason="scheduled",
                     )
-                # Scale velocity_target with team size — a 6-story ceiling
-                # starves parallelism at N>1 delivery agents. Falls back to
-                # 6 for the historical single-agent-per-role layout.
-                vt = getattr(self.workspace, "velocity_target", None)
-                velocity_target = vt if isinstance(vt, int) and vt > 0 else 6
+                # §D1 — RUN ADAPTATION AFTER CLOSE, BEFORE OPEN.
+                # This is what makes the loop actually "inspect and adapt."
+                # If the closed sprint was a signal (over/under-delivered,
+                # AC retries mostly succeeded/failed, etc.), the pass
+                # updates workspace.adaptive_params and the next sprint
+                # opens with the tuned values.
+                adapted_params = None
+                try:
+                    history = read_history(self.workspace.root)
+                    events = read_events(self.workspace.root)
+                    adapted_params, proposals = run_adaptation_pass(
+                        self.workspace, history, events, emitter=self.emitter,
+                    )
+                    if proposals:
+                        self.emitter.emit(
+                            "team_adaptation_pass",
+                            n_proposals=len(proposals),
+                            summary=f"{len(proposals)} runtime params tuned from sprint history",
+                        )
+                except Exception as e:
+                    self.emitter.emit(
+                        "team_adaptation_failed",
+                        role=self.role, summary=str(e)[:200],
+                    )
+                # velocity_target now comes from the ADAPTED params.
+                # Legacy fallback: workspace.velocity_target (int set by cli)
+                # if adaptation params haven't been initialized yet.
+                if adapted_params is None:
+                    adapted_params = load_or_init(self.workspace)
+                velocity_target = adapted_params.velocity_target
                 new_sprint = open_sprint(
                     self.workspace, self.board,
                     velocity_target=velocity_target,
@@ -481,9 +550,16 @@ class AsyncAgent:
         model = m.model if m else "deepseek/deepseek-chat"
 
         # §H1 — AC-retry cap. After this many AC rejects on the SAME story,
-        # give up and block. Overridable via env var for experiments.
+        # give up and block. Sources (priority order, first wins):
+        #   1. workspace.adaptive_params.max_ac_retries (§D1 tuned value)
+        #   2. ORGOS_MAX_AC_RETRIES env var (explicit override)
+        #   3. Default 3
         try:
-            MAX_AC_RETRIES = max(1, int(os.environ.get("ORGOS_MAX_AC_RETRIES", "3")))
+            adapt = getattr(self.workspace, "adaptive_params", None)
+            if adapt is not None and adapt.max_ac_retries:
+                MAX_AC_RETRIES = adapt.max_ac_retries
+            else:
+                MAX_AC_RETRIES = max(1, int(os.environ.get("ORGOS_MAX_AC_RETRIES", "3")))
         except (TypeError, ValueError):
             MAX_AC_RETRIES = 3
 

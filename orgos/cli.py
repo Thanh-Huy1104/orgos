@@ -340,17 +340,37 @@ def _cmd_start(args: argparse.Namespace) -> int:
         + [("test",     i) for i in range(n_test)]
         + [("devsecops",i) for i in range(n_sec)]
     )
+    # §D2 — Customer agent (optional; enabled via --customer). Coord role
+    # that judges shipped work against spec intent, independent of the AC
+    # gate. When enabled, adds one more agent to the team.
     coord_instances = [("po", 0), ("scrum_master", 0)]
+    if getattr(args, "customer", False):
+        coord_instances.append(("customer", 0))
     all_instances = coord_instances + delivery_instances
     for r, i in all_instances:
         ws.ensure_agent_workspace(r, i)
 
-    # Scale sprint velocity target with team size. A 6-story sprint ceiling
-    # starves N>1 delivery agents (measured in Run 5c: 60% throughput loss
-    # at N=3 with default 6). max(6, n_delivery_agents * 2) keeps the
-    # per-story quality bar the same while lifting the ceiling.
-    ws.velocity_target = max(6, len(delivery_instances) * 2)
-    print(f"[cli] sprint velocity_target: {ws.velocity_target}", flush=True)
+    # §D1 — Adaptive parameters: load from disk (or init to defaults) and
+    # attach to the workspace. Any subsequent code that reads
+    # workspace.adaptive_params.<field> gets tuned values that the
+    # adaptation loop (SM sprint boundary) updates from real sprint data.
+    from orgos.agile.team_adaptation import load_or_init as _load_adaptive
+    adaptive = _load_adaptive(ws)
+    # Seed velocity_target from team-size heuristic if it's still at
+    # the default 6 (no prior sprints have tuned it).
+    heuristic_vt = max(6, len(delivery_instances) * 2)
+    if adaptive.velocity_target == 6 and heuristic_vt > 6:
+        adaptive.velocity_target = heuristic_vt
+        from orgos.agile.team_adaptation import _save_params
+        _save_params(ws.root, adaptive)
+    # Legacy attribute for code that still reads workspace.velocity_target
+    ws.velocity_target = adaptive.velocity_target
+    print(
+        f"[cli] adaptive params: velocity_target={adaptive.velocity_target} "
+        f"max_ac_retries={adaptive.max_ac_retries} "
+        f"sprint_duration={adaptive.sprint_duration_seconds}s "
+        f"(version={adaptive.version})", flush=True,
+    )
 
     board = BoardStore(ws.root / "board")
     emitter = EventEmitter(ws.root)
@@ -1481,6 +1501,13 @@ def main(argv: list[str] | None = None) -> int:
     start_p.add_argument(
         "--devsecops", type=int, default=1,
         help="Number of concurrent devsecops agents (default 1). Same as --architects.",
+    )
+    start_p.add_argument(
+        "--customer", action="store_true",
+        help="§D2 — Enable the Customer agent (external voice of the spec author). "
+             "Reviews the shipped increment every 15 min and rejects stories "
+             "that pass the AC gate but diverge from the spec's intent. "
+             "Adds 1 agent to the team.",
     )
     start_p.add_argument(
         "--max-usd", type=float, default=0.0,

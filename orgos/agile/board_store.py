@@ -121,7 +121,10 @@ TRANSITIONS: dict[str, tuple[str, ...]] = {
     # with the rejection reason injected into the body so the next puller
     # can fix specifically what was unmet. Only block after N=3 AC rejects.
     "pending_acceptance": ("done", "blocked", "review", "ready"),
-    "done":               (),
+    # §D2 — customer can reopen a done story if the shipped code doesn't
+    # match spec intent (independent of AC gate). PO's convention is
+    # "done is done" but the customer's second opinion beats that convention.
+    "done":               ("blocked",),
     "blocked":            ("draft", "refinement", "ready", "in_progress", "review", "pending_acceptance"),
 }
 

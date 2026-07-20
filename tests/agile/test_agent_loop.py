@@ -550,6 +550,9 @@ class TestPersonaHeartbeatRouting:
             if matches(text, "backlog", "spec"): return "replan"
             if matches(text, "elevate", "elevation", "reclaim", "stuck"):
                 return "elevation"
+            if matches(text, "customer", "review") and matches(
+                text, "increment", "shipped", "spec", "reject"):
+                return "customer_review"
             if matches(text, "poker", "refinement"): return "poker"
             if matches(text, "pr") and matches(text, "comment", "comments", "feedback", "review"):
                 return "pr_feedback"
