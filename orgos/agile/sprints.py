@@ -203,6 +203,36 @@ def close_sprint(
     sprint.spe = result["spe"]
 
     _write_sprint(workspace, sprint)
+
+    # §D1-fix — also append to sprints.jsonl so read_history() sees this
+    # sprint. Two storage mechanisms existed in parallel: per-sprint JSON
+    # files (used by the report/serve endpoints) AND an append-only JSONL
+    # log (used by multi-sprint runner + team_adaptation). Only the first
+    # was being written. Result: read_history returned [] always → §D1
+    # adaptation never had signal → 0 team_adapted events in v8.
+    try:
+        from orgos.agile.sprint_history import SprintRecord, append_record
+        blocked_count = sum(
+            1 for s in committed_stories
+            if getattr(s, "state", "") == "blocked"
+        )
+        record = SprintRecord(
+            sprint_num=sprint.number,
+            started_at=sprint.started_at,
+            ended_at=sprint.ended_at,
+            reason_stopped=sprint.reason_closed,
+            stories_done=len(done_ids),
+            stories_blocked=blocked_count,
+            stories_created=len(sprint.committed_backlog),
+            tokens_input=0,     # not tracked at sprint boundary
+            tokens_output=0,
+            spe=float(sprint.spe or 0.0),
+        )
+        append_record(workspace.root, record)
+    except Exception:
+        # Never let history logging kill the close_sprint path
+        pass
+
     return sprint
 
 

@@ -299,8 +299,14 @@ def signals_from_history(history: list[Any], events: list[dict]) -> list[SprintS
     """
     signals: list[SprintSignal] = []
     for r in history:
-        committed = len(getattr(r, "committed_backlog", []) or [])
-        done = len(getattr(r, "stories_done", []) or [])
+        # SprintRecord stores counts as ints; Sprint stores lists. Accept both.
+        committed_raw = getattr(r, "stories_created", None)
+        if committed_raw is None:
+            committed_raw = getattr(r, "committed_backlog", 0)
+        committed = committed_raw if isinstance(committed_raw, int) else len(committed_raw or [])
+
+        done_raw = getattr(r, "stories_done", 0)
+        done = done_raw if isinstance(done_raw, int) else len(done_raw or [])
         # Count AC retries within this sprint's time window
         start = getattr(r, "started_at", "") or ""
         end = getattr(r, "ended_at", "") or ""
