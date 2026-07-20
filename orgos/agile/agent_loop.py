@@ -442,12 +442,20 @@ class AsyncAgent:
                     adapted_params, proposals = run_adaptation_pass(
                         self.workspace, history, events, emitter=self.emitter,
                     )
-                    if proposals:
-                        self.emitter.emit(
-                            "team_adaptation_pass",
-                            n_proposals=len(proposals),
-                            summary=f"{len(proposals)} runtime params tuned from sprint history",
-                        )
+                    # §H13 — emit pass event UNCONDITIONALLY so we can see
+                    # in the log that adaptation ran (even when it correctly
+                    # decided not to change anything). Without this, absence
+                    # of a signal looked identical to a silent crash.
+                    self.emitter.emit(
+                        "team_adaptation_pass",
+                        n_proposals=len(proposals),
+                        n_sprints_analyzed=len(history),
+                        summary=(
+                            f"adaptation pass over {len(history)} sprints: "
+                            f"{len(proposals)} params tuned"
+                            + ("" if proposals else " (team stable, no signal)")
+                        ),
+                    )
                 except Exception as e:
                     self.emitter.emit(
                         "team_adaptation_failed",
