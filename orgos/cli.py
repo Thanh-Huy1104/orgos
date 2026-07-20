@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -513,6 +514,53 @@ def _cmd_start(args: argparse.Namespace) -> int:
         set_active_tracker(tracker)
         print(f"[cli] budget cap: ${max_usd:.2f}", flush=True)
 
+    # §H7 — threading.Timer watchdog. asyncio-based _auto_stop was
+    # unreliable under load (v4 ran 6h 35min past a 4h timeout despite the
+    # event loop clearly ticking; asyncio.sleep(14400) never returned). A
+    # regular OS thread scheduled with threading.Timer fires INDEPENDENTLY
+    # of the asyncio event loop and can call os._exit() to guarantee exit.
+    watchdog_timer = None
+    if args.timeout_seconds and args.timeout_seconds > 0:
+        import threading
+        timeout_seconds = int(args.timeout_seconds)
+        grace_seconds = 60  # graceful-stop grace period before hard exit
+
+        def _graceful_then_hard_exit():
+            print(
+                f"\n[cli] --timeout-seconds={timeout_seconds} reached; "
+                f"shutting down team (graceful, {grace_seconds}s grace)",
+                flush=True,
+            )
+            try:
+                supervisor.stop()
+            except Exception:
+                pass
+            # Sleep in the OS thread (not asyncio) so nothing can starve it
+            time.sleep(grace_seconds)
+            print(
+                f"[cli] graceful shutdown did not exit within {grace_seconds}s — "
+                "forcing os._exit(0)", flush=True,
+            )
+            # Best-effort: flush campaign result and clean up pid file
+            try:
+                from orgos.agile.campaign_summary import write_campaign_result
+                write_campaign_result(
+                    ws, board, executor=choice, reason_stopped="timeout_force",
+                )
+            except Exception:
+                pass
+            try:
+                pid_file.unlink()
+            except (OSError, NameError):
+                pass
+            os._exit(0)
+
+        watchdog_timer = threading.Timer(
+            timeout_seconds, _graceful_then_hard_exit,
+        )
+        watchdog_timer.daemon = True  # dies with the process
+        watchdog_timer.name = "orgos-timeout-watchdog"
+
     async def _run_all():
         # §B6 — pass model into merge worker so its LLM conflict resolver
         # (safe file classes only: __init__.py, markdown, test files) uses
@@ -523,49 +571,10 @@ def _cmd_start(args: argparse.Namespace) -> int:
         ))
         sup_task = asyncio.create_task(supervisor.run())
 
-        # Optional wall-clock timeout — useful for CI, comparison runs, and
-        # anything driven by an LLM that can't remember to SIGINT.
-        timeout_task = None
-        if args.timeout_seconds and args.timeout_seconds > 0:
-            async def _auto_stop():
-                await asyncio.sleep(args.timeout_seconds)
-                print(
-                    f"\n[cli] --timeout-seconds={args.timeout_seconds} reached; "
-                    f"shutting down team", flush=True,
-                )
-                supervisor.stop()
-                # §H4 — hard-exit watchdog. supervisor.stop() sets flags but
-                # if an agent is blocked inside a long-running run_in_executor
-                # call (a subprocess LLM call in the shared thread pool),
-                # the asyncio task can't cancel the underlying thread. Give
-                # graceful shutdown 60s, then force-exit. This is the fix
-                # for the v1 5h-runaway bug.
-                await asyncio.sleep(60)
-                print(
-                    "[cli] graceful shutdown did not exit within 60s — "
-                    "forcing os._exit(0)", flush=True,
-                )
-                # Try to flush the campaign result before hard exit.
-                try:
-                    from orgos.agile.campaign_summary import write_campaign_result
-                    write_campaign_result(
-                        ws, board, executor=choice, reason_stopped="timeout_force",
-                    )
-                except Exception:
-                    pass
-                try:
-                    pid_file.unlink()
-                except (OSError, NameError):
-                    pass
-                os._exit(0)
-            timeout_task = asyncio.create_task(_auto_stop())
-
         try:
             await sup_task
         finally:
             merge_task.cancel()
-            if timeout_task is not None:
-                timeout_task.cancel()
 
     def _handle_sigint(sig, frame):
         print("\n[cli] shutting down team", flush=True)
@@ -593,9 +602,23 @@ def _cmd_start(args: argparse.Namespace) -> int:
         f"[cli] 💡 open report: `orgos serve --team-id {args.team_id}` "
         f"→ http://127.0.0.1:8080/", flush=True,
     )
+    # §H7 — start the timeout watchdog just before entering the event loop.
+    # threading.Timer runs the callback on a background OS thread that is
+    # independent of the asyncio event loop, so it fires reliably even when
+    # the loop is under heavy load.
+    if watchdog_timer is not None:
+        watchdog_timer.start()
+        print(
+            f"[cli] timeout watchdog armed for {args.timeout_seconds}s "
+            "(§H7 threading.Timer)", flush=True,
+        )
+
     try:
         asyncio.run(_run_all())
     finally:
+        # Cancel the watchdog if we exited before the timeout fired
+        if watchdog_timer is not None:
+            watchdog_timer.cancel()
         try:
             pid_file.unlink()
         except FileNotFoundError:
