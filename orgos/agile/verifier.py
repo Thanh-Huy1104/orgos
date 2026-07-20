@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import re as _re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -41,6 +42,7 @@ class VerificationResult:
     reason_not_verified: str = ""           # populated when verified=False
     install_ok: bool = False
     stdout_tail: str = ""
+    collection_errors: list = field(default_factory=list)  # §H8 — files pytest couldn't parse
 
     @property
     def total_collected(self) -> int:
@@ -59,7 +61,10 @@ class VerificationResult:
         if self.errors: parts.append(f"{self.errors} errors")
         if self.skipped: parts.append(f"{self.skipped} skipped")
         pct = f"{self.pass_rate * 100:.0f}%"
-        return f"pytest: {', '.join(parts)} ({pct} of runnable)"
+        tail = ""
+        if self.collection_errors:
+            tail = f" [+ {len(self.collection_errors)} files unparseable — skipped]"
+        return f"pytest: {', '.join(parts)} ({pct} of runnable){tail}"
 
 
 # Regexes for pytest -q's tail line: "5 passed, 2 failed, 1 skipped in 3.42s"
@@ -214,24 +219,58 @@ def verify_integration(
             reason_not_verified=f"pip install failed: {install_tail[:300]}",
         )
 
-    try:
-        r = subprocess.run(
-            [venv_python, "-m", "pytest", "-q", *(pytest_args or [])],
-            cwd=str(integration_worktree),
-            capture_output=True, text=True, timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired:
-        return VerificationResult(
-            verified=False, install_ok=True,
-            reason_not_verified=f"pytest timeout after {timeout_seconds}s",
-        )
-    except (OSError, subprocess.SubprocessError) as e:
+    def _run_pytest(extra_args: list[str]) -> tuple[Optional[subprocess.CompletedProcess], Optional[str]]:
+        """Return (completed_process, error_string_or_None)."""
+        try:
+            proc = subprocess.run(
+                [venv_python, "-m", "pytest", "-q", *(pytest_args or []), *extra_args],
+                cwd=str(integration_worktree),
+                capture_output=True, text=True, timeout=timeout_seconds,
+            )
+            return proc, None
+        except subprocess.TimeoutExpired:
+            return None, f"pytest timeout after {timeout_seconds}s"
+        except (OSError, subprocess.SubprocessError) as e:
+            return None, f"pytest subprocess error: {e}"
+
+    r, err = _run_pytest([])
+    if err:
         return VerificationResult(
             verified=False, install_ok=install_ok,
-            reason_not_verified=f"pytest subprocess error: {e}",
+            reason_not_verified=err,
         )
 
-    counts = _parse_pytest_output(r.stdout + "\n" + r.stderr)
+    # §H8 — pytest aborts collection entirely when any test file has a syntax
+    # error. Real LLM-produced code often has one broken file among many.
+    # When we see "errors during collection", parse out the offending files
+    # and retry with --ignore for each. Report both the pass count AND the
+    # unparseable files so the user sees the reality: "121 passed but 2
+    # files couldn't even be parsed by python's ast."
+    combined = (r.stdout or "") + "\n" + (r.stderr or "")
+    collection_errors: list[str] = []
+    if "errors during collection" in combined or "error in " in combined:
+        # Extract file paths from lines like "ERROR tests/foo/test_bar.py"
+        for line in combined.splitlines():
+            m = _re.match(r"^ERROR\s+(\S+\.py)", line.strip())
+            if m:
+                collection_errors.append(m.group(1))
+        # Also try lines like "test_foo.py::test_x - error"
+        if not collection_errors:
+            for line in combined.splitlines():
+                m = _re.search(r"(\S+/test_\w+\.py):\d+:", line)
+                if m and m.group(1) not in collection_errors:
+                    collection_errors.append(m.group(1))
+        # Retry pytest ignoring the broken files, so the caller sees the
+        # actual pass count of the parseable ones.
+        if collection_errors:
+            ignore_args: list[str] = []
+            for f in collection_errors[:20]:  # cap so we don't build a huge cmd
+                ignore_args.extend(["--ignore", f])
+            r2, err2 = _run_pytest(ignore_args)
+            if r2 is not None:
+                r = r2  # use the retry result
+
+    counts = _parse_pytest_output((r.stdout or "") + "\n" + (r.stderr or ""))
     return VerificationResult(
         verified=True, install_ok=True,
         passed=counts["passed"], failed=counts["failed"],
@@ -239,4 +278,5 @@ def verify_integration(
         duration_seconds=counts["duration_seconds"],
         exit_code=r.returncode,
         stdout_tail=(r.stdout or "")[-800:],
+        collection_errors=collection_errors,
     )
