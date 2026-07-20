@@ -164,6 +164,8 @@ async def run_merge_worker(
     stop_when_empty: bool = False,
     resolve_llm: bool = True,
     model: str = "deepseek/deepseek-chat",
+    collection_gate: bool = True,
+    collection_gate_timeout: int = 30,
 ) -> None:
     """Drain the merge queue serially. Exits when stop_when_empty and queue is drained."""
     while True:
@@ -217,6 +219,26 @@ async def run_merge_worker(
                 "merge_completed", story_id=request.story_id,
                 branch=request.from_branch, summary=msg,
             )
+            # §H9 — post-merge integration collection check. If the merge
+            # broke `pytest --collect-only` (LLM-produced syntax errors are
+            # the top cause), send the story back to ready with a targeted
+            # fix prompt injected. This eliminates the "unparseable files"
+            # class of failures we measured in v3 and v5.
+            if collection_gate:
+                try:
+                    from orgos.agile.collection_gate import apply_collection_gate
+                    await asyncio.get_running_loop().run_in_executor(
+                        None,
+                        lambda: apply_collection_gate(
+                            workspace, board, request.story_id, emitter,
+                            timeout=collection_gate_timeout,
+                        ),
+                    )
+                except Exception as e:
+                    emitter.emit(
+                        "collection_gate_error", story_id=request.story_id,
+                        summary=f"collection gate error: {e}"[:200],
+                    )
         else:
             try:
                 board.transition(
