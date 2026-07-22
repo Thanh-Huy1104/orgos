@@ -3,6 +3,11 @@
 > **Read this first if you're picking up in a new chat.** Everything else is
 > derived from code or deeper docs. This doc captures state as of 2026-07-20
 > ~15:50 EDT, after ~24h of intensive iteration.
+>
+> **Update 2026-07-22:** `orgos/spawn/` has since been extracted into the
+> standalone `agentkit` library and orgos migrated to consume it
+> (`pip install -e ../agentkit`; imports are `agentkit.governance`). Suite
+> is now ~475 tests. References to `orgos.spawn` below are historical.
 
 ---
 

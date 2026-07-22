@@ -14,7 +14,7 @@ You are working inside a git worktree that mirrors the orgos repo. Use BashTool 
 **Key directories:**
 ```
 orgos/agile/        — sprint.py, rubric.py, board.py, flow_metric.py, compaction.py, conductor.py, quality_rubric.py, evaluator.py, envelopes.py, paired_run.py, mutations.py, replay.py
-orgos/spawn/        — contracts.py, persona_loader.py, persona_schema.py, engine.py
+(governance engine — contracts, persona loader, spawn() — is the external `agentkit` package, NOT in this repo; import via `agentkit.governance`, never modify it)
 orgos/mcps/         — wiki_mcp.py, internet_mcp.py (MCP servers)
 orgos/tools/        — bash.py, mock_pr_tool.py, github_issue_tool.py, github_pr_tool.py
 orgos/subagents/    — scrum_team.py, engineering_team_legacy.py

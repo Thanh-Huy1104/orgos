@@ -3,6 +3,11 @@
 > **Read this first if you're picking up this project in a new session, with a
 > new model, or with a different harness.** It's the "start here" pointer.
 > Everything else is either derived from the code or lives in the deeper docs.
+>
+> **Update 2026-07-22:** the `orgos/spawn/` governance substrate described
+> below was extracted into the standalone `agentkit` library; orgos now
+> imports it (`pip install -e ../agentkit`, imports `agentkit.governance`).
+> Mentions of `orgos.spawn` below are historical.
 
 ---
 
