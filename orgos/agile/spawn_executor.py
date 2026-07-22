@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from orgos.agile.coding_executor import ExecutionResult
-from orgos.spawn import TaskBrief, spawn
+from agentkit.governance import TaskBrief, spawn
 from orgos.subagents import architect_role, devsecops_role, test_role
 from orgos.tools.bash import BashTool
 

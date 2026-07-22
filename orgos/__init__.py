@@ -5,7 +5,7 @@ board_store, team_workspace, cli, poker, waterfall_runner, team_report)
 are accessed via their full paths.
 """
 
-from .spawn import (
+from agentkit.governance import (
     TIER_POLICY,
     BudgetExceeded,
     HandoffEnvelope,

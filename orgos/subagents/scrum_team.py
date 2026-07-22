@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from orgos.spawn import RoleSpec
+from agentkit.governance import RoleSpec
 
 _AGENTS_ROOT = Path(__file__).resolve().parent.parent.parent / "agents"
 

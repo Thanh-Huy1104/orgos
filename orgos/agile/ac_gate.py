@@ -210,7 +210,7 @@ def grade_acceptance_criteria(
     if spawner is None:
         # Late import so tests can patch without pulling all of spawn.
         try:
-            from orgos.spawn import TaskBrief, spawn as _spawn
+            from agentkit.governance import TaskBrief, spawn as _spawn
             from orgos.subagents import po_role
         except Exception:
             return AcceptanceVerdict(accept=True, degraded=True,

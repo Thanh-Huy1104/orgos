@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from orgos.spawn.contracts import PermissionTier, RoleSpec
-from orgos.spawn.persona_loader import (
+from agentkit.governance.contracts import PermissionTier, RoleSpec
+from agentkit.governance.persona_loader import (
     PersonaFile,
     assemble_system_prompt,
     load_agent,
     load_layer,
     load_persona_file,
 )
-from orgos.spawn.persona_schema import (
+from agentkit.governance.persona_schema import (
     FILE_TYPES,
     REQUIRED_SECTIONS,
     PersonaValidationError,

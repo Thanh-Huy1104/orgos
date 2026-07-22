@@ -233,7 +233,7 @@ def run_customer_review(
     result = None
     if spawner is None:
         try:
-            from orgos.spawn import TaskBrief, spawn as _spawn
+            from agentkit.governance import TaskBrief, spawn as _spawn
             from orgos.subagents.scrum_team import _load_agent
             role = _load_agent("customer", model)
             role.mcp_servers = []

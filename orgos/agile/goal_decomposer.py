@@ -22,7 +22,7 @@ from typing import Any
 from typing import Optional
 
 from orgos.agile.board_store import BoardStore, VALID_TYPES
-from orgos.spawn import TaskBrief, spawn
+from agentkit.governance import TaskBrief, spawn
 from orgos.subagents import po_role
 
 

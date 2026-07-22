@@ -124,7 +124,7 @@ def _resolve_file_with_llm(
 
     if spawner is None:
         try:
-            from orgos.spawn import TaskBrief, spawn as _spawn
+            from agentkit.governance import TaskBrief, spawn as _spawn
             from orgos.subagents import architect_role
         except Exception:
             return None

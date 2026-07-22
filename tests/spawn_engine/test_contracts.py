@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from orgos import RoleSpec, PermissionTier
-from orgos.spawn.contracts import budget_llm
+from agentkit.governance.contracts import budget_llm
 
 
 # ── Budget LLM ─────────────────────────────────────────────────────────────
@@ -36,47 +36,63 @@ class TestBudgetLLM:
         assert call_count[0] == 1
 
     def test_budget_raises_post_call(self):
-        """After a call pushes usage over the cap, BudgetExceeded is raised."""
+        """A call pushing THIS RUN's usage over the cap raises after it.
+
+        agentkit's budget is baseline-relative (snapshotted at wrap time):
+        pre-existing instance usage no longer counts against a new run —
+        the fix for the cross-run corruption found in review. Only tokens
+        accrued after wrapping trip the cap.
+        """
         mock_llm = MagicMock()
-        mock_llm._token_usage = {"total_tokens": 50}
+        mock_llm._token_usage = {"total_tokens": 50}  # prior-run usage: ignored
 
         def original_call(*args, **kwargs):
+            mock_llm._token_usage = {"total_tokens": 151}  # +101 this run
+            return "ok"
+
+        mock_llm.call = original_call
+
+        wrapped = budget_llm(mock_llm, "test-role", 100)
+        from agentkit.governance.audit import BudgetExceeded
+        with pytest.raises(BudgetExceeded, match="101 real tokens"):
+            wrapped.call("hello")
+
+    def test_budget_raises_pre_call(self):
+        """Once this run is over budget, further calls are blocked BEFORE
+        executing (the pre-call check), not after."""
+        mock_llm = MagicMock()
+        mock_llm._token_usage = {"total_tokens": 0}
+        call_count = [0]
+
+        def original_call(*args, **kwargs):
+            call_count[0] += 1
             mock_llm._token_usage = {"total_tokens": 150}
             return "ok"
 
         mock_llm.call = original_call
 
         wrapped = budget_llm(mock_llm, "test-role", 100)
-        from orgos.spawn.audit import BudgetExceeded
+        from agentkit.governance.audit import BudgetExceeded
+        with pytest.raises(BudgetExceeded):
+            wrapped.call("hello")       # executes, then trips post-call
         with pytest.raises(BudgetExceeded, match="150 real tokens"):
-            wrapped.call("hello")
+            wrapped.call("hello")       # blocked before executing
 
-    def test_budget_raises_pre_call(self):
-        """If already over budget, the call is blocked before executing."""
+        # The second call never reached the model
+        assert call_count[0] == 1
+
+    def test_budget_message_includes_role_name(self):
         mock_llm = MagicMock()
-        mock_llm._token_usage = {"total_tokens": 200}
-        call_count = [0]
+        mock_llm._token_usage = {"total_tokens": 0}
 
         def original_call(*args, **kwargs):
-            call_count[0] += 1
+            mock_llm._token_usage = {"total_tokens": 999}
             return "ok"
 
         mock_llm.call = original_call
 
-        wrapped = budget_llm(mock_llm, "test-role", 100)
-        from orgos.spawn.audit import BudgetExceeded
-        with pytest.raises(BudgetExceeded, match="200 real tokens"):
-            wrapped.call("hello")
-
-        # The underlying call should NEVER have been made
-        assert call_count[0] == 0
-
-    def test_budget_message_includes_role_name(self):
-        mock_llm = MagicMock()
-        mock_llm._token_usage = {"total_tokens": 999}
-
         wrapped = budget_llm(mock_llm, "finance-scanner", 100)
-        from orgos.spawn.audit import BudgetExceeded
+        from agentkit.governance.audit import BudgetExceeded
         with pytest.raises(BudgetExceeded, match="finance-scanner"):
             wrapped.call("hello")
 
@@ -255,16 +271,16 @@ class TestToAgentOverrides:
 
 class TestBriefUnderspecified:
     def test_empty_objective_rejected(self):
-        from orgos.spawn.contracts import TaskBrief
+        from agentkit.governance.contracts import TaskBrief
         assert TaskBrief(objective="   ").underspecified() == "objective is empty"
 
     def test_stub_objective_rejected(self):
-        from orgos.spawn.contracts import TaskBrief
+        from agentkit.governance.contracts import TaskBrief
         for stub in ("research", "do it", "help me", "find X"):
             assert TaskBrief(objective=stub).underspecified() is not None
 
     def test_concise_real_objective_accepted(self):
-        from orgos.spawn.contracts import TaskBrief
+        from agentkit.governance.contracts import TaskBrief
         # The README example — concise but actionable — must pass.
         assert TaskBrief(
             objective="Summarise X into a one-page brief"
