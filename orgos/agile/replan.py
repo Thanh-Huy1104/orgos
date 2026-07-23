@@ -47,6 +47,10 @@ PRODUCT SPEC (from wiki/SPEC.md — the source of truth for what must be built)
 SPRINT HISTORY (most recent first)
 {history_block}
 
+ALREADY SHIPPED — done or awaiting acceptance. NEVER draft a story that
+overlaps these; the work exists on the integration branch:
+{done_block}
+
 CURRENT BACKLOG SNAPSHOT
 {backlog_block}
 
@@ -64,9 +68,12 @@ YOUR JOB — decide the next sprint's plan.
    and provide a short "reasoning" — pointing at what was shipped and why it
    satisfies the goal. Nothing more is needed; the multi-sprint loop stops.
 
-2. If the goal is NOT met, look at the CURRENT BACKLOG. Anything blocked that
-   the retro's action item would unblock? Add it to `unblock_stories`. Anything
-   still relevant?
+2. If the goal is NOT met, deal with BLOCKED stories FIRST — they are usually
+   the gap between here and the goal. Each blocked line shows why it's blocked.
+   For every blocked story you must pick one: `unblock_stories` (retryable —
+   the original story re-enters work with its feedback intact) or
+   `drop_stories` (hopeless/superseded). Leaving a blocked story untouched
+   sprint after sprint is the failure mode to avoid.
 
 3. Look at the ORIGINAL GOAL vs what's been shipped. Are there gaps? Draft
    NEW stories in `new_stories` (same shape as an initial decomposition):
@@ -76,7 +83,8 @@ YOUR JOB — decide the next sprint's plan.
      - Only draft what the next sprint should actually pull.
      - If the retro flagged a story as too big, split it here.
      - Do NOT re-propose work that's already been done or is currently in the
-       backlog — check the SPRINT HISTORY and BACKLOG SNAPSHOT above.
+       backlog — check the ALREADY SHIPPED list and BACKLOG SNAPSHOT above.
+       A new story whose title/files overlap a shipped story is wasted spend.
 
 4. If any blocked stories are hopeless (wrong idea, superseded, or the retro
    suggests giving up), add them to `drop_stories` — they'll be walled off.
@@ -142,13 +150,33 @@ def _fmt_history(history: list[SprintRecord]) -> str:
 
 
 def _fmt_backlog(board: BoardStore) -> str:
-    """One line per non-terminal, non-done story."""
+    """One line per non-terminal, non-done story. Blocked lines carry the
+    persisted blocked_reason so the PO can decide unblock-vs-drop."""
     lines = []
     for state in ("blocked", "ready", "refinement", "draft", "in_progress", "review"):
         for s in board.list_state(state):
             title = s.title[:70]
             lines.append(f"  [{state:12s}] [{s.type:12s}] {s.issue_id[:36]:36s} p={s.priority:3d}  {title}")
+            reason = (getattr(s, "blocked_reason", "") or "").strip()
+            if state == "blocked":
+                lines.append(f"      blocked because: {reason[:160] if reason else '(no reason recorded)'}")
     return "\n".join(lines) if lines else "  (backlog empty)"
+
+
+def _fmt_done(board: BoardStore, max_items: int = 40) -> str:
+    """Titles of everything already shipped. The 2026-07-22 TS run's PO
+    re-drafted 5 duplicates of merged work because sprint history only
+    gave it done COUNTS — it had no way to see WHAT was done."""
+    done = board.list_state("done") + board.list_state("pending_acceptance")
+    if not done:
+        return "  (nothing done yet)"
+    lines = [
+        f"  [done] {s.issue_id[:44]:44s} {s.title[:70]}"
+        for s in done[:max_items]
+    ]
+    if len(done) > max_items:
+        lines.append(f"  … and {len(done) - max_items} more")
+    return "\n".join(lines)
 
 
 def _load_spec(workspace: TeamWorkspace, max_chars: int = 6000) -> str:
@@ -385,6 +413,7 @@ def run_replan(
         goal=(goal or "")[:600],
         spec_block=_load_spec(workspace),
         history_block=_fmt_history(history),
+        done_block=_fmt_done(board),
         backlog_block=_fmt_backlog(board),
         prior_retros_block=_prior_retros_block(workspace),
         retro_well=retro_well[:400],

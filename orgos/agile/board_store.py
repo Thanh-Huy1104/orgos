@@ -170,6 +170,10 @@ class Story:
                              # blocks; otherwise the PO produces them during
                              # decomposition. The acceptance ceremony checks
                              # each bullet against the merged code.
+    blocked_reason: str = "" # why the story is blocked — set from the
+                             # transition reason on entry to `blocked`, cleared
+                             # on exit. The 2026-07-22 TS run showed the PO
+                             # can't decide unblock-vs-drop when this is empty.
     created_at: str = ""
     updated_at: str = ""
 
@@ -489,6 +493,12 @@ class BoardStore:
             story.activated_at = _now_iso()
         elif new_state == "done" and not story.closed_at:
             story.closed_at = _now_iso()
+        # Persist WHY on the story itself, not just in the audit log — the
+        # replan PO reads the board, not the audit trail.
+        if new_state == "blocked":
+            story.blocked_reason = reason or story.blocked_reason
+        elif old == "blocked":
+            story.blocked_reason = ""
         self._write_story(story)
         self._audit(issue_id, actor, "transition",
                     from_state=old, to_state=new_state, reason=reason)
