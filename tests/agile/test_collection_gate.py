@@ -115,7 +115,7 @@ class TestApplyCollectionGate:
         assert story.state == "ready"
         assert story.commit_sha == ""  # cleared for re-attempt
         # Feedback injected into body
-        assert "PREVIOUS ATTEMPT BROKE INTEGRATION" in story.body
+        assert "PREVIOUS ATTEMPT BROKE THE INTEGRATION BRANCH" in story.body
         assert "test_bad.py" in story.body
 
         # Event emitted

@@ -9,7 +9,7 @@ This file defines reasoning and domain knowledge shared by all delivery workers.
 
 ## Codebase Map — Where everything lives
 
-You are working inside a git worktree that mirrors the orgos repo. Use BashTool to explore.
+You are working inside a git worktree of the TARGET repository. When the target is orgos itself, the map below applies; for any other repo, ignore the map — explore with BashTool and follow the brief's environment hints (language, install command, test command).
 
 **Key directories:**
 ```
@@ -31,7 +31,7 @@ tests/spawn/        — test_persona_loader.py
 1. Read the task brief. Identify which file(s) need to change.
 2. Write the change directly — the brief usually tells you the target file, so don't waste a turn exploring first.
 3. If a heredoc write, use `cat > path/to/file <<'EOF' ... EOF`.
-4. Run the relevant test suite: `pytest tests/agile/test_board.py -v`.
+4. Run the repo's test command from the brief's environment hints (e.g. `pytest tests/x/test_y.py -v`, `npm test`, `go test ./...`).
 5. If tests pass, commit: `git add -A && git -c user.name=orgos-worker -c user.email=worker@orgos.local commit -m "message"`.
 6. Get the commit SHA: `git rev-parse HEAD`.
 7. Produce a HandoffEnvelope JSON.

@@ -27,4 +27,4 @@ Verification and correctness. I confirm the story meets its acceptance criteria 
 
 ## Stance
 
-I use BashTool to run pytest in the worktree. I capture the full output, report test_passed (bool), tests_run (int), and any failures. I produce a HandoffEnvelope with the results.
+I use BashTool to run the repo's test suite in the worktree — pytest, `npm test`, `go test`, whatever the repo actually uses (the brief's environment hints say which). I capture the full output, report test_passed (bool), tests_run (int), and any failures. I produce a HandoffEnvelope with the results.

@@ -34,10 +34,17 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+from orgos.agile.environment import detect_environment
+
 
 # `pytest --collect-only` for a real repo can be slow (imports, plugins).
 # We bound it so the merge worker never blocks on a broken pyproject.
 DEFAULT_COLLECT_TIMEOUT = 30
+
+# Non-Python repos run their full test command (there is no generic
+# "collect-only" across toolchains), which may include a compile step —
+# e.g. `npm test` = tsc + node --test. Needs a wider bound.
+NON_PYTHON_TEST_TIMEOUT = 180
 
 
 def _find_venv_python(worktree: Path) -> Optional[str]:
@@ -49,16 +56,72 @@ def _find_venv_python(worktree: Path) -> Optional[str]:
     return sys.executable
 
 
+def gate_command(worktree: Path) -> str:
+    """Human-readable description of what the gate runs for this repo —
+    used in events and story feedback so agents see the real command."""
+    env = detect_environment(Path(worktree))
+    if env.language in ("python", "unknown"):
+        return "pytest --collect-only"
+    return env.test_cmd or "(no test command detected)"
+
+
+def _check_test_cmd(
+    worktree: Path, test_cmd: str, timeout: int,
+) -> tuple[bool, list[str], str]:
+    """Non-Python gate: run the repo's detected test command.
+
+    Fail-open cases (return OK) mirror the Python path's philosophy —
+    infrastructure problems must not block merges, only broken code should:
+      - no test command detected
+      - subprocess machinery fails (missing shell, timeout, OSError)
+      - exit 127 / "command not found" — toolchain not installed in this
+        worktree (e.g. integration worktree without node_modules)
+    """
+    if not test_cmd:
+        return True, [], ""
+    try:
+        r = subprocess.run(
+            test_cmd, shell=True, cwd=str(worktree),
+            capture_output=True, text=True,
+            timeout=max(timeout, NON_PYTHON_TEST_TIMEOUT),
+        )
+    except (subprocess.SubprocessError, OSError):
+        return True, [], ""
+
+    combined = (r.stdout or "") + "\n" + (r.stderr or "")
+    tail = combined[-800:]
+    if r.returncode == 0:
+        return True, [], tail
+    if r.returncode == 127 or "command not found" in combined:
+        return True, [], tail
+    return False, [], tail
+
+
 def check_collection(
     worktree: Path, timeout: int = DEFAULT_COLLECT_TIMEOUT,
 ) -> tuple[bool, list[str], str]:
-    """Run `pytest --collect-only -q` in the integration worktree.
+    """Post-merge health check on the integration worktree.
+
+    Language-aware (the 2026-07-22 TS acceptance run had 2 failing tests
+    merge silently because this gate was pytest-only):
+      - python / unknown → `pytest --collect-only -q` (import/syntax check,
+        historical behavior — a full-suite run per merge would be too slow)
+      - any other language detect_environment recognizes (node, go, rust,
+        ruby, java) → run the detected test command. Stronger than the
+        Python gate (catches failing tests, not just broken imports);
+        deliberate asymmetry — the test command is the only generic health
+        signal other toolchains expose.
 
     Returns (ok, broken_files, error_tail):
-      ok:            True if collection succeeded (or if there are no tests)
-      broken_files:  paths pytest reported as unable to import/parse
+      ok:            True if the check passed (or nothing to check)
+      broken_files:  paths pytest reported as unparseable (Python only;
+                     other toolchains report through error_tail)
       error_tail:    trailing ~800 chars of stderr+stdout for diagnostics
     """
+    env = detect_environment(Path(worktree))
+    if env.language not in ("python", "unknown"):
+        return _check_test_cmd(worktree, env.test_cmd, timeout)
+
     py = _find_venv_python(worktree)
     try:
         r = subprocess.run(
@@ -125,13 +188,19 @@ def apply_collection_gate(
 
     # Collection is broken. Emit the event so the human sees it.
     try:
+        cmd_desc = gate_command(worktree)
+    except Exception:
+        cmd_desc = "the integration test command"
+    try:
         emitter.emit(
             "integration_collection_broken",
             story_id=story_id,
             broken_files=broken,
             summary=(
-                f"integration pytest --collect-only failed after {story_id} "
-                f"merged: {len(broken)} unparseable file(s): {broken[:3]}"
+                f"integration check `{cmd_desc}` failed after {story_id} "
+                f"merged"
+                + (f": {len(broken)} unparseable file(s): {broken[:3]}"
+                   if broken else "")
             )[:300],
         )
     except Exception:
@@ -151,18 +220,17 @@ def apply_collection_gate(
         fresh = board.read(story_id)
         feedback = (
             "\n---\n"
-            "## PREVIOUS ATTEMPT BROKE INTEGRATION TEST COLLECTION\n\n"
-            "The commit merged but caused `pytest --collect-only` to fail on "
-            "the integration branch. This means a test file has a Python "
-            "syntax error (unclosed brackets, bad indentation, invalid syntax) "
-            "or an import that fails.\n\n"
-            f"Unparseable files: {broken}\n\n"
-            "### pytest error tail\n"
+            "## PREVIOUS ATTEMPT BROKE THE INTEGRATION BRANCH\n\n"
+            f"The commit merged but `{cmd_desc}` now fails on the "
+            "integration branch — broken syntax/imports, a compile error, "
+            "or failing tests introduced by the merge.\n\n"
+            + (f"Unparseable files: {broken}\n\n" if broken else "")
+            + "### error tail\n"
             "```\n"
             f"{error_tail[:600]}\n"
             "```\n\n"
-            "Fix the syntax/import errors in these files. Do NOT rewrite from "
-            "scratch — the existing content is mostly correct.\n"
+            "Fix the failure. Do NOT rewrite files from scratch — the "
+            "existing content is mostly correct.\n"
         )
         fresh.body = (fresh.body or "") + feedback
         fresh.commit_sha = ""

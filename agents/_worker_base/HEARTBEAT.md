@@ -28,8 +28,8 @@ You MUST output exactly this JSON structure as your final answer:
   "requires_human_approval": false,
   "payload": {
     "commit_sha": "abc123def...",
-    "files_touched": ["path/to/file.py"],
-    "test_output": "pytest output here",
+    "files_touched": ["path/to/changed_file"],
+    "test_output": "test runner output here",
     "test_passed": true,
     "diff": "git diff summary"
   }

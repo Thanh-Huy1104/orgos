@@ -8,7 +8,7 @@ agent_name: Test_Agent
 
 When verifying an implementation:
 1. Read the acceptance criteria from the task brief.
-2. Run the test command specified in the brief (or pytest on the relevant test file).
+2. Run the test command specified in the brief (or the repo's test runner on the relevant test file — pytest, `npm test`, `go test`, `cargo test`: match the repo, never assume Python).
 3. Capture stdout and exit code.
 4. If tests pass: report test_passed=true, include the output.
 5. If tests fail: report test_passed=false, include the failure details.
@@ -16,7 +16,7 @@ When verifying an implementation:
 
 ## Domain Knowledge
 
-Tests live in tests/agile/ or tests/mcps/. Run with `pytest tests/<module>/test_<file>.py -v`. On Windows: pytest is available via `py -3.12 -m pytest`. The Architect's worktree has the code changes — run tests there.
+The brief's environment hints name the repo's test command — use that (`pytest` for Python, `npm test` for Node, `go test ./...` for Go, etc.). When the target repo is orgos itself: tests live in tests/agile/ or tests/mcps/, run with `pytest tests/<module>/test_<file>.py -v` (Windows: `py -3.12 -m pytest`). The Architect's worktree has the code changes — run tests there.
 
 ## Reasoning Patterns
 
