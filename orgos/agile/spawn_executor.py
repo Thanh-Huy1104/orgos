@@ -26,6 +26,23 @@ from orgos.agile.coding_executor import ExecutionResult
 from agentkit.governance import TaskBrief, spawn
 from orgos.subagents import architect_role, devsecops_role, test_role
 from orgos.tools.bash import BashTool
+from orgos.tools.fs_tools import EditFileTool, ReadFileTool, WriteFileTool
+
+
+def _worktree_tools(worktree) -> list:
+    """The standard coding toolset, all locked to the story's worktree.
+
+    BashTool for commands (install, test, git); the fs tools because
+    heredoc-over-bash is error-prone for file edits — read_file caps
+    context, edit_file enforces unique-match replacement.
+    """
+    wd = str(worktree)
+    return [
+        BashTool(default_working_dir=wd),
+        ReadFileTool(default_working_dir=wd),
+        WriteFileTool(default_working_dir=wd),
+        EditFileTool(default_working_dir=wd),
+    ]
 
 
 _ARCH_BRIEF = """You are the Architect. Ship the story below in ONE commit.
@@ -237,7 +254,7 @@ class SpawnCodingExecutor:
 
         role = factory(
             model=self.model,
-            extra_tools=[BashTool(default_working_dir=str(worktree))],
+            extra_tools=_worktree_tools(worktree),
         )
         role.mcp_servers = []  # no wiki MCP inside the coding path
         # Bump reasoning cap for coding work. Default (20) was too tight in
@@ -434,7 +451,7 @@ class SpawnCodingExecutor:
         """Delegated subtask via a fresh architect spawn. No commit required."""
         role = architect_role(
             model=self.model,
-            extra_tools=[BashTool(default_working_dir=str(worktree))],
+            extra_tools=_worktree_tools(worktree),
         )
         role.mcp_servers = []
         brief = TaskBrief(
