@@ -36,6 +36,18 @@ _PER_MILLION: dict[str, dict[str, float]] = {
         "input_hit": 0.14,
         "output": 2.19,
     },
+    # V4 family (2026-07): DeepSeek retired the deepseek-chat/-reasoner
+    # aliases on 2026-07-24 (hard 400 after 15:59 UTC, no fallback).
+    "deepseek/deepseek-v4-flash": {
+        "input_miss": 0.14,
+        "input_hit": 0.0028,
+        "output": 0.28,
+    },
+    "deepseek/deepseek-v4-pro": {
+        "input_miss": 0.435,
+        "input_hit": 0.003625,
+        "output": 0.87,
+    },
     # Fallbacks so unknown models don't crash the harness.
     "unknown": {
         "input_miss": 0.50,
