@@ -272,12 +272,20 @@ def grade_acceptance_criteria(
             reason=str(v.get("reason", ""))[:200],
         ))
 
-    # Determine accept. If the model gave an explicit `accept`, honor it —
-    # but override to False if any bullet is UNMET (defense in depth).
-    accept = bool(parsed.get("accept", True))
+    # Determine accept DETERMINISTICALLY from the per-bullet evidence: the
+    # LLM is the witness, the code is the judge. Any UNMET → reject; zero
+    # UNMET → accept, overriding the model's blanket `accept` flag either
+    # way. Run 3 (2026-07-24, deepseek-v4-flash) showed why the inverse
+    # override matters: the grader returned "5 MET / 0 UNMET of 6" (one
+    # UNCERTAIN) with accept=false, bouncing an already-merged story back
+    # to ready — three such bounces blocked the scaffolding story and
+    # starved 12 dependent stories for the whole run. UNCERTAIN means
+    # "couldn't verify", and the template forbids rejecting on it.
     unmet = [v for v in per_bullet if v.verdict == "UNMET"]
-    if unmet:
-        accept = False
+    if per_bullet:
+        accept = not unmet
+    else:
+        accept = bool(parsed.get("accept", True))
     reason = ""
     if not accept:
         reason = str(parsed.get("reason_if_reject", "")).strip()

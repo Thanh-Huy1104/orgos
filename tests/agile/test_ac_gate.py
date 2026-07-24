@@ -134,6 +134,38 @@ class TestSpawnerContract:
         assert verdict.accept is True
         assert verdict.unmet_count == 0
 
+    def test_model_blanket_reject_overridden_when_zero_unmet(self, repo_with_commit):
+        """Run 3 regression (2026-07-24): grader returned 5 MET / 0 UNMET /
+        1 UNCERTAIN with accept=false — the story bounced back to ready
+        despite zero failed criteria. Verdict must be derived from the
+        bullets: no UNMET → accept, whatever the model's accept flag says."""
+        import json as _json
+
+        wt, sha = repo_with_commit
+        story = _Story(
+            "S4", "core types", "Ok/Err results", "architecture", sha,
+            ["a", "b", "c", "d", "e", "f"],
+        )
+
+        def fake_spawner(*, prompt, model):
+            verdicts = (
+                [{"ac": c, "verdict": "MET", "reason": "in diff"} for c in "abcde"]
+                + [{"ac": "f", "verdict": "UNCERTAIN", "reason": "needs runtime"}]
+            )
+            result = MagicMock()
+            result.tasks_output = [MagicMock(raw=_json.dumps(
+                {"verdicts": verdicts, "accept": False,
+                 "reason_if_reject": "vibes"}))]
+            return result
+
+        verdict = grade_acceptance_criteria(
+            story=story, integration_worktree=wt, model="mock",
+            spawner=fake_spawner,
+        )
+        assert verdict.accept is True
+        assert verdict.unmet_count == 0
+        assert verdict.met_count == 5
+
 
 class TestFailOpen:
     def test_spawner_exception_returns_degraded_accept(self, repo_with_commit):
