@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import Any
 
 from orgos.pm import PMStore
-from agentkit.governance import TaskBrief, spawn
-from agentkit.governance.engine import SpawnResult
+from orgos.spawn.governance import TaskBrief, spawn
+from orgos.spawn.governance.engine import SpawnResult
 from orgos.subagents import (
     architect_role, devsecops_role, engineer_role, po_role,
     product_manager_role, qa_validator_role, release_manager_role,

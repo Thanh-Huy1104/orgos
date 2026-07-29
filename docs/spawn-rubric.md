@@ -1,10 +1,9 @@
 # Spawn + Rubric: architecture & runtime
 
-> **Note (2026-07-22):** the spawn/governance layer described here was
-> extracted into the standalone [agentkit](https://github.com/Thanh-Huy1104/agentkit)
-> library (private) and orgos now imports it (`agentkit.governance`).
-> The architecture below still describes how it works; file paths that
-> read `orgos/spawn/...` now live in `agentkit/src/agentkit/governance/...`.
+> **Note:** the spawn/governance layer described here lives at
+> `orgos/spawn/` (imported as `orgos.spawn.governance`). The architecture
+> below describes how it works; file paths that read `orgos/spawn/...`
+> now live under `orgos/spawn/governance/...`.
 
 ## The approach
 

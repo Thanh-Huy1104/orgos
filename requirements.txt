@@ -22,6 +22,5 @@ ruamel.yaml>=0.18    # persona YAML frontmatter parsing
 # Put the key(s) in a .env file at the repo root (auto-loaded by the CLI):
 #   DEEPSEEK_API_KEY=sk-...
 
-# --- Governance substrate (private, local sibling checkout) ---
-# The spawn engine now lives in agentkit; install editable from the sibling:
-#   pip install -e ../agentkit
+# --- Governance substrate ---
+# The spawn engine is vendored in this repo at orgos/spawn — no extra install.

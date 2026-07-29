@@ -17,7 +17,7 @@ import hashlib
 
 from pydantic import BaseModel, Field
 
-from agentkit.governance.toolbase import GatedToolBase
+from orgos.spawn.governance.toolbase import GatedToolBase
 
 
 class _Args(BaseModel):

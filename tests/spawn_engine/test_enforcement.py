@@ -25,10 +25,10 @@ from orgos import (
     RoleSpec,
     TaskBrief,
 )
-from agentkit.governance.contracts import CATEGORY_PUBLISH, CATEGORY_READ, CATEGORY_SANDBOX
+from orgos.spawn.governance.contracts import CATEGORY_PUBLISH, CATEGORY_READ, CATEGORY_SANDBOX
 from orgos.tools import BashTool
-from agentkit.governance.toolbase import GatedToolBase
-from agentkit.governance.engine import (
+from orgos.spawn.governance.toolbase import GatedToolBase
+from orgos.spawn.governance.engine import (
     _TierViolation,
     _build_task,
     _UNSET,
@@ -432,7 +432,7 @@ class TestRunBudget:
     a chain that bleeds tokens role-by-role under each per-role cap."""
 
     def test_aggregate_aborts_even_when_no_single_role_exceeds(self):
-        from agentkit.governance.audit import RunBudget, BudgetExceeded
+        from orgos.spawn.governance.audit import RunBudget, BudgetExceeded
 
         rb = RunBudget(cap=100)
         rb.add(60, "roleA")  # under cap on its own
@@ -441,7 +441,7 @@ class TestRunBudget:
         assert rb.used == 120
 
     def test_under_cap_does_not_abort(self):
-        from agentkit.governance.audit import RunBudget
+        from orgos.spawn.governance.audit import RunBudget
 
         rb = RunBudget(cap=1000)
         rb.add(300, "a")
@@ -449,7 +449,7 @@ class TestRunBudget:
         assert rb.used == 700
 
     def test_negative_delta_clamped(self):
-        from agentkit.governance.audit import RunBudget
+        from orgos.spawn.governance.audit import RunBudget
 
         rb = RunBudget(cap=1000)
         rb.add(-50, "a")  # never decrements
@@ -467,7 +467,7 @@ class TestLoopDetection:
         return SimpleNamespace(tool=tool, tool_input=tool_input, thought="")
 
     def test_repeated_action_raises_loop_detected(self):
-        from agentkit.governance.audit import make_audit_callback, LoopDetected
+        from orgos.spawn.governance.audit import make_audit_callback, LoopDetected
 
         cb = make_audit_callback("looper", "test-loop", max_repeats=3)
         step = self._step("web_fetch", "http://x")
@@ -476,14 +476,14 @@ class TestLoopDetection:
                 cb(step)
 
     def test_distinct_actions_do_not_trip(self):
-        from agentkit.governance.audit import make_audit_callback
+        from orgos.spawn.governance.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-distinct", max_repeats=3)
         for i in range(10):
             cb(self._step("web_fetch", f"http://x/{i}"))  # all distinct → no raise
 
     def test_under_threshold_ok(self):
-        from agentkit.governance.audit import make_audit_callback
+        from orgos.spawn.governance.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-under", max_repeats=4)
         step = self._step("web_search", "same query")
@@ -502,7 +502,7 @@ class TestToolCallBudget:
         return SimpleNamespace(tool=tool, tool_input=tool_input, thought="")
 
     def test_varied_calls_aborts_past_budget(self):
-        from agentkit.governance.audit import make_audit_callback, ToolBudgetExceeded
+        from orgos.spawn.governance.audit import make_audit_callback, ToolBudgetExceeded
 
         cb = make_audit_callback("fanout", "test-toolbudget", max_actions=5)
         with pytest.raises(ToolBudgetExceeded):
@@ -510,14 +510,14 @@ class TestToolCallBudget:
                 cb(self._step("web_fetch", f"http://x/{i}"))
 
     def test_within_budget_ok(self):
-        from agentkit.governance.audit import make_audit_callback
+        from orgos.spawn.governance.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-toolbudget-ok", max_actions=5)
         for i in range(5):  # exactly the budget, not over
             cb(self._step("web_fetch", f"http://x/{i}"))
 
     def test_no_budget_means_unbounded(self):
-        from agentkit.governance.audit import make_audit_callback
+        from orgos.spawn.governance.audit import make_audit_callback
 
         cb = make_audit_callback("worker", "test-nobudget", max_actions=None)
         for i in range(50):
@@ -564,14 +564,14 @@ class TestCitationVerification:
         return fetch
 
     def test_extract_urls_dedup_and_trailing_punct(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import extract_urls
 
         text = "see https://a.com/x. and https://a.com/x again, plus https://b.org/y)."
         assert extract_urls(text) == ["https://a.com/x", "https://b.org/y"]
 
     def test_404_is_unreachable(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import verify_citation
 
         c = verify_citation("https://x.com/dead", "claim",
@@ -579,7 +579,7 @@ class TestCitationVerification:
         assert c.status == "unreachable"
 
     def test_200_with_terms_is_supported(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import verify_citation
 
         body = "Llama 3.1 8B is a small open model with strong reasoning."
@@ -588,7 +588,7 @@ class TestCitationVerification:
         assert c.status == "supported"
 
     def test_200_without_terms_is_weak(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import verify_citation
 
         c = verify_citation("https://hf.co/x", "quantum chromodynamics lattice gauge",
@@ -596,7 +596,7 @@ class TestCitationVerification:
         assert c.status == "weak"
 
     def test_timeout_is_uncertain_not_fail(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import verify_citation
 
         c = verify_citation("https://slow.com", "claim",
@@ -604,7 +604,7 @@ class TestCitationVerification:
         assert c.status == "uncertain"
 
     def test_5xx_is_uncertain(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import verify_citation
 
         c = verify_citation("https://x.com", "claim",
@@ -612,7 +612,7 @@ class TestCitationVerification:
         assert c.status == "uncertain"
 
     def test_report_fails_only_on_unreachable(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import verify_text
 
         text = "good https://ok.com/a\nbad https://ok.com/dead\nweak https://ok.com/w"
@@ -625,7 +625,7 @@ class TestCitationVerification:
         assert rep.passed is False  # one unreachable
 
     def test_report_passes_when_no_unreachable(self):
-        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.citations", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.citations import verify_text
 
         text = "good https://ok.com/a and weak https://ok.com/w"
@@ -642,7 +642,7 @@ class TestCitationGate:
     def test_dead_url_downgrades_to_needs_revision(self, monkeypatch):
         from types import SimpleNamespace
         from orgos import HandoffEnvelope
-        pytest.importorskip("orgos.departments", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.departments", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos import departments, citations
 
         monkeypatch.setattr(citations, "_http_fetch",
@@ -659,7 +659,7 @@ class TestCitationGate:
     def test_live_url_keeps_completed(self, monkeypatch):
         from types import SimpleNamespace
         from orgos import HandoffEnvelope
-        pytest.importorskip("orgos.departments", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.departments", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos import departments, citations
 
         monkeypatch.setattr(citations, "_http_fetch",
@@ -688,7 +688,7 @@ class TestSearchBackends:
             return False
 
     def test_parse_tavily(self):
-        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.mcps import internet_mcp
 
         data = {"results": [{"title": "T", "url": "https://t", "content": "body"}]}
@@ -696,14 +696,14 @@ class TestSearchBackends:
         assert out == [{"title": "T", "url": "https://t", "snippet": "body"}]
 
     def test_parse_brave(self):
-        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.mcps import internet_mcp
 
         data = {"web": {"results": [{"title": "B", "url": "https://b", "description": "d"}]}}
         assert internet_mcp._parse_brave(data)[0]["url"] == "https://b"
 
     def test_parse_serper(self):
-        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.mcps import internet_mcp
 
         data = {"organic": [{"title": "S", "link": "https://s", "snippet": "snip"}]}
@@ -712,7 +712,7 @@ class TestSearchBackends:
 
     def test_keyed_provider_wins(self, monkeypatch):
         import asyncio
-        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.mcps import internet_mcp
 
         async def fake(client, q, limit, key):
@@ -726,7 +726,7 @@ class TestSearchBackends:
 
     def test_no_key_skips_to_ddg(self, monkeypatch):
         import asyncio
-        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.mcps import internet_mcp
 
         async def boom(client, q, limit, key):
@@ -741,7 +741,7 @@ class TestSearchBackends:
 
     def test_empty_provider_falls_through(self, monkeypatch):
         import asyncio
-        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.mcps import internet_mcp
 
         async def empty(client, q, limit, key):
@@ -757,7 +757,7 @@ class TestSearchBackends:
 
     def test_all_fail_returns_none(self, monkeypatch):
         import asyncio
-        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.mcps.internet_mcp", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.mcps import internet_mcp
 
         async def err(client, q, limit, key):
@@ -782,62 +782,62 @@ class TestFailureClassification:
         return HandoffEnvelope(role="r", status=status, summary=summary, notes=notes)
 
     def test_completed_is_not_a_failure(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         assert classify_failure(self._env("completed", "all good")) is None
 
     def test_loop_is_step_repetition(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("failed", "Loop detected: role 'r' issued..."))
         assert fm.code == "FM-1.3" and fm.label == "step_repetition"
 
     def test_run_budget_is_unaware_of_termination(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("failed", "Run budget exceeded: 260000 tokens"))
         assert fm.code == "FM-1.5"
 
     def test_tool_budget_is_unaware_of_termination(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("failed", "Tool-call budget exceeded: 9 calls"))
         assert fm.code == "FM-1.5"
 
     def test_citation_gate_is_incorrect_verification(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("needs_revision", "x", notes="[gate: dead/fabricated citation — see report]"))
         assert fm.code == "FM-3.3"
 
     def test_criteria_unmet_is_premature_termination(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("needs_revision", "x", notes="[gate: success_criteria_met was False]"))
         assert fm.code == "FM-3.1"
 
     def test_malformed_handoff_is_disobey_spec(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("needs_revision", "output was not valid JSON: ##hi"))
         assert fm.code == "FM-1.1"
 
     def test_kickoff_error_is_execution_error(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("failed", "kickoff failed: ConnectionError"))
         assert fm.code == "EXEC"
 
     def test_unmatched_failure_is_unknown(self):
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import classify_failure
 
         fm = classify_failure(self._env("blocked", "waiting on something opaque"))
@@ -850,7 +850,7 @@ class TestMetrics:
     def test_compute_counts_tool_calls(self, tmp_path):
         import json
         from orgos import HandoffEnvelope
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import compute_metrics
 
         log = tmp_path / "chain-abc.jsonl"
@@ -868,7 +868,7 @@ class TestMetrics:
 
     def test_summarize_aggregates(self, tmp_path):
         from orgos import HandoffEnvelope
-        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the agentkit migration")
+        pytest.importorskip("orgos.observability", reason="feature removed from orgos; dormant test predates the orgos.spawn migration")
         from orgos.observability import compute_metrics, record_metrics, summarize_metrics
 
         path = tmp_path / "metrics.jsonl"

@@ -22,7 +22,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from agentkit.governance.toolbase import GatedToolBase
+from orgos.spawn.governance.toolbase import GatedToolBase
 
 
 # ── path helpers ────────────────────────────────────────────────────────

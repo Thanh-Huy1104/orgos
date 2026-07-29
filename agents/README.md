@@ -1,6 +1,6 @@
 # agents/ — persona protocol files
 
-This directory holds the markdown protocol files that define each agent on the autonomous scrum team. The loader (`agentkit.governance.persona_loader`, from the external agentkit library) reads them and produces a validated `RoleSpec`.
+This directory holds the markdown protocol files that define each agent on the autonomous scrum team. The loader (`orgos.spawn.governance.persona_loader`) reads them and produces a validated `RoleSpec`.
 
 ## Structure
 
@@ -36,7 +36,7 @@ Underscore-prefixed directories (`_principles`, `_worker_base`) are inherited la
 
 ```python
 from pathlib import Path
-from agentkit.governance import RoleSpec
+from orgos.spawn.governance import RoleSpec
 
 architect = RoleSpec.from_agent_dir(Path("agents"), "architect")
 ```

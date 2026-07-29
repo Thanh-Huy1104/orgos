@@ -2,9 +2,9 @@
 the fail-closed + feedback-injection behaviour. No LLM required: spawn is
 mocked, graders are deterministic."""
 
-from agentkit.governance import HandoffEnvelope, SpawnResult
-from agentkit.governance import rubric as rb
-from agentkit.governance.rubric import (
+from orgos.spawn.governance import HandoffEnvelope, SpawnResult
+from orgos.spawn.governance import rubric as rb
+from orgos.spawn.governance.rubric import (
     GradeResult,
     Rubric,
     chain_until,
@@ -152,5 +152,5 @@ class TestOptimizeLoop:
 
 
 def _brief():
-    from agentkit.governance import TaskBrief
+    from orgos.spawn.governance import TaskBrief
     return TaskBrief(objective="A concrete, actionable objective for testing.")

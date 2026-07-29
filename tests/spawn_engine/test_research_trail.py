@@ -12,7 +12,7 @@ import pytest
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
-from agentkit.governance.audit import AUDIT_DIR, read_trail, trace_tool
+from orgos.spawn.governance.audit import AUDIT_DIR, read_trail, trace_tool
 
 
 class _Args(BaseModel):

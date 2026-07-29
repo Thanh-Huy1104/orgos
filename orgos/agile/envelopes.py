@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from agentkit.governance.contracts import HandoffEnvelope
+from orgos.spawn.governance.contracts import HandoffEnvelope
 
 
 class _PayloadMixin:

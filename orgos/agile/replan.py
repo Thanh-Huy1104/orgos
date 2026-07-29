@@ -32,7 +32,7 @@ from orgos.agile.live_events import EventEmitter
 from orgos.agile.sprint import _extract_json_objects
 from orgos.agile.sprint_history import SprintRecord
 from orgos.agile.team_workspace import TeamWorkspace
-from agentkit.governance import TaskBrief, spawn
+from orgos.spawn.governance import TaskBrief, spawn
 from orgos.subagents import po_role
 
 

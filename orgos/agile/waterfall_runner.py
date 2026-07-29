@@ -28,7 +28,7 @@ from orgos.agile.goal_decomposer import decompose_goal
 from orgos.agile.live_events import EventEmitter
 from orgos.agile.sprint import _extract_json_objects, _get_wiki_mcp
 from orgos.agile.team_workspace import TeamWorkspace
-from agentkit.governance import TaskBrief, spawn
+from orgos.spawn.governance import TaskBrief, spawn
 from orgos.subagents import (
     architect_role, devsecops_role, po_role, release_manager_role, test_role,
 )

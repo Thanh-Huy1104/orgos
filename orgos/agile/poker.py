@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional
 
 from orgos.agile.board_store import BoardStore, Story
 from orgos.agile.sprint import _extract_json_objects
-from agentkit.governance import TaskBrief, spawn
+from orgos.spawn.governance import TaskBrief, spawn
 from orgos.subagents import architect_role, devsecops_role, test_role
 
 

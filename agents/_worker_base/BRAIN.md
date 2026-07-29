@@ -14,7 +14,7 @@ You are working inside a git worktree of the TARGET repository. When the target 
 **Key directories:**
 ```
 orgos/agile/        — sprint.py, rubric.py, board.py, flow_metric.py, compaction.py, conductor.py, quality_rubric.py, evaluator.py, envelopes.py, paired_run.py, mutations.py, replay.py
-(governance engine — contracts, persona loader, spawn() — is the external `agentkit` package, NOT in this repo; import via `agentkit.governance`, never modify it)
+(governance engine — contracts, persona loader, spawn() — lives at `orgos/spawn/`; import via `orgos.spawn.governance`, never modify it)
 orgos/mcps/         — wiki_mcp.py, internet_mcp.py (MCP servers)
 orgos/tools/        — bash.py, mock_pr_tool.py, github_issue_tool.py, github_pr_tool.py
 orgos/subagents/    — scrum_team.py, engineering_team_legacy.py
