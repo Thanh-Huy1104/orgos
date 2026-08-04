@@ -1,0 +1,173 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>orgos comparison</title>
+<style>
+* { box-sizing: border-box; }
+body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       color: #1a1a1a; background: #f7f7f5; margin: 0; padding: 24px; }
+h1, h2, h3 { color: #0b0b0b; margin-top: 32px; margin-bottom: 12px; }
+h1 { margin-top: 0; font-size: 22px; }
+h2 { font-size: 17px; border-bottom: 1px solid #d0d0d0; padding-bottom: 4px; }
+h3 { font-size: 14px; color: #444; }
+.wrap { max-width: 1160px; margin: 0 auto; }
+.meta { color: #666; font-size: 12.5px; margin-bottom: 20px; }
+.meta code { background: #ececec; padding: 1px 6px; border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; background: #fff;
+        border-radius: 4px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e5e5e5;
+         font-size: 13px; }
+th { background: #f0f0ee; color: #333; font-weight: 600; font-size: 12px;
+     text-transform: uppercase; letter-spacing: 0.03em; }
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: #fafaf8; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.winner { background: #e8f5e9 !important; font-weight: 600; }
+.loser  { color: #888; }
+.tag    { display: inline-block; padding: 1px 8px; border-radius: 10px;
+          font-size: 11px; font-weight: 600; }
+.tag.done      { background: #dcedc8; color: #33691e; }
+.tag.blocked   { background: #ffcdd2; color: #b71c1c; }
+.tag.ready     { background: #b3e5fc; color: #01579b; }
+.tag.refinement{ background: #fff9c4; color: #827717; }
+.tag.draft     { background: #eeeeee; color: #444; }
+.tag.in_progress{background: #ffe0b2; color: #e65100; }
+.tag.review    { background: #d1c4e9; color: #4527a0; }
+.mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+.sub { color: #666; font-size: 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 12px 0; }
+.card { background: #fff; padding: 14px 18px; border-radius: 4px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.card h3 { margin-top: 0; }
+.pass { color: #2e7d32; font-weight: 600; }
+.fail { color: #c62828; font-weight: 600; }
+</style></head>
+<body><div class="wrap">
+<h1>orgos: waterfall vs scrum</h1>
+<div class="meta">
+  repo <code>C:\temp\minisearch-target</code> &middot;
+  model <code>deepseek/deepseek-chat</code> &middot;
+  executor <code>spawn</code>
+  <br>goal: minisearch — text search engine with inverted index + BM25 (28-story spec)
+</div>
+
+<h2>Head-to-head</h2>
+<table>
+<thead><tr><th>metric</th><th class="num">waterfall</th><th class="num">scrum</th></tr></thead>
+<tbody>
+<tr><td>stories drafted</td><td class="num loser">10</td><td class="num winner">28</td></tr>
+<tr><td>stories done</td><td class="num loser">1</td><td class="num winner">24</td></tr>
+<tr><td>stories blocked</td><td class="num loser">9</td><td class="num winner">3</td></tr>
+<tr><td>tokens (in)</td><td class="num winner">2,129,038</td><td class="num loser">12,413,210</td></tr>
+<tr><td>tokens (out)</td><td class="num winner">55,779</td><td class="num loser">223,443</td></tr>
+<tr><td>est. cost (USD)</td><td class="num winner">0.6362</td><td class="num loser">3.5974</td></tr>
+<tr><td>mean SPE (per sprint)</td><td class="num sub">— (no sprints)</td><td class="num">0.121 (Needs Improvement)</td></tr><tr><td>closed sprints</td><td class="num sub">—</td><td class="num">7</td></tr><tr><td>total committed pts</td><td class="num sub">—</td><td class="num">192</td></tr>
+<tr><td>integration tests</td><td><span class="fail">✗ rc=5 — no tests ran in 0.03s</span></td><td><span class="fail">✗ rc=1 — 5 failed, 256 passed, 6 warnings, 19 errors in 7.41s</span></td></tr>
+</tbody>
+</table>
+<div class="sub">
+  Cost estimate uses input=$0.2700/1M output=$1.1000/1M
+  (DeepSeek Chat defaults). Green cell = winner on that metric.
+  For "blocked / tokens / cost", lower is better; for "drafted / done / SPE", higher.
+  Test outcomes are informational, not scored. SPE = per-sprint
+  process efficiency (ideal fair-share hours / actual hours), point-weighted;
+  &gt; 1.0 = finished faster than fair share, &lt; 1.0 = ran over, 0 = didn't
+  land.
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h3>Waterfall run</h3>
+    <div class="sub">
+      team_id: <code>wf1</code><br>
+      started: 2026-07-29T20:35:19.709417+00:00<br>
+      ended:   2026-07-29T20:51:47.835039+00:00<br>
+      reason:  backlog_empty
+    </div>
+  </div>
+  <div class="card">
+    <h3>Scrum run</h3>
+    <div class="sub">
+      team_id: <code>ms1</code><br>
+      started: 2026-07-29T18:54:35.017108+00:00<br>
+      ended:   2026-07-29T20:30:03.076385+00:00<br>
+      reason:  timeout
+    </div>
+  </div>
+</div>
+
+<h2>Stories — waterfall (10)</h2>
+<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-set-up-project-scaffolding-baseline-test</td><td>Set up project scaffolding + baseline test harness</td><td>architecture</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-01-add-tests-for-set-up-project-scaffolding</td><td>Add tests for Set up project scaffolding + baseline test harness</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-02-implement-tokenizer-text-to-tokens-with-</td><td>Implement tokenizer — text to tokens with case-fold + punctuation stri</td><td>architecture</td><td class="num">—</td><td><span class="tag done">done</span></td><td class="mono">0fbe125</td></tr>
+<tr><td class="mono">GS-03-add-tests-for-implement-tokenizer</td><td>Add tests for Implement tokenizer</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-04-implement-document-store-sqlite-crud</td><td>Implement document store — SQLite CRUD</td><td>architecture</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-05-add-tests-for-implement-document-store</td><td>Add tests for Implement document store</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-06-implement-inverted-index-sqlite-backed-p</td><td>Implement inverted index — SQLite-backed posting lists</td><td>architecture</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-07-add-tests-for-implement-inverted-index</td><td>Add tests for Implement inverted index</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-08-implement-query-parser-boolean-phrase-wi</td><td>Implement query parser — boolean + phrase + wildcard</td><td>architecture</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-09-add-tests-for-implement-query-parser</td><td>Add tests for Implement query parser</td><td>test</td><td class="num">—</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr></tbody></table>
+
+<h2>Stories — scrum (28)</h2>
+<table><thead><tr><th>id</th><th>title</th><th>type</th><th>pts</th><th>state</th><th>sha</th></tr></thead><tbody><tr><td class="mono">GS-00-set-up-project-scaffolding-baseline-test</td><td>Set up project scaffolding + baseline test harness</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">b952bed</td></tr>
+<tr><td class="mono">GS-01-tokenizer-text-to-tokens-with-case-fold-</td><td>Tokenizer — text to tokens with case-fold + punctuation strip</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">32049c9</td></tr>
+<tr><td class="mono">GS-02-add-tests-for-tokenizer</td><td>Add tests for tokenizer</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">06f821a</td></tr>
+<tr><td class="mono">GS-03-analyzer-stopword-filter-ngram-generator</td><td>Analyzer — stopword filter + ngram generator</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">75aa221</td></tr>
+<tr><td class="mono">GS-04-add-tests-for-analyzer</td><td>Add tests for analyzer</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">26fca93</td></tr>
+<tr><td class="mono">GS-05-document-store-sqlite-crud</td><td>Document store — SQLite CRUD</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">59d1519</td></tr>
+<tr><td class="mono">GS-06-add-tests-for-document-store</td><td>Add tests for document store</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">c1e97fb</td></tr>
+<tr><td class="mono">GS-07-inverted-index-sqlite-backed-posting-lis</td><td>Inverted index — SQLite-backed posting lists</td><td>architecture</td><td class="num">8</td><td><span class="tag done">done</span></td><td class="mono">87383e9</td></tr>
+<tr><td class="mono">GS-08-add-tests-for-inverted-index</td><td>Add tests for inverted index</td><td>test</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono">696f399</td></tr>
+<tr><td class="mono">GS-09-query-parser-boolean-phrase-wildcard</td><td>Query parser — boolean + phrase + wildcard</td><td>architecture</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">118461d</td></tr>
+<tr><td class="mono">GS-10-add-tests-for-query-parser</td><td>Add tests for query parser</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">125b135</td></tr>
+<tr><td class="mono">GS-11-bm25-scorer</td><td>BM25 scorer</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">6f049d2</td></tr>
+<tr><td class="mono">GS-12-add-tests-for-bm25-scorer</td><td>Add tests for BM25 scorer</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">f0d44eb</td></tr>
+<tr><td class="mono">GS-13-highlighter-snippet-with-query-term-mark</td><td>Highlighter — snippet with query-term markers</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">7021497</td></tr>
+<tr><td class="mono">GS-14-add-tests-for-highlighter</td><td>Add tests for highlighter</td><td>test</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">0ccc188</td></tr>
+<tr><td class="mono">GS-15-ranker-reranking-with-recency-popularity</td><td>Ranker — reranking with recency + popularity boosts</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">2a8880f</td></tr>
+<tr><td class="mono">GS-16-add-tests-for-ranker</td><td>Add tests for ranker</td><td>test</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono">ce16a73</td></tr>
+<tr><td class="mono">GS-17-searchengine-facade-tie-tokenizer-index-</td><td>SearchEngine facade — tie tokenizer + index + scorer + highlighter</td><td>architecture</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">0b97f91</td></tr>
+<tr><td class="mono">GS-18-add-tests-for-searchengine-facade</td><td>Add tests for SearchEngine facade</td><td>test</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">de3ee7d</td></tr>
+<tr><td class="mono">GS-19-fastapi-app-skeleton-health-cors</td><td>FastAPI app skeleton + /health + CORS</td><td>architecture</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">a799506</td></tr>
+<tr><td class="mono">GS-20-search-endpoint</td><td>/search endpoint</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">ce776d8</td></tr>
+<tr><td class="mono">GS-21-index-endpoint-add-document</td><td>/index endpoint (add document)</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">89f8bfd</td></tr>
+<tr><td class="mono">GS-22-stats-endpoint</td><td>/stats endpoint</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">5faaeeb</td></tr>
+<tr><td class="mono">GS-23-add-tests-for-the-api</td><td>Add tests for the API</td><td>test</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">6870054</td></tr>
+<tr><td class="mono">GS-24-cli-minisearch-index-dir</td><td>CLI — minisearch index &lt;dir&gt;</td><td>feature</td><td class="num">5</td><td><span class="tag done">done</span></td><td class="mono">06ba5cc</td></tr>
+<tr><td class="mono">GS-25-cli-minisearch-search</td><td>CLI — minisearch search &quot;...&quot;</td><td>feature</td><td class="num">3</td><td><span class="tag blocked">blocked</span></td><td class="mono"></td></tr>
+<tr><td class="mono">GS-26-cli-minisearch-stats</td><td>CLI — minisearch stats</td><td>feature</td><td class="num">3</td><td><span class="tag done">done</span></td><td class="mono">befb87d</td></tr>
+<tr><td class="mono">GS-27-end-to-end-integration-test-full-stack-s</td><td>End-to-end integration test — full stack smoke</td><td>test</td><td class="num">5</td><td><span class="tag ready">ready</span></td><td class="mono"></td></tr></tbody></table>
+
+<h2>Scrum sprint history</h2>
+<table><thead><tr><th>sprint</th><th>done/committed</th><th>pts done</th><th>final_commit (pts)</th><th>duration</th><th>SPE</th><th>band</th><th>status</th></tr></thead><tbody><tr><td class='num'>1</td><td>4/12</td><td class='num'>16</td><td class='num'>48</td><td class='num'>0.12h</td><td class='num'>0.118</td><td>Needs Improvement</td><td>scheduled</td></tr><tr><td class='num'>2</td><td>6/12</td><td class='num'>25</td><td class='num'>46</td><td class='num'>0.17h</td><td class='num'>0.186</td><td>Needs Improvement</td><td>scheduled</td></tr><tr><td class='num'>3</td><td>1/9</td><td class='num'>3</td><td class='num'>39</td><td class='num'>0.17h</td><td class='num'>0.030</td><td>Needs Improvement</td><td>scheduled</td></tr><tr><td class='num'>4</td><td>7/8</td><td class='num'>31</td><td class='num'>36</td><td class='num'>0.17h</td><td class='num'>0.440</td><td>Good</td><td>scheduled</td></tr><tr><td class='num'>5</td><td>0/2</td><td class='num'>0</td><td class='num'>8</td><td class='num'>0.42h</td><td class='num'>0.000</td><td>No Delivery</td><td>scheduled</td></tr><tr><td class='num'>6</td><td>1/2</td><td class='num'>5</td><td class='num'>10</td><td class='num'>0.17h</td><td class='num'>0.075</td><td>Needs Improvement</td><td>scheduled</td></tr><tr><td class='num'>7</td><td>0/3</td><td class='num'>0</td><td class='num'>5</td><td class='num'>0.17h</td><td class='num'>0.000</td><td>No Delivery</td><td>scheduled</td></tr><tr><td class='num'>8</td><td>0/1</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0.00h</td><td class='num'>0.000</td><td>(open)</td><td>open</td></tr></tbody></table>
+
+<h2>Scrum event histogram</h2>
+<table><thead><tr><th>event</th><th>count</th></tr></thead><tbody><tr><td class='mono'>agent_heartbeat</td><td class='num'>276</td></tr>
+<tr><td class='mono'>story_pulled</td><td class='num'>43</td></tr>
+<tr><td class='mono'>commit_landed</td><td class='num'>35</td></tr>
+<tr><td class='mono'>merge_queued</td><td class='num'>35</td></tr>
+<tr><td class='mono'>merge_completed</td><td class='num'>34</td></tr>
+<tr><td class='mono'>story_ac_check</td><td class='num'>31</td></tr>
+<tr><td class='mono'>story_refined</td><td class='num'>30</td></tr>
+<tr><td class='mono'>stories_accepted</td><td class='num'>23</td></tr>
+<tr><td class='mono'>scheduled_noop</td><td class='num'>20</td></tr>
+<tr><td class='mono'>agent_started</td><td class='num'>19</td></tr>
+<tr><td class='mono'>agent_stopped</td><td class='num'>15</td></tr>
+<tr><td class='mono'>team_adapted</td><td class='num'>11</td></tr>
+<tr><td class='mono'>team_adaptation_pass</td><td class='num'>8</td></tr>
+<tr><td class='mono'>sprint_opened</td><td class='num'>8</td></tr>
+<tr><td class='mono'>sprint_closed</td><td class='num'>7</td></tr>
+<tr><td class='mono'>story_ac_retry</td><td class='num'>6</td></tr>
+<tr><td class='mono'>story_no_commit</td><td class='num'>6</td></tr>
+<tr><td class='mono'>replan_started</td><td class='num'>3</td></tr>
+<tr><td class='mono'>replan_done</td><td class='num'>3</td></tr>
+<tr><td class='mono'>agent_crashed</td><td class='num'>3</td></tr>
+<tr><td class='mono'>agent_restarted</td><td class='num'>3</td></tr>
+<tr><td class='mono'>story_final_block</td><td class='num'>3</td></tr>
+<tr><td class='mono'>integration_collection_broken</td><td class='num'>3</td></tr>
+<tr><td class='mono'>story_reopened_collection</td><td class='num'>3</td></tr>
+<tr><td class='mono'>story_reclaimed</td><td class='num'>3</td></tr>
+<tr><td class='mono'>elevation_pass</td><td class='num'>3</td></tr>
+<tr><td class='mono'>poker_failed</td><td class='num'>1</td></tr>
+<tr><td class='mono'>merge_conflict</td><td class='num'>1</td></tr>
+<tr><td class='mono'>story_blocked_ac</td><td class='num'>1</td></tr></tbody></table>
+
+</div></body></html>

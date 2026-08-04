@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>orgos — Agent Scrum Team Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css" id="theme">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+<style>
+  :root {
+    --accent: #4ec9b0;
+    --accent-2: #dcdcaa;
+    --warn: #f48771;
+    --ok: #9cdcfe;
+    --muted: #8a8a8a;
+  }
+  .reveal { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .reveal h1, .reveal h2, .reveal h3 { text-transform: none; letter-spacing: -0.01em; font-weight: 600; }
+  .reveal h1 { color: var(--accent); font-size: 2em; margin-bottom: 0.2em; }
+  .reveal h2 { color: var(--accent); font-size: 1.15em; margin-bottom: 0.3em; }
+  .reveal h3 { color: var(--accent-2); font-size: 0.95em; }
+  .reveal section { text-align: left; }
+  .reveal section.center { text-align: center; }
+  .reveal p, .reveal li { font-size: 0.6em; line-height: 1.35; margin: 0.25em 0; }
+  .reveal .tiny { font-size: 0.48em; color: var(--muted); }
+  .reveal .lead { font-size: 0.75em; }
+  .reveal code { color: var(--accent-2); background: #1e1e1e; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  .reveal pre { font-size: 0.42em; box-shadow: none; }
+  .reveal pre code { padding: 14px; border-radius: 6px; }
+  .reveal table { font-size: 0.52em; border-collapse: collapse; margin: 0.3em 0; width: 100%; }
+  .reveal th { color: var(--accent); border-bottom: 2px solid var(--accent); padding: 4px 8px; text-align: left; font-weight: 600; }
+  .reveal td { padding: 3px 8px; border-bottom: 1px solid #333; vertical-align: top; }
+  .reveal td.num, .reveal th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .reveal .win { color: var(--accent); font-weight: 600; }
+  .reveal .lose { color: var(--warn); }
+  .reveal .kbd { border: 1px solid #666; border-radius: 3px; padding: 1px 5px; font-size: 0.75em; background: #222; }
+  .reveal .note { border-left: 3px solid var(--accent); padding: 0.35em 0.7em; background: rgba(78, 201, 176, 0.08); margin: 0.4em 0; font-size: 0.6em; }
+  .reveal .caveat { border-left: 3px solid var(--warn); padding: 0.35em 0.7em; background: rgba(244, 135, 113, 0.08); margin: 0.4em 0; font-size: 0.6em; }
+  .reveal blockquote { border-left: 4px solid var(--accent); padding-left: 0.8em; font-style: normal; box-shadow: none; background: transparent; font-size: 0.7em; margin: 0.4em 0; }
+  .reveal .footer { position: absolute; bottom: 12px; left: 30px; color: var(--muted); font-size: 0.5em; }
+  .reveal ul, .reveal ol { margin-left: 1em; }
+  .reveal .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 18px; font-size: 0.6em; }
+  .reveal .kv b { color: var(--accent-2); }
+  .reveal .hero-metric { display: inline-block; padding: 6px 14px; margin: 3px 6px; background: #1e1e1e; border-radius: 6px; border-left: 3px solid var(--accent); }
+  .reveal .hero-metric b { display: block; font-size: 1.5em; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .reveal .hero-metric span { font-size: 0.6em; color: var(--muted); }
+  .reveal .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .reveal .cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .reveal .card { background: #1e1e1e; padding: 10px 14px; border-radius: 6px; border-top: 3px solid var(--accent); font-size: 0.58em; line-height: 1.35; }
+  .reveal .card.warn { border-top-color: var(--warn); }
+  .reveal .card h4 { color: var(--accent-2); margin: 0 0 0.35em 0; font-size: 1em; }
+  .reveal .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 0.55em; background: var(--accent); color: #000; margin-left: 5px; font-weight: 600; }
+  .reveal .badge.warn { background: var(--warn); }
+  .reveal a { color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ============================================================= -->
+<section class="center">
+  <h1>orgos</h1>
+  <p class="lead">Agent Scrum Team Platform</p>
+  <p style="margin-top:2em;"><b>Two topologies · one runtime · measured head-to-head</b></p>
+  <p class="tiny" style="margin-top:3em;">Thanh-Huy Nguyen · internship progress update · July 2026</p>
+  <p class="tiny"><span class="kbd">→</span> to advance · <span class="kbd">Esc</span> for slide index</p>
+</section>
+
+<!-- ============================================================= -->
+<section>
+  <h2>The finding &mdash; spec drift is the real problem</h2>
+  <ol style="font-size:0.75em;">
+    <li><b>Solo strong agent</b> (Copilot CLI). One generalist reads the whole spec each cycle.</li>
+    <li><b>Multi-role waterfall.</b> PO &rarr; Architect &rarr; Test &rarr; DevSecOps. What every LLM drafts when asked for &ldquo;an agentic team.&rdquo;</li>
+    <li><b>Scrum (this repo).</b> Flat specialists, shared board, parallel worktrees, merge queue, replan loop.</li>
+  </ol>
+  <blockquote style="margin-top:0.6em;">
+    Measured against a <b>held-out reference test suite</b> (110 tests written from the spec, not by any agent):<br>
+    <span class="win">Solo Copilot ~75% pass</span> &middot; <span class="lose">Waterfall ~23% pass</span> &middot; <span class="lose">Scrum ~16% pass</span>
+  </blockquote>
+  <p>The intuitive multi-agent topologies both fail badly. Not because the agents can't code &mdash; but because <b>each agent only sees one story</b>. Interface names drift across packages. Solo Copilot maintains context and stays spec-conformant. <b>This is a coordination-vs-context problem, not scrum-vs-waterfall.</b></p>
+  <p class="tiny">n=2 pilot runs per arm on my laptop this week. The direction is stable across runs; formal n=3 study running now.</p>
+</section>
+
+<!-- ============================================================= -->
+<section>
+  <h2>What orgos is</h2>
+  <p>One runtime, one persona set, one target repo. <b>Topology is the variable.</b></p>
+  <div class="cols">
+    <div class="card">
+      <h4>Scrum <code>orgos start</code></h4>
+      A flat set of specialists — Architect, Test, DevSecOps, PO, Scrum Master — each in their own <b>git worktree</b>, pulling stories off a shared <b>board</b>, merging via a <b>FIFO queue with rebase-before-merge</b>.
+      <p style="margin-top:0.6em; color: var(--muted);">Parallel · self-organising · replans on retro</p>
+    </div>
+    <div class="card warn">
+      <h4>Waterfall <code>orgos run --waterfall</code></h4>
+      The intuitive PO → Architect → Test → DevSecOps pipeline, <b>one story at a time</b>. What an LLM writes when you ask for "an agentic team."
+      <p style="margin-top:0.6em; color: var(--muted);">Sequential · fixed order · single-shot</p>
+    </div>
+  </div>
+  <p class="tiny" style="margin-top:1em;">Both use the same executor (spawn + CrewAI + LiteLLM), same personas, same target repo. Only topology changes.</p>
+</section>
+
+<!-- ============================================================= -->
+<section>
+  <h2>How I measured</h2>
+  <table>
+    <tr><td><b>Spec</b></td><td><code>docs/specs/minisearch.md</code> &mdash; 28-story text search engine (tokenizer, BM25, inverted index, FastAPI, CLI)</td></tr>
+    <tr><td><b>Target repo</b></td><td>fresh empty git repo per arm, per run</td></tr>
+    <tr><td><b>Model (scrum + waterfall)</b></td><td><code>deepseek-chat</code>, self-hosted inference</td></tr>
+    <tr><td><b>Model (solo baseline)</b></td><td>GitHub Copilot CLI</td></tr>
+    <tr><td><b>Wall budget</b></td><td>45 min per arm per run</td></tr>
+    <tr><td><b>Scrum team</b></td><td>3 architects + 2 testers + 1 devsecops + PO + SM (6 concurrent workers)</td></tr>
+    <tr><td><b>Waterfall workers</b></td><td>1 sequential pipeline &mdash; one story through 3 roles at a time</td></tr>
+    <tr><td><b>Solo agent</b></td><td>1 Copilot CLI process, 28 sequential prompts, one story per prompt</td></tr>
+    <tr><td><b>Sample size</b></td><td>n=2 per arm so far; n=3 batch running (finishes today)</td></tr>
+    <tr class="win"><td><b>Evaluation</b></td><td><b>Held-out reference test suite</b> &mdash; 110 tests I wrote from the spec's contract, run against each arm's final code. <b>Not self-graded.</b></td></tr>
+  </table>
+  <p class="tiny">Reference suite lives at <code>docs/specs/minisearch_reftests/</code>. Written from the spec alone, tests only behavior the spec explicitly promises &mdash; not implementation details.</p>
+</section>
+
+<!-- ============================================================= -->
+<section>
+  <h2>Headline numbers &mdash; reference-suite pass rate (n=2)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>arm</th>
+        <th class="num">run 1</th>
+        <th class="num">run 2</th>
+        <th class="num">mean</th>
+        <th class="num">range</th>
+        <th>self-graded tests</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="win">
+        <td><b>Solo Copilot</b></td>
+        <td class="num">79.1%</td>
+        <td class="num">71.8%</td>
+        <td class="num win"><b>75.5%</b></td>
+        <td class="num">7 pts</td>
+        <td>154 passing</td>
+      </tr>
+      <tr>
+        <td>Waterfall</td>
+        <td class="num">33.6%</td>
+        <td class="num">12.7%</td>
+        <td class="num"><b>23.2%</b></td>
+        <td class="num">21 pts</td>
+        <td>0 passing</td>
+      </tr>
+      <tr>
+        <td>Scrum</td>
+        <td class="num">19.1%</td>
+        <td class="num">12.7%</td>
+        <td class="num"><b>15.9%</b></td>
+        <td class="num">6 pts</td>
+        <td>256 / 264 passing</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="caveat" style="margin-top:0.4em;">
+    <b>Read the gap:</b> Scrum's self-graded tests say 97% pass. The held-out suite says 16%. That's spec drift &mdash; scrum ships tests that pass because they're written against its own drifted API, not the spec's contract.
+  </div>
+  <p class="tiny">All arms: same 28-story spec, same 45-min budget, fresh git repo per run. Pass rate = passed / 110 reference tests. Waterfall's wide range (12.7 &rarr; 33.6) shows real run-to-run variance; n=3 is in flight to tighten these bars.</p>
+</section>
+
+<!-- ============================================================= -->
+<section>
+  <h2>What the drift looks like &mdash; real code, same spec</h2>
+  <div class="cols">
+    <div class="card">
+      <h4>Spec said (Story 4, analyzer)</h4>
+      <pre><code data-trim class="language-python">
+remove_stopwords(tokens, lang="en")
+bigrams(tokens)
+apply_pipeline(tokens, filters=[...])
+      </code></pre>
+      <p style="margin-top:0.4em; color: var(--muted); font-size:0.9em;">Three module-level functions. Deterministic contract.</p>
+    </div>
+    <div class="card warn">
+      <h4>What scrum built</h4>
+      <pre><code data-trim class="language-python">
+class StopwordFilter:
+    def __init__(self, stopwords=None): ...
+    def filter(self, tokens): ...
+
+class NgramGenerator:
+    def __init__(self, n=2): ...
+    def generate(self, tokens): ...
+      </code></pre>
+      <p style="margin-top:0.4em; color: var(--warn); font-size:0.9em;">Class-based. Different names. Passes scrum's own tests. Fails the spec's contract.</p>
+    </div>
+  </div>
+  <p style="margin-top:0.5em;">Same pattern across <code>query.parse</code> vs <code>parse_query</code>, missing <code>Wildcard</code> AST node, missing <code>QueryNode</code> alias, class-based ranker vs functional ranker. <b>The test agent writes tests against whatever the architect built, not what the spec said.</b></p>
+</section>
+
+<!-- ============================================================= -->
+<section>
+  <h2>What would fix it &mdash; the missing gate</h2>
+  <p>The bug is topology-level, not agent-level. The fix is a new gate in the scrum board:</p>
+  <ol>
+    <li><b>Spec-conformance gate.</b> Before a story merges, run <em>reference tests</em> derived from that story's AC. Currently the AC gate is LLM-graded soft-check. This makes it a hard check against machine-parseable contract.</li>
+    <li><b>Shared type-stub file.</b> Auto-generated from the spec at run start; every architect imports from it. Turns &ldquo;function name drift&rdquo; into a compile error, not a silent test-pass.</li>
+    <li><b>Cross-story linter.</b> After each merge, run a static check that every declared <code>files_to_touch</code> import path resolves. Missing modules = fix-up story next sprint.</li>
+  </ol>
+  <div class="note">
+    <b>The prediction:</b> with the conformance gate, scrum's reference-suite pass rate should approach or exceed solo Copilot's &mdash; because scrum's parallelism advantage remains, but drift gets caught before it lands. Worth the next two weeks to test.
+  </div>
+</section>
+
+<!-- ============================================================= -->
+<section>
+  <h2>What's built today</h2>
+  <div class="cols">
+    <ul>
+      <li>Two topology runners, shared executor</li>
+      <li>Board store (JSON on disk, atomic writes)</li>
+      <li>Git worktree per agent</li>
+      <li>Merge queue + rebase-before-merge + <code>rerere</code></li>
+      <li>PO / Scrum Master adaptation loop (velocity + sprint duration retune)</li>
+    </ul>
+    <ul>
+      <li>AC gate + acceptance ceremony</li>
+      <li>Spec parser (<code>## Story:</code> → deterministic backlog)</li>
+      <li>Live event stream + per-team report HTML</li>
+      <li><b>SPE benchmark wired into comparison HTML</b> (per-sprint + mean, banded)</li>
+      <li>~475 pytest tests covering the runtime</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================= -->
+<section class="center">
+  <h1>Thank you</h1>
+  <p class="lead">Questions?</p>
+  <p class="tiny" style="margin-top:3em;">
+    Repo: <code>orgos/</code> · Runtime: <code>orgos/agile/</code> · Governance: <code>orgos/spawn/</code>
+  </p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    progress: true,
+    transition: 'fade',
+    controlsTutorial: false,
+    width: 1280,
+    height: 780,
+    margin: 0.04,
+    minScale: 0.2,
+    maxScale: 2.0,
+    plugins: [ RevealHighlight, RevealNotes ],
+  });
+</script>
+</body>
+</html>
