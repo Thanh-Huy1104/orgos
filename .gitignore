@@ -30,3 +30,14 @@ google-*.json
 # macOS metadata
 .DS_Store
 **/.DS_Store
+
+# Runtime logs from benchmarking / experiments
+*.log
+!wiki/**/*.log
+
+# Distribution archives (large; rebuild locally)
+*.zip
+
+# setuptools egg-info (regenerated on `pip install -e .`)
+orgos.egg-info/PKG-INFO
+orgos.egg-info/SOURCES.txt
