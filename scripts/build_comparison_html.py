@@ -86,7 +86,7 @@ def run_tests(worktree: pathlib.Path) -> tuple[int | None, str]:
         return None, "(no worktree)"
     try:
         r = subprocess.run(
-            ["pytest", "-q", "--no-header"],
+            [sys.executable, "-m", "pytest", "-q", "--no-header"],
             cwd=str(worktree), capture_output=True, text=True, timeout=120,
         )
         tail = (r.stdout.strip().splitlines() or [""])[-1]
