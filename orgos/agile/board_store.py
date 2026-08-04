@@ -42,6 +42,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -183,7 +184,13 @@ def _now_iso() -> str:
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    """Atomic write via temp-file + rename in the same directory."""
+    """Atomic write via temp-file + rename in the same directory.
+
+    On Windows, ``os.replace`` can sporadically fail with ``PermissionError``
+    (WinError 5) when antivirus or the search indexer is still holding the
+    freshly written temp file. Retry a few times with a short backoff before
+    giving up.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(
         prefix=".tmp-", suffix=path.suffix, dir=str(path.parent),
@@ -191,7 +198,16 @@ def _atomic_write(path: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
-        os.replace(tmp, path)
+        last_err: Exception | None = None
+        for attempt in range(10):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError as e:  # Windows AV / indexer race
+                last_err = e
+                time.sleep(0.05 * (attempt + 1))
+        assert last_err is not None
+        raise last_err
     except Exception:
         try:
             os.unlink(tmp)

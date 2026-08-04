@@ -139,10 +139,35 @@ def _cmd_run(args: argparse.Namespace) -> int:
         )
     print(f"[cli] mode=waterfall", flush=True)
     from orgos.agile.waterfall_runner import run_waterfall_campaign
+
+    # Honor a --spec-file by pre-parsing the story blocks and handing them to
+    # the waterfall PO as `prewritten_stories`. Without this, decompose_goal
+    # asks the PO to reinvent 6-12 stories from prose, which drops most of
+    # a rich spec (e.g. 10 of 28 for minisearch). Scrum's `orgos start`
+    # already does this — parity fix.
+    prewritten_stories = None
+    if getattr(args, "spec_file", None):
+        try:
+            from orgos.agile.spec_parser import (
+                parse_spec_text, spec_stories_to_draft_dicts,
+            )
+            spec_text = Path(args.spec_file).resolve().read_text(encoding="utf-8")
+            parsed = parse_spec_text(spec_text)
+            if parsed:
+                prewritten_stories = spec_stories_to_draft_dicts(parsed)
+                print(
+                    f"[cli] spec-file parsed: {len(prewritten_stories)} stories "
+                    f"handed to waterfall PO directly",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[cli] spec-file parse failed ({e}); PO will decompose from prose", flush=True)
+
     result = run_waterfall_campaign(
         workspace=ws, goal=ws.manifest().goal, model=args.model,
         max_stories_worked=args.max_stories,
         max_wall_seconds=args.max_seconds,
+        prewritten_stories=prewritten_stories,
     )
 
     # Persist result to workspace

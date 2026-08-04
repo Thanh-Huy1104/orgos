@@ -221,7 +221,9 @@ def _run_one_story_waterfall(
         model=model,
         extra_tools=[BashTool(default_working_dir=str(workspace.worktree))],
     )
-    arch.mcp_servers = []  # waterfall mode has no wiki
+    # Wiki tools stay enabled: real waterfall teams keep shared architecture
+    # docs. Zeroing mcp_servers was starving the architect of cross-story
+    # context that scrum's runtime gives for free.
     arch_brief = TaskBrief(
         objective=_WATERFALL_ARCH_BRIEF.format(
             issue_id=story_dict["issue_id"],
@@ -234,19 +236,28 @@ def _run_one_story_waterfall(
         expected_output="Architect HandoffEnvelope JSON.",
         success_criteria=["Commit created."],
     )
-    try:
-        env, ti, to = _spawn_one(arch, arch_brief)
-        ttl_in += ti; ttl_out += to
-        envs["architect"] = env
-    except Exception as e:
-        return WaterfallResult(
-            story_id=story_dict["issue_id"], status="failed",
-            error=f"architect: {type(e).__name__}: {e}",
-            wall_seconds=round(time.time() - t0, 2),
-        )
-
+    # One retry on no_commit — real bug-fix loop. Without this a single flaky
+    # LLM response blocks a story that would land on retry.
+    env = None
+    committed = False
     head = workspace.current_head()
-    committed = head and head != baseline_sha
+    for attempt in range(2):
+        try:
+            env, ti, to = _spawn_one(arch, arch_brief)
+            ttl_in += ti; ttl_out += to
+            envs[f"architect{'_retry' if attempt else ''}"] = env
+        except Exception as e:
+            if attempt == 1:
+                return WaterfallResult(
+                    story_id=story_dict["issue_id"], status="failed",
+                    error=f"architect: {type(e).__name__}: {e}",
+                    wall_seconds=round(time.time() - t0, 2),
+                )
+            continue
+        head = workspace.current_head()
+        committed = head and head != baseline_sha
+        if committed:
+            break
     if not committed:
         return WaterfallResult(
             story_id=story_dict["issue_id"], status="no_commit",
@@ -259,7 +270,6 @@ def _run_one_story_waterfall(
         model=model,
         extra_tools=[BashTool(default_working_dir=str(workspace.worktree))],
     )
-    tst.mcp_servers = []
     tst_brief = TaskBrief(
         objective=_WATERFALL_TEST_BRIEF.format(
             issue_id=story_dict["issue_id"],
@@ -282,7 +292,6 @@ def _run_one_story_waterfall(
         model=model,
         extra_tools=[BashTool(default_working_dir=str(workspace.worktree))],
     )
-    sec.mcp_servers = []
     sec_brief = TaskBrief(
         objective=_WATERFALL_SEC_BRIEF.format(
             issue_id=story_dict["issue_id"],
@@ -319,6 +328,7 @@ def run_waterfall_campaign(
     model: str,
     max_stories_worked: int = 20,
     max_wall_seconds: int = 3600,
+    prewritten_stories: list[dict] | None = None,
 ) -> DispatchResult:
     """Waterfall equivalent of Dispatcher.run_campaign.
 
@@ -338,6 +348,7 @@ def run_waterfall_campaign(
         ids = decompose_goal(
             goal=goal, repo_root=workspace.source_repo,
             board=board, model=model,
+            prewritten_stories=prewritten_stories,
         )
         emitter.emit("goal_ingest_done", n_stories=len(ids),
                      summary=f"created {len(ids)} stories")
